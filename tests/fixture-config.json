@@ -1,0 +1,7 @@
+{
+  "_comment": "Deterministic config for the regression tests (pointed at via USAGE_CONFIG). Independent of the user's real usage-config.json so tests pass on any machine.",
+  "workspace_roots": ["Developer"],
+  "renames": {
+    "beta": "Beta Product"
+  }
+}

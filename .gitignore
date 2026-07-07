@@ -1,0 +1,9 @@
+# Personal config — never publish. Ship usage-config.example.json as the template instead.
+usage-config.json
+
+# Python build artifacts (interpreter/machine-specific; embed absolute paths)
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store

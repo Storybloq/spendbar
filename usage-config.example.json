@@ -1,0 +1,11 @@
+{
+  "_comment": "Copy this to usage-config.json (or point USAGE_CONFIG at your own file) and edit. All keys are OPTIONAL — with no config the tool still works, showing bare project names. 'workspace_roots': directory names directly under your home whose children are shown as bare project names, e.g. with 'Developer' listed, ~/Developer/myapp shows as 'myapp'. Add the roots where you keep repos (e.g. 'code', 'src', 'projects'). 'renames': map a bare project name (what's shown after stripping) to a nicer display name; point several bare names at the same display name to group them.",
+  "workspace_roots": ["Developer", "code", "projects"],
+  "renames": {
+    "my-repo-internal-name": "My Product",
+    "frontend": "My Product",
+    "backend": "My Product",
+    "~": "misc",
+    "~/Desktop": "scratch"
+  }
+}
