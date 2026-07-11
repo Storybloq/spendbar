@@ -74,16 +74,113 @@ def blocks_normal():
 def blocks_empty():
     return {"blocks": []}
 
+# ---- codex sessions: SHARED with test_usage.py (imported), which builds the matching
+# rollout fixture files under a temp CODEX_HOME from the _cwd/_loc fields. Keys without
+# an underscore are emitted verbatim as the ccusage `codex session --json` row.
+# _loc: dated = CODEX_HOME/sessions/<date>/, archived = flat archived_sessions/,
+#       missing = no file on disk, malformed = file exists but head lines are not JSON,
+#       symlink = validly-named link in the dated dir pointing OUTSIDE CODEX_HOME.
+def _uuid(n):
+    return f"019c0000-0000-7000-8000-{n:012x}"
+
+CODEX_SESSIONS = [
+    # plain dated session -> alpha
+    {"sessionFile": f"rollout-2026-01-01T10-00-00-{_uuid(1)}", "directory": "2026/01/01",
+     "costUSD": 10.0, "totalTokens": 100, "models": {"gpt-5.5": {"totalTokens": 100}},
+     "_cwd": "~/Developer/alpha", "_loc": "dated"},
+    # renamed project (fixture config: beta -> Beta Product)
+    {"sessionFile": f"rollout-2026-01-02T10-00-00-{_uuid(2)}", "directory": "2026/01/02",
+     "costUSD": 5.0, "totalTokens": 50,
+     "models": {"gpt-5.5": {"totalTokens": 30}, "gpt-5.4-mini": {"totalTokens": 20}},
+     "_cwd": "~/Developer/beta", "_loc": "dated"},
+    # archived (flat dir) -> alpha
+    {"sessionFile": f"rollout-2026-01-01T11-00-00-{_uuid(3)}", "directory": "2026/01/01",
+     "costUSD": 2.0, "totalTokens": 20, "models": {"gpt-5.5": {"totalTokens": 20}},
+     "_cwd": "~/Developer/alpha", "_loc": "archived"},
+    # rollout log missing on disk -> unknown bucket, cost conserved
+    {"sessionFile": f"rollout-2026-01-02T11-00-00-{_uuid(4)}", "directory": "2026/01/02",
+     "costUSD": 3.0, "totalTokens": 30, "models": {"gpt-5.5": {"totalTokens": 30}},
+     "_cwd": None, "_loc": "missing"},
+    # rollout log exists but head lines are garbage -> unknown
+    {"sessionFile": f"rollout-2026-01-02T12-00-00-{_uuid(5)}", "directory": "2026/01/02",
+     "costUSD": 1.0, "totalTokens": 10, "models": {"gpt-5.5": {"totalTokens": 10}},
+     "_cwd": None, "_loc": "malformed"},
+    # started before the --since 20260101 window (filename date) -> bleed note
+    {"sessionFile": f"rollout-2025-12-30T10-00-00-{_uuid(6)}", "directory": "2025/12/30",
+     "costUSD": 4.0, "totalTokens": 40, "models": {"gpt-5.6-sol": {"totalTokens": 40}},
+     "_cwd": "~/Developer/alpha", "_loc": "dated"},
+    # nested cwd -> displays as alpha-tools (cwd-granularity contract)
+    {"sessionFile": f"rollout-2026-01-03T10-00-00-{_uuid(7)}", "directory": "2026/01/03",
+     "costUSD": 6.0, "totalTokens": 60, "models": {"gpt-5.5": {"totalTokens": 60}},
+     "_cwd": "~/Developer/alpha/tools", "_loc": "dated"},
+    # traversal-looking sessionFile: must never be opened -> unknown (empty models
+    # also exercises the 'unclassified' token bucket in the model footer)
+    {"sessionFile": "../../etc/passwd", "directory": "2026/01/03",
+     "costUSD": 0.5, "totalTokens": 5, "models": {}, "_cwd": None, "_loc": "missing"},
+    # directory field absent -> resolved via the filename-embedded date
+    {"sessionFile": f"rollout-2026-01-04T10-00-00-{_uuid(9)}", "directory": None,
+     "costUSD": 2.5, "totalTokens": 25, "models": {"gpt-5.5": {"totalTokens": 25}},
+     "_cwd": "~/Developer/alpha", "_loc": "dated"},
+    # agent-scratchpad cwd -> collapsed into "(agent scratchpads)"
+    {"sessionFile": f"rollout-2026-01-04T11-00-00-{_uuid(10)}", "directory": "2026/01/04",
+     "costUSD": 0.9, "totalTokens": 9, "models": {"gpt-5.5": {"totalTokens": 9}},
+     "_cwd": "/private/tmp/claude-501/scratch/scratchpad", "_loc": "dated"},
+    # symlink escaping CODEX_HOME: realpath containment must refuse it -> unknown
+    {"sessionFile": f"rollout-2026-01-05T10-00-00-{_uuid(11)}", "directory": "2026/01/05",
+     "costUSD": 0.6, "totalTokens": 6, "models": {"gpt-5.5": {"totalTokens": 6}},
+     "_cwd": "/outside/evil-project", "_loc": "symlink"},
+    # ordinary /tmp project (NOT a claude scratchpad) keeps its own attribution
+    {"sessionFile": f"rollout-2026-01-05T11-00-00-{_uuid(12)}", "directory": "2026/01/05",
+     "costUSD": 0.7, "totalTokens": 7, "models": {"gpt-5.5": {"totalTokens": 7}},
+     "_cwd": "/tmp/legitimate-project", "_loc": "dated"},
+]
+
+def codex_normal():
+    rows = [{k: v for k, v in s.items() if not k.startswith("_")} for s in CODEX_SESSIONS]
+    return {"sessions": rows,
+            "totals": {"costUSD": sum(s["costUSD"] for s in rows),
+                       "totalTokens": sum(s["totalTokens"] for s in rows)}}
+
+def codex_empty():
+    return {"sessions": [], "totals": {"costUSD": 0, "totalTokens": 0}}
+
+def codex_daily_normal():
+    # Calendar-accurate per-day Codex anchor. Totals are tuned to equal the START-date-windowed
+    # kept sum for the --since 20260101 test ($31.70 / 317 tok: all sessions except the
+    # 2025-12-30 bleed ($4.00) and the undated ../../etc/passwd session ($0.50, 5 tok)), so the
+    # cross-check reports Δ $+0.00 and no token-mismatch note. Rows are illustrative only —
+    # cmd_codex/cmd_combined read `totals`, not the per-day rows.
+    return {"daily": [
+        {"date": "2026-01-01", "costUSD": 12.0, "totalTokens": 120,
+         "models": {"gpt-5.5": {"totalTokens": 120}}},
+        {"date": "2026-01-02", "costUSD": 4.0, "totalTokens": 40,
+         "models": {"gpt-5.5": {"totalTokens": 40}}}],
+        "totals": {"costUSD": 31.70, "totalTokens": 317}}
+
+def codex_daily_empty():
+    return {"daily": [], "totals": {"costUSD": 0, "totalTokens": 0}}
+
+def codex_bad():
+    d = codex_normal()
+    d["sessions"][0]["costUSD"] = True   # bool must be rejected, not summed as 1
+    return d
+
 INST = {"normal": instances_normal, "empty": instances_empty,
         "mismatch": instances_mismatch, "float": instances_float}
 
-if "blocks" in args:
-    out = blocks_empty() if MODE == "blocks_empty" else blocks_normal()
-elif "--instances" in args:
-    out = INST.get(MODE, instances_normal)()
-elif "daily" in args:
-    out = daily_empty() if MODE == "daily_empty" else daily_normal()
-else:
-    out = {"totals": {"totalCost": 0, "totalTokens": 0}}
+if __name__ == "__main__":
+    if "codex" in args:
+        if "daily" in args:
+            out = codex_daily_empty() if MODE == "codex_empty" else codex_daily_normal()
+        else:
+            out = {"codex_empty": codex_empty, "codex_bad": codex_bad}.get(MODE, codex_normal)()
+    elif "blocks" in args:
+        out = blocks_empty() if MODE == "blocks_empty" else blocks_normal()
+    elif "--instances" in args:
+        out = INST.get(MODE, instances_normal)()
+    elif "daily" in args:
+        out = daily_empty() if MODE == "daily_empty" else daily_normal()
+    else:
+        out = {"totals": {"totalCost": 0, "totalTokens": 0}}
 
-print(json.dumps(out))
+    print(json.dumps(out))

@@ -20,6 +20,13 @@ usage compare  --day1 D --day2 D         Two calendar days, per project, side by
 usage blocks   [--since D]               ccusage billing blocks + $/hour burn rate
 usage hourly   [--date D]                Half-hour cost histogram (burst finder; est ±10-15%)
 usage alltime                            Every project's cost to date + first/last active
+usage codex    [--since D] [--until D]   Per-project Codex spend. Joins ccusage's per-session
+                                         costs to each session's start cwd (read from the Codex
+                                         rollout logs), so Codex gets the same project names.
+                                         Windows by each session's START date + prints a Δ
+                                         cross-check against `ccusage codex daily`.
+usage combined [--since D] [--until D]   Claude + Codex per project in ONE table
+                                         (Project | Claude$ | Codex$ | Total$ | Share).
 ```
 
 Dates accept `YYYYMMDD`, `YYYY-MM-DD`, or relative `-3d` / `-30d` (trailing window from today).
@@ -63,7 +70,22 @@ The config lives next to `usage.py` by default; override the location with `USAG
 
 - **`projects` / `share` / `alltime` are Claude-Code-only.** ccusage can't tag Codex/GPT sessions by
   project, so they're excluded from these views and *undercount* total spend. Use **`usage daily`**
-  or **`usage blocks`** for Codex-inclusive totals — that's why `daily`'s grand total is larger.
+  or **`usage blocks`** for Codex-inclusive totals — that's why `daily`'s grand total is larger —
+  **`usage codex`** for the per-project Codex breakdown, and **`usage combined`** for Claude + Codex
+  merged per project in one table.
+- **`codex` attributes by session-origin cwd and windows by session START date.** Each Codex session
+  is attributed to the directory it *started* in (`$CODEX_HOME`, default `~/.codex`; archived sessions
+  included), and `--since`/`--until` filter on the session's **start** date (from the rollout
+  filename). This avoids ccusage's last-activity bleed, where a long-lived session resumed inside the
+  window would otherwise drag its entire lifetime cost in. Because that start-date basis differs from
+  `ccusage codex daily` (which buckets by calendar day), each windowed run prints a
+  `[session-start $X vs codex daily $Y (Δ $Z)]` cross-check — a small Δ means they broadly agree; the
+  residual comes from multi-day sessions (lumped on their start day) and sessions that cross the
+  window edge. Sessions whose filename can't be parsed for a start date are excluded from a window
+  (and the excluded amount is noted). There's also a `cwd resolved: N/M` coverage line; unresolvable
+  sessions land in an `unknown` bucket (cost is conserved, never dropped), and Claude Code agent
+  scratchpads (`/tmp/claude-<uid>/…`) collapse into `(agent scratchpads)`. Still don't compare `codex`
+  totals 1:1 with `daily`'s Gpt$ column — the two bucket dates differently.
 - **`[totals reconcile: OK]`** means the per-project sum equals ccusage's own grand total (cost is
   conserved). It does *not* independently prove each per-project number — it's a conservation check.
 - **`hourly`** estimates from raw logs with a flat blended $/token rate, so it's labeled ±10–15%;

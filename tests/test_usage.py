@@ -144,6 +144,96 @@ check("projects --since=-xd: clean error not traceback", "cli-contract",
       rc != 0 and "bad relative date" in (out + err) and "Traceback" not in err,
       f"rc={rc} {err!r}")
 
+# ---- codex: per-project attribution joins ccusage sessions to rollout-log cwds ----
+# Fixture rollout files are built from the SAME table the fake ccusage emits
+# (fake_ccusage.CODEX_SESSIONS), so the two sides can't drift.
+import json, shutil
+fspec = importlib.util.spec_from_file_location("fake_ccusage_fixture", FAKE)
+fake = importlib.util.module_from_spec(fspec); fspec.loader.exec_module(fake)
+
+codex_home = tempfile.mkdtemp(prefix="fake-codex-home-")
+outside_home = tempfile.mkdtemp(prefix="fake-codex-outside-")
+try:
+    for s in fake.CODEX_SESSIONS:
+        loc = s["_loc"]
+        if loc == "missing":
+            continue
+        if loc == "archived":
+            d = os.path.join(codex_home, "archived_sessions")
+        else:
+            date = s["sessionFile"][8:18].split("T")[0]
+            d = os.path.join(codex_home, "sessions", *date.split("-"))
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, s["sessionFile"] + ".jsonl")
+        if loc == "symlink":
+            target = os.path.join(outside_home, "escaped.jsonl")
+            with open(target, "w") as fh:
+                fh.write(json.dumps({"type": "session_meta", "payload": {"cwd": s["_cwd"]}}) + "\n")
+            os.symlink(target, path)
+            continue
+        with open(path, "w") as fh:
+            if loc == "malformed":
+                # garbage + a decoy cwd on a non-session_meta record: must stay unresolved
+                fh.write("not json at all\n")
+                fh.write(json.dumps({"type": "event_msg", "payload": {"cwd": "/decoy/project"}}) + "\n")
+            else:
+                cwd = os.path.expanduser(s["_cwd"])
+                fh.write(json.dumps({"type": "session_meta", "payload": {"cwd": cwd}}) + "\n")
+                fh.write(json.dumps({"type": "event_msg", "payload": {}}) + "\n")
+
+    env = {"CODEX_HOME": codex_home}
+    # --since 20260101 now windows by SESSION START date: the 2025-12-30 session ($4.00) is
+    # excluded (was bled in by ccusage's last-activity stamp), and the undated ../../etc/passwd
+    # session ($0.50) can't be date-placed so it's excluded too. alpha -> $14.50, TOTAL -> $31.70.
+    rc, out, err = run(["codex", "--since", "20260101"], extra_env=env)
+    check("codex: alpha aggregates dated+archived+no-directory to $14.50 (bleed excluded)", "correctness",
+          rc == 0 and "$14.50" in out and "45.7%" in out, out + err)
+    check("codex: nested cwd stays cwd-granular (alpha-tools $6.00)", "correctness",
+          "alpha-tools" in out and "$6.00" in out, out)
+    check("codex: config rename applies (Beta Product)", "correctness",
+          "Beta Product" in out, out)
+    check("codex: TOTAL $31.70 with start-date window + codex-daily cross-check", "correctness",
+          "$31.70" in out and "[window by session start date]" in out
+          and "session-start $31.70 vs codex daily $31.70 (Δ $+0.00)" in out, out)
+    check("codex: unresolved sessions surfaced, cost conserved", "silent-no-op",
+          "cwd resolved: 7/10" in out and "unknown: $4.60 (3 sessions)" in out
+          and "unknown (no session log)" in out, out)
+    check("codex: scratchpad cwd collapses into '(agent scratchpads)'", "correctness",
+          "(agent scratchpads)" in out and "$0.90" in out, out)
+    check("codex: ordinary /tmp project keeps its own attribution", "correctness",
+          "-tmp-legitimate-project" in out and "$0.70" in out, out)
+    check("codex: decoy cwd on non-session_meta record ignored", "security",
+          "decoy" not in out, out)
+    check("codex: traversal sessionFile never resolves outside CODEX_HOME", "security",
+          "passwd" not in out and "etc" not in out, out)
+    check("codex: symlink escaping CODEX_HOME stays unresolved", "security",
+          "evil-project" not in out, out)
+    check("codex: undated session excluded from window and surfaced", "correctness",
+          "$0.50" in out and "could not be date-windowed" in out, out)
+    check("codex: model footer token-only, no unclassified remainder", "correctness",
+          "gpt-5.5=297" in out and "gpt-5.4-mini=20" in out and "unclassified" not in out, out)
+
+    # combined: Claude (instances) + Codex (session-start) merged per project by the same
+    # clean_name. alpha appears in both -> Claude $18.00 + Codex $14.50 = $32.50.
+    rc, out, err = run(["combined", "--since", "20260101"], extra_env=env)
+    check("combined: alpha merges Claude $18.00 + Codex $14.50 = $32.50", "correctness",
+          rc == 0 and "$18.00" in out and "$14.50" in out and "$32.50" in out, out + err)
+    check("combined: both reconcile stories present", "correctness",
+          "Claude: [totals reconcile: OK]" in out and "Codex: [session-start" in out, out)
+    check("combined: Codex-only project shows $0.00 Claude side (alpha-tools)", "correctness",
+          "alpha-tools" in out, out)
+
+    rc, out, err = run(["codex"], mode="codex_empty", extra_env=env)
+    check("codex: empty window exits 0 no-data", "cross-layer-trust-violation",
+          rc == 0 and "No usage found" in out, f"rc={rc} out={out!r} err={err!r}")
+
+    rc, out, err = run(["codex"], mode="codex_bad", extra_env=env)
+    check("codex: bool costUSD rejected with named field, no traceback", "cross-layer-trust-violation",
+          rc != 0 and "costUSD" in (out + err) and "Traceback" not in err, f"rc={rc} {err!r}")
+finally:
+    shutil.rmtree(codex_home, ignore_errors=True)
+    shutil.rmtree(outside_home, ignore_errors=True)
+
 # ---- import-level tests: model_family + malformed config (swallowed-error) ----
 spec = importlib.util.spec_from_file_location("usage_under_test", os.path.abspath(USAGE))
 mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
