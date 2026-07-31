@@ -1,0 +1,16 @@
+{
+  "blockedBy": [
+    "T-008",
+    "T-010"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "`service run` = sole writer. Minimal durable install/start/stop + launcher IN v0.2 (short-lived CLI/MCP invocation hands indexing to something that survives its exit — clean-install test proves it). Launcher: recorded absolute [node, cli.js] from allowlisted 0600 registry, NO PATH search, persistent installation ID — retarget only via explicit install/repair or verified same-install upgrade; foreign prefixes report mismatch. Control socket per the prototyped credential design. Refresh state machine: one queue, generation numbers, coalescing, publish-if-current; race tests (wake+timer, manual+full, midnight, shutdown, crash/wake storms). Single-instance guard.",
+  "displayId": "T-011",
+  "id": "T-011",
+  "order": 40,
+  "phase": "v0-2",
+  "status": "open",
+  "title": "Headless service: run/install/start/stop, launcher, control socket, refresh state machine",
+  "type": "task"
+}

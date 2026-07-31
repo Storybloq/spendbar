@@ -1,0 +1,15 @@
+{
+ "name": "rel_projects_since_3d",
+ "argv": [
+  "projects",
+  "--since",
+  "-3d"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": true,
+ "exit": 0,
+ "stdout": "Per-project usage (since -3d (=20260728))   [totals reconcile: OK]\n\nProject                         Tokens         Fable          Opus        Sonnet         Haiku        Cost     Fable$\n---------------------------------------------------------------------------------------------------------------------\nalpha                               36            16            20             0             0      $18.00     $13.00\nBeta Product                       104             0             0             4             0       $3.00      $0.00\n---------------------------------------------------------------------------------------------------------------------\nTOTAL                                                                                               $21.00     $13.00\n\nnote: $1.00 (5%) is gpt/other spend not shown in the model columns above.\n",
+ "stderr": ""
+}

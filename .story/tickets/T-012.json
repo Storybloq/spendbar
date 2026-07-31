@@ -1,0 +1,15 @@
+{
+  "blockedBy": [
+    "T-011"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "Fast tier: FSEvents as hints; eventually-exhaustive reconciliation (stable identities, immutable scan epochs, documented max interval; planted-missed-event + continuous-churn tests); per-volume clone probe with bounded plain-copy fallback (size + free-space caps, oversized ⇒ explicitly-stale partials); per-generation shadows atomically promoted; pre/post inode/size/mtime validation. FORMALIZED merge contract: required-file-coverage per interval, watermarks, replace-vs-augment rules, completeness GATES publication; model-based tests vs ground-truth full scan. Full tier: AT MOST one attempt per interval (persisted last-attempt/success/failure/next-eligible; start+wake are capped triggers; user refresh bypasses); adaptive backoff + AC/idle awareness; reconcile drift > $0.01 → health.warnings; ccusage pricing provenance authoritative (no independent repricing). Honest cost: 60–80 s periodic scans until own-the-parsing.",
+  "displayId": "T-012",
+  "id": "T-012",
+  "order": 50,
+  "phase": "v0-2",
+  "status": "open",
+  "title": "Two-tier refresh: clone-shadow fast tier + capped full tier",
+  "type": "task"
+}

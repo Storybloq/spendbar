@@ -1,0 +1,15 @@
+{
+ "name": "err_bad_metric",
+ "argv": [
+  "daily",
+  "--metric",
+  "bogus"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 2,
+ "stdout": "",
+ "stderr": "usage: usage daily [-h] [--since SINCE] [--until UNTIL]\n                   [--metric {cost,tokens,both}]\nusage daily: error: argument --metric: invalid choice: 'bogus' (choose from 'cost', 'tokens', 'both')\n"
+}

@@ -1,0 +1,15 @@
+{
+ "name": "compare_empty",
+ "argv": [
+  "compare",
+  "--day1=20270101",
+  "--day2=20270102"
+ ],
+ "mode": "empty",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "No usage found for 2027-01-01 / 2027-01-02.\n",
+ "stderr": ""
+}

@@ -1,0 +1,15 @@
+{
+  "blockedBy": [
+    "T-014"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "FIRST: de-risk NSPopover+SwiftUI in the raw bundle-less binary (carried unverified flag — if it fails, decide flat-.app pull-forward vs NSMenu-only). Then the rich popover: header (today/week/Δ), burn strip (active block), Claude-vs-Codex + model split bars, top-5 projects with combined $ and sparklines.",
+  "displayId": "T-019",
+  "id": "T-019",
+  "order": 10,
+  "phase": "v0-4",
+  "status": "open",
+  "title": "Rich popover: NSPopover/SwiftUI de-risk + full layout",
+  "type": "feature"
+}

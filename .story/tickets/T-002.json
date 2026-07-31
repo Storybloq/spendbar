@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": "2026-07-31",
+  "createdDate": "2026-07-31",
+  "description": "Capture golden outputs from the Python CLI (stdout bytes, stderr bytes, exit code) per (subcommand × fake_ccusage fixture mode), including malformed args, missing executable, invalid JSON, TTY/non-TTY. Build the dual-run harness that runs Python and TS implementations over the same matrix and byte-compares. Publish the delta allowlist (config path, true/false casing, dropped argparse abbreviation, parameterized product-name strings, pinned-ccusage deltas) — the ONLY sanctioned divergences through v0.2 (D5).",
+  "displayId": "T-002",
+  "id": "T-002",
+  "order": 20,
+  "phase": "v0-1",
+  "status": "complete",
+  "title": "Golden capture + dual-run parity harness",
+  "type": "task"
+}

@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "RELEASE GATE. Spike @modelcontextprotocol/server 2.0.0 vs @modelcontextprotocol/sdk@1.30.0 against BOTH real clients. Capture protocol transcripts; automated conformance tests: initialize, tools/list, tools/call, malformed input, cancellation, EOF, stdout purity. Decide the SDK; build the ~50-line adapter the tool layer sits behind (v1 registerTool takes zod raw shape, v2 full z.object — NOT drop-in).",
+  "id": "T-009",
+  "order": 20,
+  "phase": "v0-2",
+  "status": "open",
+  "title": "MCP SDK v2-vs-v1 gate against real Claude Code + Codex",
+  "type": "task"
+}

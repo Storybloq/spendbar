@@ -1,0 +1,15 @@
+{
+  "blockedBy": [
+    "T-015"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "Settings surface: launch-at-login toggle, refresh interval, title-mode picker. Health dot + stale-greying driven by per-dataset provenance (menubar greys when generatedAt stale). Passive \"new version available\" line in the dropdown — never self-mutating updates.",
+  "displayId": "T-020",
+  "id": "T-020",
+  "order": 20,
+  "phase": "v0-4",
+  "status": "open",
+  "title": "Settings, health/stale UI, update-notifier line",
+  "type": "task"
+}

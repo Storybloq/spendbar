@@ -1,0 +1,15 @@
+{
+  "blockedBy": [
+    "T-008"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "Immutable generation files + atomically-replaced manifest. Durability ordering: write gen → fsync gen → write+fsync manifest temp → rename → fsync parent dir; prior manifest preserved until activation durable; failure injection at every boundary incl. ENOSPC during each fsync. Independently versioned internal schema with migrations; declared reader/writer schema ranges — older writer on newer schema REFUSES to publish without damage; downgrades get reverse migration or version-specific state dir. Per-dataset provenance (coverage intervals, timestamps, tier, pricing provenance, generation ids, IANA tz + day-boundary policy). Readers quarantine corrupt data, serve bounded partials from known-good generation. Privacy: 0700/0600, reject symlinked state paths.",
+  "displayId": "T-010",
+  "id": "T-010",
+  "order": 30,
+  "phase": "v0-2",
+  "status": "open",
+  "title": "Snapshot store: generations, manifest, fsync protocol, schema-range policy",
+  "type": "task"
+}

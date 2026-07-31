@@ -1,0 +1,14 @@
+{
+ "name": "err_bad_reldate",
+ "argv": [
+  "projects",
+  "--since=-xd"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 1,
+ "stdout": "",
+ "stderr": "bad relative date '-xd': expected -Nd, e.g. -3d or -30d\n"
+}

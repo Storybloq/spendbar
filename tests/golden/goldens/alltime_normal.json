@@ -1,0 +1,13 @@
+{
+ "name": "alltime_normal",
+ "argv": [
+  "alltime"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "All-time per-project cost   range 2026-01-01 -> 2026-01-02\n[totals reconcile: OK]   (Claude Code only — Codex/GPT excluded; see 'usage codex')\n\nProject                      First        Last         Cost   Share\n-------------------------------------------------------------------\nalpha                   2026-01-01  2026-01-02       $18.00   85.7%\nBeta Product            2026-01-01  2026-01-01        $3.00   14.3%\n-------------------------------------------------------------------\nTOTAL                                                $21.00  100.0%\n",
+ "stderr": ""
+}

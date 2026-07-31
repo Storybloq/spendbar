@@ -1,0 +1,15 @@
+{
+ "capturedBy": "tests/golden/capture.py",
+ "pythonInterpreter": "3.11.6",
+ "caseCount": 33,
+ "dualRunOnly": [
+  "rel_projects_since_3d",
+  "rel_daily_since_7d"
+ ],
+ "notes": [
+  "Byte-equality contract is stdout+stderr+exit vs the TS port, modulo ALLOWLIST.md.",
+  "Goldens are machine-scoped: project keys derive from $HOME (HOME_ENC).",
+  "All captures are non-TTY (subprocess pipes); TTY variants are a harness-level TODO.",
+  "dual_run_only cases embed 'today' (relative dates) - assert them by running both implementations at the same moment, never against stored bytes."
+ ]
+}

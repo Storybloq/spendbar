@@ -1,0 +1,15 @@
+{
+ "name": "err_missing_binary",
+ "argv": [
+  "alltime"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {
+  "CCUSAGE_CMD": "/nonexistent/ccusage-binary-xyz"
+ },
+ "dual_run_only": false,
+ "exit": 1,
+ "stdout": "",
+ "stderr": "'/nonexistent/ccusage-binary-xyz' not found. Install Node.js (node + npx), or set CCUSAGE_CMD to your ccusage command (e.g. CCUSAGE_CMD='ccusage'). See README Requirements.\n"
+}

@@ -1,0 +1,20 @@
+{
+  "content": "To reproduce Python's f\"{x:,.2f}\" money formatting in TypeScript, classify from decoded IEEE-754 bits (exact decimal expansion) with half-even at ties. Never use Intl.NumberFormat roundingMode:'halfEven' (ICU rounds the SHORTEST decimal repr: 2.675→2.68 where Python gives 2.67; 0.005→0.00 vs 0.01) and never bare toFixed (breaks on exactly-representable midpoints: 0.125→0.13 vs 0.12). Test with targeted decimal-boundary corpora plus differential fuzz against Python — uniform random doubles almost never hit midpoints, so random fuzz alone green-lights broken formatters.",
+  "context": "Discovered during spendbar architecture review (2026-07-31). The synthesis plan proposed Intl halfEven; an adversarial critic ran the comparison on Node v22.18 and produced a divergence table proving it wrong, and further showed the planned spike (0.125 test value) and golden tests (exact 2-decimal fixture values) would BOTH have passed while production output silently drifted by cents. Round-3 Codex review then killed the toFixed-tie-detector replacement too (information already discarded). Final design: exact-bits classification, boundary corpora, dual-run Python-vs-TS harness. See product-architecture-2026-07-30.md §TypeScript port.",
+  "createdDate": "2026-07-31",
+  "id": "L-001",
+  "lastValidated": "2026-07-31",
+  "reinforcements": 0,
+  "source": "review",
+  "status": "active",
+  "supersedes": null,
+  "tags": [
+    "typescript",
+    "python-parity",
+    "rounding",
+    "money-formatting",
+    "testing"
+  ],
+  "title": "JS number formatting cannot match Python via Intl or toFixed",
+  "updatedDate": "2026-07-31"
+}

@@ -1,0 +1,15 @@
+{
+  "blockedBy": [
+    "T-016"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "Graduate the helper to a flat .app in the tarball (node-notifier precedent; npm tarballs cannot hold symlinked .app structures — flat only): unlocks UNUserNotificationCenter threshold alerts (opt-in, permission-prompting) and SMAppService login item. Brew cask distribution (requires D4 notarization outcome).",
+  "displayId": "T-021",
+  "id": "T-021",
+  "order": 10,
+  "phase": "v0-5",
+  "status": "open",
+  "title": "Flat .app bundle: notifications + SMAppService; brew cask",
+  "type": "feature"
+}

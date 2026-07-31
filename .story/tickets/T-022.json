@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "Demand-driven umbrella: (a) quota-remaining title mode via provider limit scraping (what CodexBar 19.4k / ClaudeBar 1.4k users expect — highest-value v0.5 item per prior-art); (b) floating always-on-top widget as a settings toggle; (c) own-the-parsing spike: checkpointed incremental extraction replacing ccusage for the full tier — removes periodic 60–80 s scans, enables independent pricing provenance. Split into separate tickets when scheduled.",
+  "id": "T-022",
+  "order": 20,
+  "phase": "v0-5",
+  "status": "open",
+  "title": "Quota mode, floating widget toggle, own-the-parsing spike",
+  "type": "feature"
+}

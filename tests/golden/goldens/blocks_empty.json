@@ -1,0 +1,13 @@
+{
+ "name": "blocks_empty",
+ "argv": [
+  "blocks"
+ ],
+ "mode": "blocks_empty",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "Billing blocks (5h windows) — times shown in local tz\n\nStart (local)        End (local)             Dur       Cost      $/hr  active\n-----------------------------------------------------------------------------\n(no billing blocks in this window)\n",
+ "stderr": ""
+}

@@ -1,0 +1,16 @@
+{
+  "blockedBy": [
+    "T-011",
+    "T-014"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "`spendbar menubar` = view: ensures service, spawns helper, renders snapshot; Quit-menubar ≠ Stop-service (stop sequencing: persist desired state → disable relaunch → graceful shutdown over socket → deadline → boot out → verified-stale socket cleanup; failure-inject each transition). LaunchAgent plist targets the launcher; menubar agent Aqua-limited, service agent not; headless = no-menubar within a logged-in session (SSH-only: foreground service run, no reboot-persistence promise). Full matrix: reboot on Homebrew-node AND nvm machines + upgrade/downgrade/prefix change/nvm version removal/interrupted install + REAL Claude Code and Codex MCP launches.",
+  "displayId": "T-015",
+  "id": "T-015",
+  "order": 20,
+  "phase": "v0-3",
+  "status": "open",
+  "title": "Menubar host + LaunchAgent: attach semantics, full upgrade matrix",
+  "type": "task"
+}

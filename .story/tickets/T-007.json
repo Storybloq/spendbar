@@ -1,0 +1,17 @@
+{
+  "blockedBy": [
+    "T-004",
+    "T-005",
+    "T-006"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "npm pack tarball test (inspect allowlisted contents + modes, install exact tarball into clean prefix, exercise CLI). Script-disabled install tests: npm, pnpm, yarn, bun each install the packed tarball with lifecycle scripts disabled and run CLI + pinned ccusage. engines node >=22.12. NO author field (owner requirement — no personal attribution; publish stays clean like 0.0.2). Zero lifecycle scripts.",
+  "displayId": "T-007",
+  "id": "T-007",
+  "order": 70,
+  "phase": "v0-1",
+  "status": "open",
+  "title": "Package + publish spendbar 0.1",
+  "type": "chore"
+}

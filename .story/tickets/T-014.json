@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "From the proven 112 KB prototype to production: monospaced-digit title with overflow contract ($0.00–$999.99 verbatim → $1.0k+ → icon-only fallback); phase-gated mode picker ($ today + burn $/hr; quota joins v0.5); NSMenu dropdown (header today/week/Δ → burn strip → Claude-vs-Codex + model split → top-5 projects combined $ → refresh/settings/Stop service/Quit menubar); stdio JSON-lines IPC hardening (EOF exit, malformed-line tolerance); crash-loop breaker (N exits/60 s ⇒ stop respawning, set health). Universal-binary CI: macos runner, both slices, lipo, declared MACOSX_DEPLOYMENT_TARGET.",
+  "id": "T-014",
+  "order": 10,
+  "phase": "v0-3",
+  "status": "open",
+  "title": "Productionize Swift helper: title modes, NSMenu, IPC hardening, crash-loop breaker",
+  "type": "task"
+}

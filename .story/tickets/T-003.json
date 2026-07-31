@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "Pure core: no process.exit/console; injected {home, renames, workspaceRoots} context + ccusage runner. Port: config load, clean_name path encoding, model_family, date handling (normalize -Nd ONCE — codex/combined midnight bug), agg_projects, codex rollout parsing (start-date windowing on session-START basis; never pass --until to codex session; head-read session_meta.payload.cwd; basename+regex gate; realpath containment with per-candidate try/catch — fs.realpath throws where Python's returns), reconcile/cross_check (summation order = JSON insertion order).",
+  "id": "T-003",
+  "order": 30,
+  "phase": "v0-1",
+  "status": "open",
+  "title": "Port core aggregation to TypeScript (pure core)",
+  "type": "task"
+}

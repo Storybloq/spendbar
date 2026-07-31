@@ -1,0 +1,48 @@
+{
+  "blockers": [],
+  "date": "2026-07-31",
+  "phases": [
+    {
+      "description": "Port the 784-line Python CLI to a pure TypeScript core (injected config + ccusage runner; renderers return strings; CLI/MCP/service become thin consumers). Day-1 release gate: exact IEEE-754 money formatter matching Python half-even (Intl and toFixed are both proven wrong — see L-001). Parity = byte-frozen modulo a PUBLISHED delta allowlist, enforced by a dual-run harness comparing stdout+stderr+exit codes across the fixture matrix. Pin ccusage exact-version with real-binary schema contract tests. Exit: parity harness green; script-disabled installs work on npm+pnpm+yarn+bun; spendbar 0.1 published (NO author field). Reference: product-architecture-2026-07-30.md.",
+      "id": "v0-1",
+      "label": "V0.1",
+      "name": "v0.1 — TS core + CLI parity",
+      "summary": "TypeScript port of usage.py, byte-parity modulo published allowlist, publish spendbar 0.1"
+    },
+    {
+      "description": "Headless `spendbar service run` = sole snapshot writer, shipped WITH minimal durable install/start/stop + launcher (short-lived-command handoff test). Day-1 prototype gates: locking primitive, socket credential check, MCP SDK v2-vs-v1 against both real clients. Generation-file snapshot store with fsync protocol and schema-range/downgrade policy. Two-tier refresh (clone-shadow fast tier with formalized merge contract; capped full tier — honest periodic 60–80 s scans). 5 MCP tools (usage_hourly deferred), snapshot-timezone-match rule, generation-encoded cursors. Exit: week-per-project < 2 s warm from BOTH clients; herd test passes. Reference: product-architecture-2026-07-30.md.",
+      "id": "v0-2",
+      "label": "V0.2",
+      "name": "v0.2 — Headless service + MCP",
+      "summary": "Sole-writer refresh service with durable start/stop, snapshot store, 5 bounded MCP tools"
+    },
+    {
+      "description": "Productionize the proven 112 KB Swift NSStatusItem helper (title modes $ + burn with overflow contract, NSMenu dropdown, stdio IPC hardening, crash-loop breaker). Menubar host attaches to the service (Quit-menubar ≠ Stop-service). LaunchAgent through the launcher shim with installation-ID ownership; full upgrade matrix (upgrade/downgrade/prefix change/nvm removal/interrupted install, incl. real Claude Code + Codex MCP launches). D4 go/no-go: signed/notarized artifact prototype (Developer ID $99/yr — owner confirm). Bare-spendbar first-run wizard, doctor, ownership-fingerprinted uninstall. Exit: live $ ≤ 2 s; idle CPU ≈ 0; survives service restarts and package upgrades post-heal.",
+      "id": "v0-3",
+      "label": "V0.3",
+      "name": "v0.3 — Menubar",
+      "summary": "Swift menubar view on the service, LaunchAgent via launcher shim, D4 signing go/no-go, wizard onboarding"
+    },
+    {
+      "description": "De-risk NSPopover+SwiftUI in the bundle-less binary FIRST (unverified — carried flag), then the rich popover: header (today/week/Δ), burn strip, Claude-vs-Codex + model split bars, top-5 projects with combined $ (the differentiator). Settings (launch-at-login, refresh interval, title mode picker), health/stale UI states, passive update-notifier line (never self-mutating updates).",
+      "id": "v0-4",
+      "label": "V0.4",
+      "name": "v0.4 — Rich popover + polish",
+      "summary": "NSPopover/SwiftUI rich popover (de-risk first), settings, health/stale UI, update line"
+    },
+    {
+      "description": "Demand-driven expansion, no committed schedule: flat .app bundle (UNUserNotificationCenter threshold alerts, SMAppService) — pulled earlier if D4's notarization prototype forces it; brew cask (the culturally expected menubar channel); quota-remaining title mode via provider-limit scraping (what the 19k-star apps show); floating always-on-top widget as a settings toggle; own-the-parsing spike — checkpointed incremental extraction that removes the periodic 60–80 s full scans and enables independent pricing provenance.",
+      "id": "v0-5",
+      "label": "V0.5+",
+      "name": "v0.5+ — Distribution & depth",
+      "summary": "Demand-driven: flat .app + notifications, brew cask, quota mode, floating widget, own-the-parsing"
+    },
+    {
+      "description": "Initial project setup.",
+      "id": "p0",
+      "label": "PHASE 0",
+      "name": "Setup"
+    }
+  ],
+  "title": "spendbar"
+}

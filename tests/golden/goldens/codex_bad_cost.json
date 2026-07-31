@@ -1,0 +1,13 @@
+{
+ "name": "codex_bad_cost",
+ "argv": [
+  "codex"
+ ],
+ "mode": "codex_bad",
+ "codex_fixture": true,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 1,
+ "stdout": "",
+ "stderr": "unexpected ccusage codex output: sessions[0].costUSD = True (expected a finite non-negative number)\n"
+}

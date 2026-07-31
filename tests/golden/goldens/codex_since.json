@@ -1,0 +1,15 @@
+{
+ "name": "codex_since",
+ "argv": [
+  "codex",
+  "--since",
+  "20260101"
+ ],
+ "mode": "normal",
+ "codex_fixture": true,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "Codex per-project usage (since 20260101)   [window by session start date]   [session-start $31.70 vs codex daily $31.70 (Δ $+0.00)]\ncwd resolved: 7/10 sessions; unknown: $4.60 (3 sessions)\n\nProject                       Cost          Tokens  Sess   Share\n----------------------------------------------------------------\nalpha                       $14.50             145     3   45.7%\nalpha-tools                  $6.00              60     1   18.9%\nBeta Product                 $5.00              50     1   15.8%\nunknown (no session log)       $4.60              46     3   14.5%\n(agent scratchpads)          $0.90               9     1    2.8%\n-tmp-legitimate-project       $0.70               7     1    2.2%\n----------------------------------------------------------------\nTOTAL                       $31.70             317    10  100.0%\n\nmodel tokens: gpt-5.5=297  gpt-5.4-mini=20\nnote: $0.50 from 1 session(s) with an unparseable rollout filename could not be date-windowed and were excluded.\nΔ vs codex daily is the date-basis residual: multi-day sessions lump on their start day, sessions crossing the window edge count whole (tail) or not at all (head).\n",
+ "stderr": ""
+}

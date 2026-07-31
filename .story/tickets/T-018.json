@@ -1,0 +1,15 @@
+{
+  "blockedBy": [
+    "T-012"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "Ship the SwiftBar plugin script + `spendbar install-swiftbar-plugin` — one shell script reading the snapshot, serving existing SwiftBar users as a zero-cost secondary surface.",
+  "displayId": "T-018",
+  "id": "T-018",
+  "order": 50,
+  "phase": "v0-3",
+  "status": "open",
+  "title": "SwiftBar plugin freebie",
+  "type": "chore"
+}

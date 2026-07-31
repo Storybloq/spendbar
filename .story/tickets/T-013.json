@@ -1,0 +1,16 @@
+{
+  "blockedBy": [
+    "T-009",
+    "T-010"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "`spendbar mcp` stdio (stdout JSON-RPC only). Tools: usage_summary, usage_by_project, usage_by_day, usage_share, usage_blocks — usage_hourly NOT registered until bounded. Strict inputs (normalized dates, provider filters, sort, limit, cursor); v0.2 timezone rule: query tz must equal snapshot tz else validation error. Cursors encode generation id + normalized query + sort key + position; bounded generation retention; typed expiry. outputSchema registered once in tools/list; results = structuredContent + concise text fallback; freshness/coverage/warnings inside result schema. Reader ephemeral computation lease (separate namespace, private temp generations, bounded wait-or-stale) + multi-client herd load test. CLI gains --cached. Tool-def token cost measured in CI. Exit: week-per-project < 2 s warm from BOTH clients.",
+  "displayId": "T-013",
+  "id": "T-013",
+  "order": 60,
+  "phase": "v0-2",
+  "status": "open",
+  "title": "MCP server: 5 bounded tools + reader computation lease + --cached",
+  "type": "feature"
+}

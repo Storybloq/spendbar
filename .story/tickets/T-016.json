@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "OWNER DECISION GATE (Developer ID $99/yr — cost confirm pending). Prototype the actual signed artifact: notarization tickets do NOT staple to bare executables, so pick between signed raw binary relying on online Gatekeeper check vs pulling the flat .app bundle forward. Test online AND offline Gatekeeper behavior through the npm extraction path, plus pnpm/yarn/bun extractors and Intel+AS clean VMs with quarantine/first-launch checks. Outcome feeds v0.5 brew-cask plans.",
+  "id": "T-016",
+  "order": 30,
+  "phase": "v0-3",
+  "status": "open",
+  "title": "D4 go/no-go: signing + notarization artifact prototype",
+  "type": "task"
+}

@@ -1,0 +1,13 @@
+{
+ "name": "err_unknown_subcommand",
+ "argv": [
+  "frobnicate"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 2,
+ "stdout": "",
+ "stderr": "usage: usage [-h]\n             {projects,daily,share,compare,blocks,hourly,alltime,codex,combined}\n             ...\nusage: error: argument cmd: invalid choice: 'frobnicate' (choose from 'projects', 'daily', 'share', 'compare', 'blocks', 'hourly', 'alltime', 'codex', 'combined')\n"
+}

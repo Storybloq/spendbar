@@ -1,0 +1,13 @@
+{
+ "name": "projects_mismatch",
+ "argv": [
+  "projects"
+ ],
+ "mode": "mismatch",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "Per-project usage (all time)   [totals reconcile: MISMATCH $21.00 vs ccusage $999.00 (Δ $-978.00)]\n\nProject                         Tokens         Fable          Opus        Sonnet         Haiku        Cost     Fable$\n---------------------------------------------------------------------------------------------------------------------\nalpha                               36            16            20             0             0      $18.00     $13.00\nBeta Product                       104             0             0             4             0       $3.00      $0.00\n---------------------------------------------------------------------------------------------------------------------\nTOTAL                                                                                               $21.00     $13.00\n\nnote: $1.00 (5%) is gpt/other spend not shown in the model columns above.\n",
+ "stderr": ""
+}

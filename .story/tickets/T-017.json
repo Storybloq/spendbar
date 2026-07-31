@@ -1,0 +1,15 @@
+{
+  "blockedBy": [
+    "T-015"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "Bare `spendbar` = first-run wizard (\"install it, run it\"): instant today-$ (~1–2 s on clone path) → durable-service handoff note → auto-detected consent prompts (service + login item; claude mcp add if `claude` on PATH; codex mcp add if ~/.codex exists); --yes for scripters; re-runnable as `setup`. `doctor`: launcher/plist health, node path, snapshot freshness, MCP registration against real client launches, permission-denied explanations — prints the fix for each. `uninstall`: fingerprints recorded at install, external entries removed only on match, prompt on divergence, separate --purge-data with dry-run. Interim (already true in v0.1–0.2): bare spendbar prints MCP registration one-liners.",
+  "displayId": "T-017",
+  "id": "T-017",
+  "order": 40,
+  "phase": "v0-3",
+  "status": "open",
+  "title": "Onboarding: bare-spendbar wizard, doctor, ownership-fingerprinted uninstall",
+  "type": "feature"
+}

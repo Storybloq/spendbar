@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": "2026-07-31",
+  "createdDate": "2026-07-31",
+  "description": "Day-1 RELEASE GATE. Implement money()/fmt() classification from decoded IEEE-754 bits (exact decimal expansion) with half-even at true ties, matching Python f\"{x:,.2f}\" byte-for-byte. Intl.NumberFormat halfEven and bare toFixed are BOTH empirically wrong (L-001). Verify with: targeted boundary corpora (values below/at/above decimal midpoints across exponents, signs, −0, large magnitudes, non-finite) PLUS differential fuzz ≥1e5 random doubles vs python3, byte-compared. Seed long-decimal sentinels into fixtures. Deliverable: proven algorithm ready to become src/format.ts + evidence file.",
+  "displayId": "T-001",
+  "id": "T-001",
+  "order": 10,
+  "phase": "v0-1",
+  "status": "complete",
+  "title": "Rounding spike: exact IEEE-754 money formatter matching Python",
+  "type": "task"
+}

@@ -1,0 +1,13 @@
+{
+ "name": "combined_empty",
+ "argv": [
+  "combined"
+ ],
+ "mode": "codex_empty",
+ "codex_fixture": true,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "Combined per-project usage (all time)\nClaude: [totals reconcile: OK]    Codex: [session-start $0.00 vs codex daily $0.00 (Δ $+0.00)]\ncaveat: Claude buckets by calendar day, Codex by session start date — Total is approximate at window edges and for multi-day sessions.\n\nProject                     Claude$       Codex$       Total$   Share\n---------------------------------------------------------------------\nalpha                        $18.00        $0.00       $18.00   85.7%\nBeta Product                  $3.00        $0.00        $3.00   14.3%\n---------------------------------------------------------------------\nTOTAL                        $21.00        $0.00       $21.00  100.0%\n",
+ "stderr": ""
+}

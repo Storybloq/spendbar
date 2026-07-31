@@ -1,0 +1,13 @@
+{
+ "name": "daily_empty",
+ "argv": [
+  "daily"
+ ],
+ "mode": "daily_empty",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "No usage found for (all time).\n",
+ "stderr": ""
+}

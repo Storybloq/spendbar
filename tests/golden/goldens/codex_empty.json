@@ -1,0 +1,13 @@
+{
+ "name": "codex_empty",
+ "argv": [
+  "codex"
+ ],
+ "mode": "codex_empty",
+ "codex_fixture": true,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "No usage found for (all time).\n",
+ "stderr": ""
+}

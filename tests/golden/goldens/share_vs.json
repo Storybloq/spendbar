@@ -1,0 +1,15 @@
+{
+ "name": "share_vs",
+ "argv": [
+  "share",
+  "--vs",
+  "20260101"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "Project share  A=(all time)   B=(since 20260101)   A:[totals reconcile: OK]   B:[totals reconcile: OK]\n\nProject                        A $     A % |         B $     B %\n----------------------------------------------------------------\nalpha                       $18.00   85.7% |      $18.00   85.7%\nBeta Product                 $3.00   14.3% |       $3.00   14.3%\n----------------------------------------------------------------\nTOTAL                       $21.00  100.0% |      $21.00  100.0%\n",
+ "stderr": ""
+}

@@ -1,0 +1,16 @@
+{
+  "blockedBy": [
+    "T-001",
+    "T-003"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "Renderers return strings (projects/daily/share/compare/blocks/hourly/alltime/codex/combined views). Hand-rolled argv parsing — keep the `--since -3d` rewrite pre-pass; no commander/yargs. Parameterize product-name-bearing strings (prog name, alltime hint) so goldens template on the name. Uses the gated formatter from the rounding spike.",
+  "displayId": "T-004",
+  "id": "T-004",
+  "order": 40,
+  "phase": "v0-1",
+  "status": "open",
+  "title": "Port renderers + CLI (9 subcommands)",
+  "type": "task"
+}

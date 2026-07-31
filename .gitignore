@@ -5,5 +5,14 @@ usage-config.json
 __pycache__/
 *.pyc
 
+# Node / TypeScript build artifacts
+node_modules/
+dist/
+
+# Local review DB from codex-bridge (not part of this project)
+reviews.db
+reviews.db-shm
+reviews.db-wal
+
 # macOS
 .DS_Store

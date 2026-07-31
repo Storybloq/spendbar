@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "RELEASE GATES, run before committing the service architecture. (a) Locking: audited pure-JS lockfile package (no lifecycle build) vs own lockfile with pid + process-start-time + random owner token + inode revalidation before every publish/unlock. (b) Socket credentials: Node-accessible peer-UID check without native build, else fallback = 0700 runtime dir + high-entropy 0600 auth token + constant-time compare. Also validate socket path rules (macOS sun_path ≈104-byte limit, long usernames, symlinked-parent rejection, stale-socket probe).",
+  "id": "T-008",
+  "order": 10,
+  "phase": "v0-2",
+  "status": "open",
+  "title": "v0.2 day-1 prototypes: locking primitive + socket credential check",
+  "type": "task"
+}

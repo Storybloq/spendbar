@@ -1,0 +1,16 @@
+{
+  "blockedBy": [
+    "T-002",
+    "T-004"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-07-31",
+  "description": "Port tests/fake_ccusage.py verbatim to fake-ccusage.ts (all FAKE_MODE behaviors) + all 12 codex fixture cases (traversal/symlink/scratchpad/undated/etc.). Wire the dual-run golden harness into the TS test runner so byte-parity-modulo-allowlist is a CI assertion.",
+  "displayId": "T-005",
+  "id": "T-005",
+  "order": 50,
+  "phase": "v0-1",
+  "status": "open",
+  "title": "Port fixtures + wire goldens into TS test suite",
+  "type": "task"
+}
