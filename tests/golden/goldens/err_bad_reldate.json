@@ -7,7 +7,7 @@
  "mode": "normal",
  "codex_fixture": false,
  "extra_env": {},
- "dual_run_only": false,
+ "capture_anchor": "2026-01-03",
  "exit": 1,
  "stdout": "",
  "stderr": "bad relative date '-xd': expected -Nd, e.g. -3d or -30d\n"

@@ -1,10 +1,11 @@
 {
  "capturedBy": "tests/golden/capture.py",
+ "capturedVia": "tests/harness/usage-wrapper.py",
+ "caseRegistry": "tests/golden/cases.json",
  "pythonInterpreter": "3.11.6",
  "caseCount": 45,
- "dualRunOnly": [
-  "rel_projects_since_3d",
-  "rel_daily_since_7d"
+ "captureAnchors": [
+  "2026-01-03"
  ],
  "env": {
   "TZ": "America/Vancouver",
@@ -23,6 +24,7 @@
   "HOME is a synthetic empty fixture home (tests/harness/fixtures.py), so no capture reads the real ~/.claude/projects or ~/.codex.",
   "TZ is load-bearing: usage.py:709 formats block labels via astimezone(), so 'blocks' output moves with the zone.",
   "All captures are non-TTY (subprocess pipes); TTY variants are a harness-level TODO.",
-  "dual_run_only cases embed 'today' (relative dates) - assert them by running both implementations at the same moment, never against stored bytes."
+  "Every case ran through 'capturedVia' with a MANDATORY --anchor, so a relative-date case is reproducible: replay it at its own capture_anchor, never at today. The parity harness asserts that routing from the argv it actually spawned.",
+  "The case matrix is not defined here. 'caseRegistry' is the single definition of every case, stored and differential-only alike."
  ]
 }

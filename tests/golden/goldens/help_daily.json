@@ -7,7 +7,7 @@
  "mode": "normal",
  "codex_fixture": false,
  "extra_env": {},
- "dual_run_only": false,
+ "capture_anchor": "2026-01-03",
  "exit": 0,
  "stdout": "usage: usage daily [-h] [--since SINCE] [--until UNTIL]\n                   [--metric {cost,tokens,both}]\n\noptions:\n  -h, --help            show this help message and exit\n  --since SINCE\n  --until UNTIL\n  --metric {cost,tokens,both}\n                        per-model columns: cost (default), tokens, or both\n",
  "stderr": ""

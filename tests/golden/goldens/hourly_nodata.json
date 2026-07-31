@@ -7,7 +7,7 @@
  "mode": "empty",
  "codex_fixture": false,
  "extra_env": {},
- "dual_run_only": false,
+ "capture_anchor": "2026-01-03",
  "exit": 0,
  "stdout": "Half-hour cost histogram for 2027-01-01 (est. from raw logs; ±10-15%)\nNo raw session logs found on disk for 2027-01-01.\n",
  "stderr": ""

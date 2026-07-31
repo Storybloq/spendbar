@@ -1,0 +1,24 @@
+{
+  "components": [
+    "tests/golden",
+    "tests-ts"
+  ],
+  "createdBy": "autonomous session 0e7c7cf5 (T-005, codex plan review 019fba56 round 5)",
+  "dedupeKey": "allowlist-noncase-execution-evidence-registry",
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-020",
+  "impact": "Scope boundary declared explicitly in T-005 rather than silently left open (plan section 3.5).\n\nT-005 validates that every waiver a comparison policy consumes names a published ALLOWLIST entry, and that each policy actually executes its replacement assertions (proved by mutation-killing every predicate). That covers ALLOWLIST-19, -22b and -23.\n\nWhat it deliberately does NOT cover: entries asserted by tests that are not parity cases — ALLOWLIST-22a (the product-name spans, asserted by the reviewed shipped-help snapshot) being the live example. An earlier plan revision proposed classifying such entries \"enforceable\" by listing their asserting test NAMES. Review correctly rejected that: the existence of a test name is exactly the \"code exists, therefore it ran\" evidence this repo removed dual_run_only to escape. Naming it proves nothing.\n\nDoing it properly needs a runner that REPORTS which allowlist IDs actually executed — a machine-readable assertion registry, where a test declares the ID it asserts and the runner emits the set that ran, so coverage is computed from execution rather than from prose.\n\nUntil that exists, ALLOWLIST-22a is documented as snapshot-asserted and is not machine-verified. That is a stated gap, not a claim of coverage. Related: ALLOWLIST entry 22 was split into 22a/22b during T-005 precisely so the documentation-only half could not shelter the enforced half.",
+  "location": [
+    "tests/golden/ALLOWLIST.md",
+    "tests-ts/harness/cases.mjs"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-005"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "low",
+  "status": "open",
+  "title": "Allowlist IDs asserted by NON-CASE tests have no execution evidence"
+}

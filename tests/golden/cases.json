@@ -1,0 +1,1871 @@
+{
+ "$comment": [
+  "The ONE definition of every parity case: stored goldens and differential-only argv rows alike.",
+  "AUTHORED. Nothing regenerates this file. It replaced capture.py's CASES table, cases.mjs's",
+  "EXTRA_CASES and cases.mjs's GOLDEN_CAPABILITY, which were three parallel descriptions of one",
+  "matrix; a case added to one of them was invisible to the others.",
+  "captureAnchor is present exactly when storedGolden is true, and is the wall clock the golden",
+  "was captured under - relative-date cases are only reproducible against a pinned 'today'. It is",
+  "per-case on purpose: a single top-level anchor would be a second place for the value to live,",
+  "and the per-case field is the one capture.py and the parity harness actually read.",
+  "comparisonPolicy names a handler in tests-ts/harness/policies.mjs; waiver must equal that",
+  "policy's declared waiverId, so a comparison can never grant itself an unauthorised licence.",
+  "'waiver': null is written explicitly, never omitted - an absent field would make 'authorised",
+  "by nothing' and 'needs no authorisation' the same state on disk."
+ ],
+ "cases": [
+  {
+   "name": "alltime_empty",
+   "capability": "render:alltime",
+   "argv": [
+    "alltime"
+   ],
+   "mode": "empty",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "alltime_normal",
+   "capability": "render:alltime",
+   "argv": [
+    "alltime"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_abbrev_ambiguous_day",
+   "capability": "parser",
+   "argv": [
+    "compare",
+    "--day",
+    "20260101",
+    "--day2",
+    "20260102"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_abbrev_help_before_subcommand",
+   "capability": "parser",
+   "argv": [
+    "--h",
+    "projects"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "help-config-path",
+   "waiver": "ALLOWLIST-22b"
+  },
+  {
+   "name": "argv_abbrev_help_before_subcommand_long",
+   "capability": "parser",
+   "argv": [
+    "--hel",
+    "projects"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "help-config-path",
+   "waiver": "ALLOWLIST-22b"
+  },
+  {
+   "name": "argv_abbrev_metric_long",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--met",
+    "cost"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_abbrev_metric_one_char",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--m",
+    "cost"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_abbrev_since_one_char",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--s",
+    "20260101"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_abbrev_subcommand",
+   "capability": "parser",
+   "argv": [
+    "proj"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_abbrev_until_one_char",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--u",
+    "20260101"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_attached_metric",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--metric=cost"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_attached_since",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since=20260101"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_bare_ddash",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_blocks_array",
+   "capability": "render:blocks",
+   "argv": [
+    "blocks"
+   ],
+   "mode": "blocks_array",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:blocks-array-attr",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_blocks_dict",
+   "capability": "render:blocks",
+   "argv": [
+    "blocks"
+   ],
+   "mode": "blocks_dict",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_blocks_malformed",
+   "capability": "render:blocks",
+   "argv": [
+    "blocks"
+   ],
+   "mode": "blocks_malformed",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "partial-python-stdout",
+   "waiver": "ALLOWLIST-23"
+  },
+  {
+   "name": "argv_blocks_nokey",
+   "capability": "render:blocks",
+   "argv": [
+    "blocks"
+   ],
+   "mode": "blocks_nokey",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_blocks_null",
+   "capability": "render:blocks",
+   "argv": [
+    "blocks"
+   ],
+   "mode": "blocks_null",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "partial-python-stdout",
+   "waiver": "ALLOWLIST-23"
+  },
+  {
+   "name": "argv_blocks_str",
+   "capability": "render:blocks",
+   "argv": [
+    "blocks"
+   ],
+   "mode": "blocks_str",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_blocks_truthiness",
+   "capability": "render:blocks",
+   "argv": [
+    "blocks"
+   ],
+   "mode": "blocks_truthiness",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_choice_bad_projects",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--metric",
+    "bogus"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_choice_missing_value",
+   "capability": "parser",
+   "argv": [
+    "daily",
+    "--metric"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_ddash_then_option",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--",
+    "--since"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_empty_since",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since",
+    ""
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_empty_since_attached",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since="
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_extra_positional",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "extra"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_help_after_option",
+   "capability": "help",
+   "argv": [
+    "projects",
+    "--since",
+    "20260101",
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_help_before_subcommand",
+   "capability": "help",
+   "argv": [
+    "-h",
+    "projects"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "help-config-path",
+   "waiver": "ALLOWLIST-22b"
+  },
+  {
+   "name": "argv_help_explicit_arg",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--help=value"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_help_explicit_arg_top",
+   "capability": "parser",
+   "argv": [
+    "--help=value",
+    "projects"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_help_unknown_subcommand",
+   "capability": "parser",
+   "argv": [
+    "frobnicate",
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_hourly_date_bogus_crash",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "bogus"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_compact",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "20260101"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_hourly_date_dashed",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2026-01-01"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_hourly_date_datetime",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2026-01-01T00:00"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_empty",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    ""
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_hourly_date_feb29_leap",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2024-02-29"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_hourly_date_feb29_nonleap",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2026-02-29"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_feb30",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2026-02-30"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_leading_space",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    " 2026-01-01"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_month13",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2026-13-01"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_nonascii",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "\u0662\u0660\u0662\u0666-\u0660\u0661-\u0660\u0661"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_ordinal",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2026-001"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_reldate_crash",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "-1d"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_unpadded",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2026-1-1"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_week",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2026-W01-1"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_hourly_date_week_compact",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2026W011"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_week_compact_noday",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2026W01"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_hourly_date_week_dashed_noday",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "2026-W01"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_week_overflow",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "9999-W52-7"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": false,
+   "comparisonPolicy": "ts-diag:invalid-date",
+   "waiver": "ALLOWLIST-19"
+  },
+  {
+   "name": "argv_hourly_date_week_year1",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date",
+    "0001-W01-1"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_lone_dash",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "-"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_missing_value",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_negnum_ascii",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since",
+    "-1"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_negnum_leading_dot",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since",
+    "-.5"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_negnum_two_dots",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since",
+    "-1.2.3"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_negnum_unicode",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since",
+    "-\u0661"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_negnum_unicode_float",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since",
+    "-\u0663.\u0665"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_opt_before_subcommand",
+   "capability": "parser",
+   "argv": [
+    "--since",
+    "20260101",
+    "projects"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_rel_abbrev_not_rewritten",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--s",
+    "-3d"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_rel_day1_day2",
+   "capability": "parser",
+   "argv": [
+    "compare",
+    "--day1",
+    "-1d",
+    "--day2",
+    "-2d"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_rel_multi_digit",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since",
+    "-365d"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_rel_not_matching",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since",
+    "-3x"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_rel_since_attached",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since=-3d"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_rel_since_separate",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since",
+    "-3d"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_rel_unicode_nd",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since",
+    "-\u0661d"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_rel_until",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--until",
+    "-1d"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_rel_vs",
+   "capability": "parser",
+   "argv": [
+    "share",
+    "--vs",
+    "-2d"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_repeated_since",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since",
+    "20260101",
+    "--since",
+    "20260102"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_required_both",
+   "capability": "parser",
+   "argv": [
+    "compare"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_required_one",
+   "capability": "parser",
+   "argv": [
+    "compare",
+    "--day1",
+    "20260101"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_two_errors_metric_first",
+   "capability": "parser",
+   "argv": [
+    "daily",
+    "--metric",
+    "bogus",
+    "--since"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_two_errors_since_first",
+   "capability": "parser",
+   "argv": [
+    "daily",
+    "--since",
+    "--metric",
+    "bogus"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_unknown_opt_before_subcommand",
+   "capability": "parser",
+   "argv": [
+    "--bogus",
+    "projects"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "argv_unknown_option",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--bogus"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": false,
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "blocks_empty",
+   "capability": "render:blocks",
+   "argv": [
+    "blocks"
+   ],
+   "mode": "blocks_empty",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "blocks_normal",
+   "capability": "render:blocks",
+   "argv": [
+    "blocks"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "codex_bad_cost",
+   "capability": "render:codex",
+   "argv": [
+    "codex"
+   ],
+   "mode": "codex_bad",
+   "extraEnv": {},
+   "codexFixture": true,
+   "expectExit": 1,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "codex_empty",
+   "capability": "render:codex",
+   "argv": [
+    "codex"
+   ],
+   "mode": "codex_empty",
+   "extraEnv": {},
+   "codexFixture": true,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "codex_since",
+   "capability": "render:codex",
+   "argv": [
+    "codex",
+    "--since",
+    "20260101"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": true,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "codex_unwindowed",
+   "capability": "render:codex",
+   "argv": [
+    "codex"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": true,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "combined_empty",
+   "capability": "render:combined",
+   "argv": [
+    "combined"
+   ],
+   "mode": "codex_empty",
+   "extraEnv": {},
+   "codexFixture": true,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "combined_since",
+   "capability": "render:combined",
+   "argv": [
+    "combined",
+    "--since",
+    "20260101"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": true,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "compare_empty",
+   "capability": "render:compare",
+   "argv": [
+    "compare",
+    "--day1=20270101",
+    "--day2=20270102"
+   ],
+   "mode": "empty",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "compare_normal",
+   "capability": "render:compare",
+   "argv": [
+    "compare",
+    "--day1=20260101",
+    "--day2=20260102"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "daily_both",
+   "capability": "render:daily",
+   "argv": [
+    "daily",
+    "--metric",
+    "both"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "daily_empty",
+   "capability": "render:daily",
+   "argv": [
+    "daily"
+   ],
+   "mode": "daily_empty",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "daily_normal",
+   "capability": "render:daily",
+   "argv": [
+    "daily"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "daily_tokens",
+   "capability": "render:daily",
+   "argv": [
+    "daily",
+    "--metric",
+    "tokens"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "err_bad_metric",
+   "capability": "parser",
+   "argv": [
+    "daily",
+    "--metric",
+    "bogus"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "err_bad_reldate",
+   "capability": "parser",
+   "argv": [
+    "projects",
+    "--since=-xd"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "err_missing_binary",
+   "capability": "errors",
+   "argv": [
+    "alltime"
+   ],
+   "mode": "normal",
+   "extraEnv": {
+    "CCUSAGE_CMD": "/nonexistent/ccusage-binary-xyz"
+   },
+   "codexFixture": false,
+   "expectExit": 1,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "err_no_subcommand",
+   "capability": "parser",
+   "argv": [],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "err_unknown_subcommand",
+   "capability": "parser",
+   "argv": [
+    "frobnicate"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 2,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "help_alltime",
+   "capability": "help",
+   "argv": [
+    "alltime",
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "help_blocks",
+   "capability": "help",
+   "argv": [
+    "blocks",
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "help_codex",
+   "capability": "help",
+   "argv": [
+    "codex",
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "help_combined",
+   "capability": "help",
+   "argv": [
+    "combined",
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "help_compare",
+   "capability": "help",
+   "argv": [
+    "compare",
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "help_daily",
+   "capability": "help",
+   "argv": [
+    "daily",
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "help_hourly",
+   "capability": "help",
+   "argv": [
+    "hourly",
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "help_projects",
+   "capability": "help",
+   "argv": [
+    "projects",
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "help_share",
+   "capability": "help",
+   "argv": [
+    "share",
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "help_top_long",
+   "capability": "help",
+   "argv": [
+    "--help"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "help-config-path",
+   "waiver": "ALLOWLIST-22b"
+  },
+  {
+   "name": "help_top_short",
+   "capability": "help",
+   "argv": [
+    "-h"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "help-config-path",
+   "waiver": "ALLOWLIST-22b"
+  },
+  {
+   "name": "hourly_corpus",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date=20260101"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "hourly_nodata",
+   "capability": "hourly",
+   "argv": [
+    "hourly",
+    "--date=20270101"
+   ],
+   "mode": "empty",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "projects_both",
+   "capability": "render:projects",
+   "argv": [
+    "projects",
+    "--metric",
+    "both"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "projects_cost",
+   "capability": "render:projects",
+   "argv": [
+    "projects",
+    "--metric",
+    "cost"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "projects_empty",
+   "capability": "render:projects",
+   "argv": [
+    "projects"
+   ],
+   "mode": "empty",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "projects_float",
+   "capability": "render:projects",
+   "argv": [
+    "projects"
+   ],
+   "mode": "float",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "projects_mismatch",
+   "capability": "render:projects",
+   "argv": [
+    "projects"
+   ],
+   "mode": "mismatch",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "projects_normal",
+   "capability": "render:projects",
+   "argv": [
+    "projects"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "rel_daily_since_7d",
+   "capability": "render:daily",
+   "argv": [
+    "daily",
+    "--since",
+    "-7d"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "rel_projects_since_3d",
+   "capability": "render:projects",
+   "argv": [
+    "projects",
+    "--since",
+    "-3d"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "share_empty",
+   "capability": "render:share",
+   "argv": [
+    "share"
+   ],
+   "mode": "empty",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "share_normal",
+   "capability": "render:share",
+   "argv": [
+    "share"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "share_vs",
+   "capability": "render:share",
+   "argv": [
+    "share",
+    "--vs",
+    "20260101"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  }
+ ]
+}

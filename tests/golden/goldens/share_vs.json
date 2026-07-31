@@ -8,7 +8,7 @@
  "mode": "normal",
  "codex_fixture": false,
  "extra_env": {},
- "dual_run_only": false,
+ "capture_anchor": "2026-01-03",
  "exit": 0,
  "stdout": "Project share  A=(all time)   B=(since 20260101)   A:[totals reconcile: OK]   B:[totals reconcile: OK]\n\nProject                        A $     A % |         B $     B %\n----------------------------------------------------------------\nalpha                       $18.00   85.7% |      $18.00   85.7%\nBeta Product                 $3.00   14.3% |       $3.00   14.3%\n----------------------------------------------------------------\nTOTAL                       $21.00  100.0% |      $21.00  100.0%\n",
  "stderr": ""

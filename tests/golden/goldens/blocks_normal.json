@@ -6,7 +6,7 @@
  "mode": "normal",
  "codex_fixture": false,
  "extra_env": {},
- "dual_run_only": false,
+ "capture_anchor": "2026-01-03",
  "exit": 0,
  "stdout": "Billing blocks (5h windows) — times shown in local tz\n\nStart (local)        End (local)             Dur       Cost      $/hr  active\n-----------------------------------------------------------------------------\n2025-12-31 16:00     2025-12-31 18:00       2.0h    $100.00       50   False\n2025-12-31 21:00     2025-12-31 21:00       0.0h      $0.00        0    True\n",
  "stderr": ""

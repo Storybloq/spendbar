@@ -7,7 +7,7 @@
  "mode": "normal",
  "codex_fixture": false,
  "extra_env": {},
- "dual_run_only": false,
+ "capture_anchor": "2026-01-03",
  "exit": 0,
  "stdout": "Half-hour cost histogram for 2026-01-01 (est. from raw logs; ±10-15%)\neffective $/Mtok: fable=1000000.00  gpt=10000.00  opus=250000.00  sonnet=500000.00\n\n  Local    est $      fable tok      opus tok  burst\n----------------------------------------------------\n  09:00    22.00             12            40  ##\n  09:30     6.00              6             0  \n  14:00    25.00              0           100  ##\n----------------------------------------------------\nest total $53.00  (ccusage says $18.00 for 2026-01-01)\n",
  "stderr": ""

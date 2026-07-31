@@ -1,0 +1,21 @@
+{
+  "components": [
+    "tests/harness",
+    "tests/golden"
+  ],
+  "createdBy": "autonomous session 0e7c7cf5 (T-005 follow-up, codex plan review 019fba56)",
+  "dedupeKey": "t005a-artifact-generator-independent-verifier",
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-018",
+  "impact": "Blocks Python-free CI (and therefore the published package's CI, and the repo after usage.py retires). Deferred from T-005 because one ticket carrying the registry migration AND the artifact pipeline was unreviewable — a defect in the migration would be indistinguishable from an artifact-pipeline defect in one review.\n\nDesign is preserved in .story/sessions/00000000-0000-4000-8000-000000000000/plan.md section 5.1, after six review rounds. The load-bearing conclusion, which three earlier designs got wrong:\n\nAn artifact payload and its digest index emitted by the SAME generator in one operation are NOT semantically verified — they are only internally consistent. A generator bug that mis-associates argv, captures the wrong stream or substitutes the wrong token produces a matching-BAD pair, and regenerating with that same generator reproduces it deterministically. So the ticket requires a verifier that imports NOTHING from the generator and re-derives from fake_ccusage.py directly.\n\nAlso settled: canonical rendering (a \"sha256 of rendered bytes\" is undefined against a randomly allocated temp HOME, so digests are stored for a canonical /fixture/home substitution); separate stdoutSha256 and stderrSha256, never concatenated, because (\"ab\",\"c\") and (\"a\",\"bc\") collide; a termination object rather than a bare exit; staleness checks covering stored goldens and not just fixtures/; and an AUTHORED invocation inventory, since instrumenting the fake only discovers argv for whatever the generator happened to run.\n\nHonest bound to carry forward: pure conformance catches one-sided corruption and consumer defects; only the independent verifier catches a bad artifact PAIR. Publication must therefore require the verifier.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [
+    "T-005"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "T-005a: deterministic fixture artifacts + an INDEPENDENT oracle verifier"
+}

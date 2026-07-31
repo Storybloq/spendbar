@@ -1,33 +1,45 @@
 #!/usr/bin/env python3
-"""T-002 golden capture — records the Python CLI's exact behavior for the TS port.
+"""Golden capture — records the Python CLI's exact behavior for the TS port.
 
-For every case in the matrix, runs the REAL usage.py under the deterministic fixture
-environment (fake_ccusage.py + fixture-config.json + a synthetic CODEX_HOME) and stores
-{argv, mode, extra_env, exit, stdout, stderr} as one JSON file under goldens/.
+Runs every case that tests/golden/cases.json marks `storedGolden` against the REAL usage.py,
+under the deterministic fixture environment (fake_ccusage.py + fixture-config.json + a
+synthetic CODEX_HOME), and stores {argv, mode, extra_env, capture_anchor, exit, stdout,
+stderr} as one JSON file under goldens/.
 
-The stored goldens are the parity oracle for the TS port (byte-equality modulo the
-published allowlist in ALLOWLIST.md). Cases marked dual_run_only are captured for the
-matrix record but must be asserted by running BOTH implementations at the same moment
-(relative dates embed "today"); their stored stdout is informational.
+This file DEFINES no cases. It used to own a `CASES` table that restated what
+tests-ts/harness/cases.mjs also described, and the two could disagree without either
+noticing; cases.json is now the one definition and both sides read it (T-005).
+
+Every case runs through tests/harness/usage-wrapper.py at its own `captureAnchor`, never
+against usage.py directly. `dual_run_only` is gone: relative-date cases used to be captured
+for the record and excluded from comparison because their output embedded "today", which
+meant two goldens nothing ever checked. Pinning the clock makes them ordinary comparable
+goldens instead.
 
 Machine note: project keys derive from $HOME (HOME_ENC), so goldens are valid on the
-machine that captured them. The dual-run harness re-captures Python live and is
+machine that captured them. The differential harness re-captures Python live and is
 machine-independent; stored goldens exist so pure-TS CI can still assert against a
 committed reference from the capture machine.
+
+Write mode is all-or-nothing: it stages every file and swaps the directory wholesale only
+after each observed exit has matched the one cases.json declares. A per-case write would
+accept an authored/observed disagreement at exactly the moment the artifact is regenerated.
 
 Run: python3 tests/golden/capture.py            # writes goldens/*.json + manifest.json
      python3 tests/golden/capture.py --check    # re-runs Python and diffs vs stored
 """
-import importlib.util, json, os, shutil, subprocess, sys
+import importlib.util, json, os, shutil, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = os.path.dirname(HERE)
-USAGE = os.path.join(TESTS, "..", "usage.py")
 FAKE = os.path.join(TESTS, "fake_ccusage.py")
 FIXTURE_CONFIG = os.path.join(TESTS, "fixture-config.json")
 GOLDENS = os.path.join(HERE, "goldens")
+CASES_JSON = os.path.join(HERE, "cases.json")
 HARNESS = os.path.join(TESTS, "harness")
 PARITY_ENV = os.path.join(HARNESS, "parity-env.json")
+# The anchored entrypoint. usage.py is never invoked directly from here — see run_case.
+WRAPPER = os.path.join(HARNESS, "usage-wrapper.py")
 
 # ---------------------------------------------------------------- fixtures + pinned env
 # The synthetic CODEX_HOME and HOME live in tests/harness/fixtures.py so that this capture
@@ -55,121 +67,205 @@ def child_env(fixture_home, extra):
     env.update(extra)
     return env
 
-# ---------------------------------------------------------------- case matrix
-def C(name, argv, mode="normal", codex=False, env=None, dual_run_only=False):
-    return {"name": name, "argv": argv, "mode": mode, "codex": codex,
-            "env": env or {}, "dual_run_only": dual_run_only}
+# ---------------------------------------------------------------- case registry
+# The matrix used to live here as a `CASES` table, duplicated again in
+# tests-ts/harness/cases.mjs. Two descriptions of one thing is how they drift, so both now
+# read tests/golden/cases.json. This file DEFINES nothing about the matrix any more; it only
+# executes the stored half of it.
+with open(CASES_JSON) as _fh:
+    REGISTRY = json.load(_fh)
 
-CASES = [
-    # projects x modes x metrics
-    C("projects_normal",        ["projects"]),
-    C("projects_cost",          ["projects", "--metric", "cost"]),
-    C("projects_both",          ["projects", "--metric", "both"]),
-    C("projects_empty",         ["projects"], mode="empty"),
-    C("projects_mismatch",      ["projects"], mode="mismatch"),
-    C("projects_float",         ["projects"], mode="float"),
-    # daily
-    C("daily_normal",           ["daily"]),
-    C("daily_tokens",           ["daily", "--metric", "tokens"]),
-    C("daily_both",             ["daily", "--metric", "both"]),
-    C("daily_empty",            ["daily"], mode="daily_empty"),
-    # share / compare / alltime
-    C("share_normal",           ["share"]),
-    C("share_vs",               ["share", "--vs", "20260101"]),
-    C("share_empty",            ["share"], mode="empty"),
-    C("compare_normal",         ["compare", "--day1=20260101", "--day2=20260102"]),
-    C("compare_empty",          ["compare", "--day1=20270101", "--day2=20270102"], mode="empty"),
-    C("alltime_normal",         ["alltime"]),
-    C("alltime_empty",          ["alltime"], mode="empty"),
-    # blocks / hourly
-    C("blocks_normal",          ["blocks"]),
-    C("blocks_empty",           ["blocks"], mode="blocks_empty"),
-    C("hourly_nodata",          ["hourly", "--date=20270101"], mode="empty"),
-    # The populated corpus: exercises the rate line, the table, the burst bars and the
-    # ccusage reconciliation — none of which the no-data branch reaches.
-    C("hourly_corpus",          ["hourly", "--date=20260101"]),
-    # codex / combined (need the synthetic CODEX_HOME)
-    C("codex_since",            ["codex", "--since", "20260101"], codex=True),
-    C("codex_unwindowed",       ["codex"], codex=True),
-    C("codex_empty",            ["codex"], mode="codex_empty", codex=True),
-    C("codex_bad_cost",         ["codex"], mode="codex_bad", codex=True),
-    C("combined_since",         ["combined", "--since", "20260101"], codex=True),
-    C("combined_empty",         ["combined"], mode="codex_empty", codex=True),
-    # cli-contract / error surfaces
-    C("err_bad_metric",         ["daily", "--metric", "bogus"]),
-    C("err_bad_reldate",        ["projects", "--since=-xd"]),
-    C("err_missing_binary",     ["alltime"], env={"CCUSAGE_CMD": "/nonexistent/ccusage-binary-xyz"}),
-    C("err_no_subcommand",      []),
-    C("err_unknown_subcommand", ["frobnicate"]),
-    # relative dates: today-dependent -> dual-run only (stored stdout informational)
-    C("rel_projects_since_3d",  ["projects", "--since", "-3d"], dual_run_only=True),
-    C("rel_daily_since_7d",     ["daily", "--since", "-7d"], dual_run_only=True),
-    # --help, top-level and per subcommand (T-004 plan section 10.1). Captured BEFORE any help
-    # code is written, so the port has a measured target instead of a guess. The top-level form
-    # embeds the module docstring, which is the third product-name source; the per-subcommand
-    # forms pin the usage-line wrapping, whose continuation indent tracks the length of `prog`.
-    C("help_top_short",         ["-h"]),
-    C("help_top_long",          ["--help"]),
-    C("help_projects",          ["projects", "-h"]),
-    C("help_daily",             ["daily", "-h"]),
-    C("help_share",             ["share", "-h"]),
-    C("help_compare",           ["compare", "-h"]),
-    C("help_blocks",            ["blocks", "-h"]),
-    C("help_hourly",            ["hourly", "-h"]),
-    C("help_alltime",           ["alltime", "-h"]),
-    C("help_codex",             ["codex", "-h"]),
-    C("help_combined",          ["combined", "-h"]),
-]
+# Only cases that HAVE a golden. A differential-only case has no file to write or check, and
+# carries no captureAnchor to run at - it is asserted by running both implementations live.
+STORED = [c for c in REGISTRY["cases"] if c["storedGolden"]]
 
-# ---------------------------------------------------------------- capture / check
+
 def run_case(case, codex_home, fixture_home):
+    """One case, through the ANCHORED entrypoint.
+
+    Never `usage.py` directly. A relative-date case is only reproducible against a pinned
+    wall clock, and the wrapper makes `--anchor` mandatory precisely so that injection cannot
+    quietly stop being load-bearing: a capture that forgot to pass one would crash rather
+    than silently record today's date into a golden that then rots overnight.
+
+    Routing only the relative cases through the wrapper would leave two entry paths that
+    differ on traceback-producing cases, so every stored case takes this one.
+    """
     extra = {"CCUSAGE_CMD": f"{sys.executable} {FAKE}",
              "FAKE_MODE": case["mode"],
              "USAGE_CONFIG": FIXTURE_CONFIG}
-    if case["codex"]:
+    if case["codexFixture"]:
         extra["CODEX_HOME"] = codex_home
-    extra.update(case["env"])
-    p = subprocess.run([sys.executable, USAGE, *case["argv"]],
-                       capture_output=True, text=True,
+    extra.update(case["extraEnv"])
+    argv = [sys.executable, WRAPPER, "--anchor", case["captureAnchor"], "--", *case["argv"]]
+    p = subprocess.run(argv, capture_output=True, text=True,
                        env=child_env(fixture_home, extra))
+    # Assert against the CONSTRUCTED command, not against a separately remembered value:
+    # logging the anchor we meant to use would prove intent, and the failure this guards
+    # against is exactly the one where intent and argv disagree.
+    i = argv.index("--anchor")
+    assert argv[i + 1] == case["captureAnchor"], (
+        f"{case['name']}: spawned with anchor {argv[i + 1]!r}, case declares {case['captureAnchor']!r}")
     return {"name": case["name"], "argv": case["argv"], "mode": case["mode"],
-            "codex_fixture": case["codex"], "extra_env": case["env"],
-            "dual_run_only": case["dual_run_only"],
+            "codex_fixture": case["codexFixture"], "extra_env": case["extraEnv"],
+            "capture_anchor": case["captureAnchor"],
             "exit": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
+
+
+def assert_registry_matches_disk():
+    """Exact set equality between stored cases and golden files, in BOTH directions.
+
+    Adding a case without capturing is caught by the missing file. DELETING one leaves an
+    orphan golden that nothing ever opens again, still carrying stale contract data - and no
+    grep finds that, because an orphan file is not a second matrix, just a lie nobody reads.
+    """
+    declared = {c["name"] for c in STORED}
+    on_disk = {f[:-len(".json")] for f in os.listdir(GOLDENS)
+               if f.endswith(".json") and f != "manifest.json"} if os.path.isdir(GOLDENS) else set()
+    problems = [f"case {n} has no golden file" for n in sorted(declared - on_disk)]
+    problems += [f"orphan golden {n}.json: no case in cases.json claims it"
+                 for n in sorted(on_disk - declared)]
+    if problems:
+        raise SystemExit("cases.json and goldens/ disagree:\n  - " + "\n  - ".join(problems))
+
+
+def recover_interrupted_swap():
+    """Finish, or undo, a swap that a previous run was killed in the middle of.
+
+    The install is two renames, so a kill between them leaves GOLDENS absent and
+    `goldens.previous` holding the only complete copy. Without this, the next run would
+    happily create an empty GOLDENS and then delete that backup - destroying the last good
+    artifacts to make room for a directory it had not yet validated.
+
+    Runs before anything else touches the directory, in BOTH modes: --check must not silently
+    report 45 missing goldens when a complete set is sitting in the backup.
+    """
+    backup = GOLDENS + ".previous"
+    if not os.path.isdir(backup):
+        return
+    intact = os.path.isdir(GOLDENS) and any(
+        f.endswith(".json") and f != "manifest.json" for f in os.listdir(GOLDENS))
+    if intact:
+        # The swap completed; this is leftover from the cleanup step, not a live copy.
+        shutil.rmtree(backup, ignore_errors=True)
+        return
+    shutil.rmtree(GOLDENS, ignore_errors=True)
+    os.rename(backup, GOLDENS)
+    print(f"  recovered {os.path.relpath(GOLDENS)} from an interrupted swap")
+
+
+# A staging directory this much older than now cannot belong to a live run: a full capture is
+# 45 subprocesses and finishes in seconds. Generous by three orders of magnitude, because the
+# cost of waiting is a stale directory and the cost of being wrong is deleting another
+# process's work in progress.
+STAGING_ORPHAN_AGE_S = 3600
+
+
+def clear_orphan_staging():
+    """Remove staging directories a KILLED run left behind, without touching a live one.
+
+    `finally` does not run when a process is killed, so a hard stop mid-capture strands a
+    half-written .staging-* next to the goldens. Found by the crash-recovery test itself,
+    which uses os._exit and duly left one on disk — and one of those orphans reached `git add`
+    before it was caught, hence the gitignore entry as well.
+
+    Age, not just the name prefix: deleting every .staging-* unconditionally would let one run
+    destroy another's directory mid-capture. That said, two concurrent captures are unsupported
+    for a more basic reason - they race on the goldens swap itself - so this is about not
+    actively corrupting a neighbour, not about making concurrency work.
+    """
+    now = time.time()
+    for name in os.listdir(HERE):
+        path = os.path.join(HERE, name)
+        if not name.startswith(".staging-") or not os.path.isdir(path):
+            continue
+        try:
+            age = now - os.stat(path).st_mtime
+        except OSError:
+            continue  # vanished under us; whoever owns it is dealing with it
+        if age < STAGING_ORPHAN_AGE_S:
+            print(f"  leaving recent staging directory {name} alone ({age:.0f}s old)")
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        print(f"  removed orphaned staging directory {name} ({age / 3600:.1f}h old)")
+
 
 def main():
     check = "--check" in sys.argv
+    recover_interrupted_swap()
+    clear_orphan_staging()
     fixture_home = fixtures.build_fixture_home()
     codex_home, outside = build_codex_home(fixture_home)
+    staging = None
     try:
         os.makedirs(GOLDENS, exist_ok=True)
-        results, diffs = [], []
-        for case in CASES:
+        if check:
+            assert_registry_matches_disk()
+        results, diffs, bad_exits = [], [], []
+        # Write mode stages everything and swaps at the end. A per-case write would leave the
+        # committed goldens half-updated if a later case failed its exit assertion, which is
+        # the state a regeneration must never produce: some files from the new run, some from
+        # the old, and nothing saying which is which.
+        if not check:
+            # A SIBLING of GOLDENS, deliberately: the final install is an os.rename, which
+            # requires both paths on one filesystem. A system temp dir is often a different
+            # mount, where the rename fails or degrades to a copy.
+            staging = tempfile.mkdtemp(prefix=".staging-", dir=HERE)
+
+        for case in STORED:
             rec = run_case(case, codex_home, fixture_home)
             path = os.path.join(GOLDENS, rec["name"] + ".json")
             if check:
                 with open(path) as fh:
                     stored = json.load(fh)
                 same = all(stored[k] == rec[k] for k in ("exit", "stdout", "stderr"))
-                if not same and not rec["dual_run_only"]:
+                meta = [k for k in ("argv", "mode", "codex_fixture", "extra_env", "capture_anchor")
+                        if stored.get(k) != rec[k]]
+                # The AUTHORED contract, checked in this mode too. Comparing only stored
+                # against observed compares two recordings of the same run: change
+                # expectExit in cases.json and both still agree, so --check stays green
+                # while the registry declares something no artifact supports.
+                if rec["exit"] != case["expectExit"]:
+                    meta.append(f"expectExit (cases.json says {case['expectExit']}, "
+                                f"observed {rec['exit']})")
+                if meta:
+                    # A stale golden can keep the right FILENAME while describing a different
+                    # invocation, so the bytes matching proves nothing until the metadata does.
+                    diffs.append(f"{rec['name']} (metadata: {', '.join(meta)})")
+                elif not same:
                     diffs.append(rec["name"])
-                print(f"  [{'OK ' if same or rec['dual_run_only'] else 'DIFF'}] {rec['name']}")
+                print(f"  [{'OK ' if same and not meta else 'DIFF'}] {rec['name']}")
             else:
-                with open(path, "w") as fh:
+                # An authored expectExit that disagrees with reality must not be laundered
+                # into a new golden. Recording the observed value would accept the
+                # disagreement at exactly the moment the artifact is regenerated, and the
+                # later metadata check would then be comparing two copies of the same lie.
+                if rec["exit"] != case["expectExit"]:
+                    bad_exits.append(
+                        f"{rec['name']}: cases.json declares exit {case['expectExit']}, observed {rec['exit']}")
+                with open(os.path.join(staging, rec["name"] + ".json"), "w") as fh:
                     json.dump(rec, fh, indent=1, ensure_ascii=False)
                 results.append(rec)
-                marker = "dual-run" if rec["dual_run_only"] else f"exit={rec['exit']}"
-                print(f"  captured {rec['name']}  ({marker}, {len(rec['stdout'])}B out, {len(rec['stderr'])}B err)")
+                print(f"  captured {rec['name']}  (exit={rec['exit']}, "
+                      f"{len(rec['stdout'])}B out, {len(rec['stderr'])}B err)")
+
         if check:
             if diffs:
                 print(f"\nDIFFS in {len(diffs)} case(s): {', '.join(diffs)}"); sys.exit(1)
-            print("\nAll stored goldens match a live Python re-run.")
+            print(f"\nAll {len(STORED)} stored goldens match a live Python re-run "
+                  f"at their captureAnchor.")
         else:
+            if bad_exits:
+                print("\nREFUSING to write; committed goldens untouched:\n  - "
+                      + "\n  - ".join(bad_exits))
+                sys.exit(1)
             manifest = {
                 "capturedBy": "tests/golden/capture.py",
+                "capturedVia": os.path.relpath(WRAPPER, os.path.dirname(TESTS)),
+                "caseRegistry": os.path.relpath(CASES_JSON, os.path.dirname(TESTS)),
                 "pythonInterpreter": sys.version.split()[0],
                 "caseCount": len(results),
-                "dualRunOnly": [r["name"] for r in results if r["dual_run_only"]],
+                "captureAnchors": sorted({r["capture_anchor"] for r in results}),
                 "env": ENV_CONTRACT["pinned"],
                 "envPassthrough": ENV_CONTRACT["passthrough"],
                 "notes": [
@@ -178,13 +274,38 @@ def main():
                     "HOME is a synthetic empty fixture home (tests/harness/fixtures.py), so no capture reads the real ~/.claude/projects or ~/.codex.",
                     "TZ is load-bearing: usage.py:709 formats block labels via astimezone(), so 'blocks' output moves with the zone.",
                     "All captures are non-TTY (subprocess pipes); TTY variants are a harness-level TODO.",
-                    "dual_run_only cases embed 'today' (relative dates) - assert them by running both implementations at the same moment, never against stored bytes.",
+                    "Every case ran through 'capturedVia' with a MANDATORY --anchor, so a relative-date case is reproducible: replay it at its own capture_anchor, never at today. The parity harness asserts that routing from the argv it actually spawned.",
+                    "The case matrix is not defined here. 'caseRegistry' is the single definition of every case, stored and differential-only alike.",
                 ],
             }
-            with open(os.path.join(GOLDENS, "manifest.json"), "w") as fh:
+            with open(os.path.join(staging, "manifest.json"), "w") as fh:
                 json.dump(manifest, fh, indent=1)
+            # Swap wholesale, so an obsolete golden from a deleted case cannot survive a
+            # regeneration by simply never being overwritten.
+            #
+            # Deleting GOLDENS and then moving would put the committed artifacts at the mercy
+            # of the step in between: an interruption or a failed move leaves the directory
+            # gone. Two renames instead, with the old copy retained until the new one is
+            # installed, so every intermediate state is recoverable.
+            # No rmtree of the backup here: `recover_interrupted_swap` has already dealt with
+            # any pre-existing one, and deleting a backup before the replacement is installed
+            # is the exact ordering that turns an interruption into data loss.
+            backup = GOLDENS + ".previous"
+            os.rename(GOLDENS, backup)
+            try:
+                os.rename(staging, GOLDENS)
+            except BaseException:
+                os.rename(backup, GOLDENS)  # put it back exactly as it was
+                raise
+            staging = None
+            # Validate the INSTALLED directory before discarding the copy it replaced, so a
+            # bad install is still recoverable from disk rather than only from git.
+            assert_registry_matches_disk()
+            shutil.rmtree(backup, ignore_errors=True)
             print(f"\nWrote {len(results)} goldens + manifest to {os.path.relpath(GOLDENS)}")
     finally:
+        if staging:
+            shutil.rmtree(staging, ignore_errors=True)
         shutil.rmtree(codex_home, ignore_errors=True)
         shutil.rmtree(outside, ignore_errors=True)
         shutil.rmtree(fixture_home, ignore_errors=True)

@@ -6,7 +6,7 @@
  "mode": "empty",
  "codex_fixture": false,
  "extra_env": {},
- "dual_run_only": false,
+ "capture_anchor": "2026-01-03",
  "exit": 0,
  "stdout": "No usage found for all time.\n",
  "stderr": ""

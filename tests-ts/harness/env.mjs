@@ -24,6 +24,7 @@ export const PATHS = {
   fixturesPy: resolve(REPO, "tests", "harness", "fixtures.py"),
   envContract: resolve(REPO, "tests", "harness", "parity-env.json"),
   goldens: resolve(REPO, "tests", "golden", "goldens"),
+  casesJson: resolve(REPO, "tests", "golden", "cases.json"),
   stub: resolve(HERE, "stub.mjs"),
 };
 

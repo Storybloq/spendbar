@@ -21,7 +21,13 @@
 import { existsSync } from "node:fs";
 import { compareRuns } from "./harness/compare.mjs";
 import { ALL_CAPABILITIES, ENABLED, parseCapabilities } from "./harness/capabilities.mjs";
-import { assertRegistry, loadCases, SANCTIONED_STDOUT_REWRITE } from "./harness/cases.mjs";
+import {
+  assertLegacyFieldsAbsent,
+  assertRegistry,
+  assertWaiversArePublished,
+  loadCases,
+} from "./harness/cases.mjs";
+import { resolvePolicy } from "./harness/policies.mjs";
 import { anchorToday, assertEnvironmentContract, buildFixtures, childEnv, PATHS } from "./harness/env.mjs";
 import { describeTermination, runProcess } from "./harness/run.mjs";
 
@@ -29,9 +35,42 @@ import { describeTermination, runProcess } from "./harness/run.mjs";
 const tally = { pass: 0, fail: 0, skip: 0 };
 const failures = [];
 const skipped = [];
-/** case name -> how many times the differential phase executed it; `--final` demands 1. */
-const executed = new Map();
 let section = "";
+
+/**
+ * The three phases that execute CASES, named so the trace can say which one it is looking at
+ * instead of inferring it from call order.
+ *
+ * The wrapper self-tests also spawn subjects, but pass `phase: null` — they carry no case and
+ * exist to prove the injected clock is load-bearing, so folding them into the case trace
+ * would put case-less rows in a structure whose whole purpose is per-case accounting.
+ */
+const PHASE = { REPLAY: "stored-replay", ARGV: "argv-remeasurement", DIFF: "differential" };
+
+/** Every traced subject invocation: {phase, impl, caseName, anchor}. */
+const trace = [];
+
+/**
+ * The spawn call, behind a swappable binding so the routing spy can observe what
+ * `runProcess` actually RECEIVED.
+ *
+ * Reading the argv array `spawnSubject` built would not be independent evidence: the trace
+ * and the spawn would be two readings of one variable, and a regression that records one
+ * array while executing another satisfies both. The indirection puts the observation at the
+ * boundary rather than inside the thing being observed.
+ *
+ * Declared HERE, with the other module state, rather than beside `spawnSubject` further
+ * down. The phase functions run from the module body above that point, so a `let` next to
+ * its only user is still in the temporal dead zone when the wrapper self-tests fire — which
+ * failed every case in the suite with "Cannot access 'spawnImpl' before initialization"
+ * rather than anything resembling a parity difference.
+ */
+let spawnImpl = runProcess;
+
+/** How many times (phase, impl, caseName) actually executed. */
+function tally3(phase, impl, caseName) {
+  return trace.filter((t) => t.phase === phase && t.impl === impl && t.caseName === caseName).length;
+}
 
 const bold = (s) => (process.stdout.isTTY ? `\x1b[1m${s}\x1b[0m` : s);
 
@@ -126,9 +165,44 @@ check("every case carries a known capability tag, and every tag names a real cas
   assertRegistry(cases);
 });
 
+check("every waived comparison cites a published allowlist entry", () => {
+  assertWaiversArePublished();
+});
+
+check("the dual_run_only escape hatch is fully retired", () => {
+  assertLegacyFieldsAbsent();
+});
+
 const fixtures = buildFixtures(python);
-const ANCHOR = anchorToday();
-process.stdout.write(`  using Python ${python}\n  anchor ${ANCHOR}\n  fixture home ${fixtures.home}\n`);
+
+/**
+ * TWO anchors, because stored replay and the live differential are different questions.
+ *
+ * A stored golden is only reproducible against the wall clock it was captured under, so it
+ * replays at its own `captureAnchor`. The differential asks whether the two implementations
+ * agree *right now*, so it runs at a live anchor — and running it at the capture anchor
+ * instead would still pass, because both sides would receive the same wrong value and agree
+ * with each other perfectly. That is why the routing needs its own evidence (`assertAnchorRouting`)
+ * rather than resting on `--final` being green.
+ */
+const LIVE_ANCHOR = anchorToday();
+const CAPTURE_ANCHORS = new Set(cases.filter((c) => c.storedGolden).map((c) => c.captureAnchor));
+process.stdout.write(
+  `  using Python ${python}\n  live anchor ${LIVE_ANCHOR}\n` +
+    `  capture anchor(s) ${[...CAPTURE_ANCHORS].sort().join(", ")}\n  fixture home ${fixtures.home}\n`,
+);
+
+check("the capture and live anchors are distinct, so the phases are distinguishable", () => {
+  // Today's date and a fixed past capture anchor differ by calendar accident. An accident is
+  // not an assertion: on the one day they coincide, every routing check below would still
+  // pass while proving nothing. Fail loudly instead of silently losing the discriminator.
+  const collide = [...CAPTURE_ANCHORS].filter((a) => a === LIVE_ANCHOR);
+  assert(
+    collide.length === 0,
+    `captureAnchor ${collide.join(", ")} equals today (${LIVE_ANCHOR}); the anchor-routing ` +
+      `assertions cannot tell the phases apart until tomorrow`,
+  );
+});
 
 try {
   selfTestHarness();
@@ -136,6 +210,7 @@ try {
   replayPythonOracle();
   verifyArgvMatrix();
   runDifferential();
+  assertAnchorRouting();
   if (FINAL) finalInvariant();
 } finally {
   fixtures.dispose();
@@ -299,17 +374,14 @@ function selfTestWrappers() {
 function replayPythonOracle() {
   heading("python oracle replay — the harness path reproduces all stored goldens");
   for (const c of cases) {
-    if (!c.golden) continue;
-    if (c.dualRunOnly) {
-      // Not a hole: stored bytes are meaningless for a case whose output embeds "today",
-      // so the assertion lives in the differential phase, which runs BOTH implementations
-      // at one anchor. The final invariant verifies that it actually did.
-      skip(c.name, "relative dates embed today; asserted by dual-run, never against stored bytes",
-        { sanctioned: true });
-      continue;
-    }
+    if (!c.storedGolden) continue;
+    // No dual_run_only branch any more. The two relative-date cases used to be skipped here
+    // because their output embeds "today" and stored bytes were therefore meaningless; they
+    // are now captured at a FIXED captureAnchor and replayed at that same anchor, which
+    // makes them ordinary comparable goldens. Skipping them and claiming the differential
+    // covered it was the weaker arrangement: a flag proves code exists, not that it ran.
     check(c.name, () => {
-      const actual = pythonRun(c.argv, { anchor: ANCHOR, case: c });
+      const actual = pythonRun(c.argv, { anchor: c.captureAnchor, case: c, phase: PHASE.REPLAY });
       const expected = {
         stdout: Buffer.from(c.golden.stdout, "utf8"),
         stderr: Buffer.from(c.golden.stderr, "utf8"),
@@ -332,34 +404,23 @@ function replayPythonOracle() {
  * is used to judge the port.
  */
 function verifyArgvMatrix() {
-  const extra = cases.filter((c) => !c.golden);
+  const extra = cases.filter((c) => !c.storedGolden);
   heading(`argv matrix — ${extra.length} transcribed rows re-measured against live python`);
   for (const c of extra) {
     check(c.name, () => {
-      const py = pythonRun(c.argv, { anchor: ANCHOR, case: c });
-      assert(
-        py.termination.kind === "exit",
-        `python did not terminate normally: ${describeTermination(py.termination)}`,
-      );
+      const py = pythonRun(c.argv, { anchor: LIVE_ANCHOR, case: c, phase: PHASE.ARGV });
+      // The policy owns the python-side predicates: a case that waives a stream in the
+      // differential must already be showing, here, that python's half of the waiver is
+      // still true — that it really does emit a traceback, or really does write a partial
+      // table before dying. If that stops being so, the allowlist entry describes a
+      // behaviour that no longer exists and the waiver is unearned.
+      resolvePolicy(c.comparisonPolicy).remeasure(py, c);
       assert(
         py.termination.status === c.expectExit,
         `transcribed exit ${c.expectExit}, python now exits ${py.termination.status}\n` +
           `  argv: ${JSON.stringify(c.argv)}\n` +
           `  stderr: ${JSON.stringify(py.stderr.toString("utf8").slice(0, 200))}`,
       );
-      // A case that waives stderr comparison must at least be diagnosing something.
-      if (c.partialStdout) {
-        // This phase runs python only, so it pins the ORACLE half of ALLOWLIST 23: that
-        // usage.py really does write part of its output before dying. If that ever stops
-        // being true, the allowlist entry describes a behaviour that no longer exists.
-        assert(py.stderr.length > 0, "case waives stderr comparison but python emits none");
-        assert(py.stdout.length > 0,
-          "ALLOWLIST 23 says python fails PART WAY THROUGH rendering; it now emits nothing first");
-      }
-      if (c.compareStderr === false) {
-        assert(py.stderr.length > 0, "case waives stderr comparison but python emits none");
-        assert(py.stdout.length === 0, "a failure path wrote to stdout");
-      }
     });
   }
 }
@@ -377,73 +438,18 @@ function runDifferential() {
       skip(c.name, "dist/main.js does not exist yet (Step 1b)");
       continue;
     }
-    executed.set(c.name, (executed.get(c.name) ?? 0) + 1);
     check(c.name, () => {
-      const py = pythonRun(c.argv, { anchor: ANCHOR, case: c });
-      const ts = tsRun(c.argv, { anchor: ANCHOR, case: c });
-      // A matching number is not enough: the contract is that both terminate normally with
-      // the required status, so a pair that both died on a signal cannot pass by agreeing.
-      assert(
-        py.termination.kind === "exit",
-        `python did not terminate normally: ${describeTermination(py.termination)}`,
-      );
-      if (c.expectExit !== undefined) {
-        assert(py.termination.status === c.expectExit, `python exited ${py.termination.status}, case requires ${c.expectExit}`);
-      }
-      if (c.rewrite) {
-        // ALLOWLIST 22: rewrite the ONE sanctioned span in Python's output, then require
-        // byte equality for everything else.
-        const { from, to } = SANCTIONED_STDOUT_REWRITE;
-        const pyText = py.stdout.toString("utf8");
-        assert(pyText.includes(from), `case ${c.name} no longer contains the sanctioned span`);
-        assertSame(`case ${c.name} diverged outside the sanctioned rewrite`,
-          { ...py, stdout: Buffer.from(pyText.replace(from, to), "utf8") }, ts);
-        return;
-      }
-      if (c.partialStdout) {
-        // ALLOWLIST 23: the oracle crashes PART WAY THROUGH rendering, having already
-        // written a header, because it prints as it goes. The port renders to a buffer and
-        // writes once, so it emits nothing at all on a failure path.
-        //
-        // Both streams are therefore waived, which is only defensible with replacement
-        // assertions sharp enough that the interesting regressions still fail here: the
-        // port silently succeeding, the port half-writing a table, or either side failing
-        // without saying why.
-        assert(py.stdout.length > 0,
-          "python no longer emits partial output before failing; ALLOWLIST 23 needs revisiting");
-        assert(ts.stdout.length === 0,
-          `the port must not half-write a table before failing; got ${ts.stdout.length}B`);
-        for (const [who, r] of [["python", py], ["typescript", ts]]) {
-          assert(r.stderr.length > 0, `${who} produced no stderr, but this case must diagnose`);
-        }
-        assert(ts.termination.kind === "exit" && ts.termination.status === c.expectExit,
-          `typescript ${describeTermination(ts.termination)}, case requires exit ${c.expectExit}`);
-        return;
-      }
-      if (c.compareStderr === false) {
-        // ALLOWLIST 19: an uncaught CPython traceback, whose bytes name CPython source
-        // files and line numbers. Waiving the comparison is only defensible alongside a
-        // replacement assertion, or "the port printed nothing" would silently pass.
-        for (const [who, r] of [["python", py], ["typescript", ts]]) {
-          assert(r.stderr.length > 0, `${who} produced no stderr, but this case must diagnose`);
-          assert(r.stdout.length === 0, `${who} wrote to stdout on a failure path`);
-        }
-        // "nonempty stderr" alone would accept a module-load failure or an unrelated stack
-        // trace (code review R1). The port's replacement diagnostic is part of the contract,
-        // so pin its SHAPE: exactly one newline-terminated line, matching the case's pattern.
-        const tsErr = ts.stderr.toString("utf8");
-        assert(tsErr.endsWith("\n"), `typescript stderr is not newline-terminated: ${JSON.stringify(tsErr)}`);
-        assert(
-          tsErr.split("\n").length === 2,
-          `the port must emit ONE diagnostic line, not a traceback: ${JSON.stringify(tsErr)}`,
-        );
-        if (c.tsStderr) {
-          assert(c.tsStderr.test(tsErr), `typescript stderr ${JSON.stringify(tsErr)} does not match ${c.tsStderr}`);
-        }
-        assertSame(`case ${c.name} diverged`, { ...py, stderr: ts.stderr }, ts);
-        return;
-      }
-      assertSame(`case ${c.name} diverged`, py, ts);
+      const py = pythonRun(c.argv, { anchor: LIVE_ANCHOR, case: c, phase: PHASE.DIFF });
+      const ts = tsRun(c.argv, { anchor: LIVE_ANCHOR, case: c, phase: PHASE.DIFF });
+      // The whole comparison is the policy's, including the shared "python terminated
+      // normally with the transcribed status" preamble. Keeping a copy of that preamble
+      // here would mean two places could disagree about what a case requires, which is the
+      // duplication this ticket exists to remove.
+      //
+      // The policy throws on any violation and `check` reports it like any other failure.
+      // `resolvePolicy` cannot throw here: assertRegistry already rejected unknown policy
+      // names before a single subject was spawned.
+      resolvePolicy(c.comparisonPolicy).differential(py, ts, c);
     });
   }
 }
@@ -466,18 +472,113 @@ function finalInvariant() {
   check("every sanctioned skip really was asserted by the differential phase", () => {
     // The label is a claim; this is the proof. Without it, marking a skip `sanctioned`
     // would be a way to delete coverage and still pass `--final`.
-    const unproven = skipped.filter((s) => (executed.get(s.name) ?? 0) !== 1);
+    const unproven = skipped.filter((s) => tally3(PHASE.DIFF, "python", s.name) !== 1);
     assert(
       unproven.length === 0,
-      `skipped but never dual-run: ${unproven.map((s) => `${s.name} ran ${executed.get(s.name) ?? 0}×`).join(", ")}`,
+      `skipped but never dual-run: ` +
+        unproven.map((s) => `${s.name} ran ${tally3(PHASE.DIFF, "python", s.name)}×`).join(", "),
     );
   });
-  check("every declared case ran exactly once in the differential phase", () => {
-    const wrong = cases
-      .map((c) => [c.name, executed.get(c.name) ?? 0])
-      .filter(([, n]) => n !== 1)
-      .map(([name, n]) => `${name} ran ${n}×`);
-    assert(wrong.length === 0, wrong.join(", "));
+
+  /**
+   * Execution counts, keyed by (phase, implementation, case).
+   *
+   * A single global "each case ran exactly once" tally cannot express this. A stored case
+   * necessarily runs THREE times — once replaying its golden, then once per implementation
+   * in the differential — so a global count of 1 was only ever right because the replay
+   * phase was not being counted. Collapsing the phases would hide a duplicated replay and a
+   * missing TypeScript run behind the same number.
+   */
+  check("every case executed exactly the phases it is supposed to, and no others", () => {
+    const wrong = [];
+    for (const c of cases) {
+      const want = c.storedGolden
+        ? { [PHASE.REPLAY]: { python: 1, typescript: 0 }, [PHASE.ARGV]: { python: 0, typescript: 0 }, [PHASE.DIFF]: { python: 1, typescript: 1 } }
+        : { [PHASE.REPLAY]: { python: 0, typescript: 0 }, [PHASE.ARGV]: { python: 1, typescript: 0 }, [PHASE.DIFF]: { python: 1, typescript: 1 } };
+      for (const [phase, impls] of Object.entries(want)) {
+        for (const [impl, n] of Object.entries(impls)) {
+          const got = tally3(phase, impl, c.name);
+          if (got !== n) wrong.push(`${c.name}: ${phase}/${impl} ran ${got}×, expected ${n}×`);
+        }
+      }
+    }
+    assert(wrong.length === 0, wrong.join("\n  "));
+  });
+
+  check("no traced invocation belongs to a case that is not in the registry", () => {
+    const known = new Set(cases.map((c) => c.name));
+    const strays = trace.filter((t) => t.caseName !== null && !known.has(t.caseName));
+    assert(strays.length === 0, `traced runs for unknown cases: ${strays.map((t) => t.caseName).join(", ")}`);
+  });
+}
+
+/**
+ * The anchor routing, proved from what was SPAWNED rather than from what was intended.
+ *
+ * Every entry's anchor was parsed back out of the argv handed to `runProcess`, so a mutation
+ * that records one value and passes another cannot satisfy this. That mutation is the whole
+ * reason the check exists: `--final` stays green through it, because Python and TypeScript
+ * would both receive the same wrong anchor and agree with each other perfectly.
+ */
+function assertAnchorRouting() {
+  heading("anchor routing — stored replay and the differential must not share a clock");
+  const byName = new Map(cases.map((c) => [c.name, c]));
+
+  check("stored replay used each case's captureAnchor", () => {
+    const wrong = trace
+      .filter((t) => t.phase === PHASE.REPLAY)
+      .filter((t) => t.anchor !== byName.get(t.caseName).captureAnchor)
+      .map((t) => `${t.caseName} replayed at ${t.anchor}, captured at ${byName.get(t.caseName).captureAnchor}`);
+    assert(wrong.length === 0, wrong.join("\n  "));
+  });
+
+  check("the differential and argv phases used the live anchor", () => {
+    const wrong = trace
+      .filter((t) => t.phase === PHASE.DIFF || t.phase === PHASE.ARGV)
+      .filter((t) => t.anchor !== LIVE_ANCHOR)
+      .map((t) => `${t.caseName} [${t.phase}/${t.impl}] ran at ${t.anchor}, live anchor is ${LIVE_ANCHOR}`);
+    assert(wrong.length === 0, wrong.join("\n  "));
+  });
+
+  check("the two phases really did use different clocks", () => {
+    // Guard against the whole check passing vacuously: if no stored case replayed, the
+    // first assertion above is trivially true and the routing is unverified.
+    const replayed = trace.filter((t) => t.phase === PHASE.REPLAY);
+    assert(replayed.length > 0, "no stored replay was traced; the routing assertions are vacuous");
+    const anchors = new Set(replayed.map((t) => t.anchor));
+    assert(!anchors.has(LIVE_ANCHOR), "stored replay ran at the live anchor; the split is not real");
+  });
+
+  check("the traced anchor is what runProcess RECEIVED, not what the caller intended", () => {
+    // A real spy, wrapping the spawn boundary. An earlier version of this check read the
+    // argv array off the trace entry — but the trace and the spawn were reading the SAME
+    // local array, so a regression that built one array to record and a different one to
+    // execute would satisfy it. Two readings of one variable are not two witnesses.
+    //
+    // Here `seen` is captured inside runProcess's own call, so the comparison is between
+    // what was executed and what was recorded, which is the question.
+    const before = trace.length;
+    const probe = "2026-03-04";
+    const seen = [];
+    const real = spawnImpl;
+    spawnImpl = (file, args, opts) => {
+      seen.push(args);
+      return real(file, args, opts);
+    };
+    try {
+      pythonRun(["projects"], { anchor: probe, case: null, phase: PHASE.DIFF });
+    } finally {
+      spawnImpl = real;
+    }
+    assert(seen.length === 1, `the probe spawned ${seen.length} processes, expected 1`);
+    assert(trace.length === before + 1, "the probe did not produce exactly one trace entry");
+    const entry = trace[trace.length - 1];
+    assert(
+      anchorFromArgv(seen[0]) === entry.anchor,
+      `runProcess received --anchor ${anchorFromArgv(seen[0])} but the trace recorded ${entry.anchor}`,
+    );
+    assert(entry.anchor === probe, `traced ${entry.anchor}, requested ${probe}`);
+    trace.pop(); // the probe is not a case execution and must not pollute the tallies
   });
 }
 
@@ -492,16 +593,42 @@ function fixtureEnv(c) {
   return { ...extra, ...(c?.extraEnv ?? {}) };
 }
 
-function pythonRun(argv, { anchor, case: c } = {}) {
-  return runProcess(python, [PATHS.usageWrapper, "--anchor", anchor, "--", ...argv], {
-    env: childEnv(fixtures.home, fixtureEnv(c)),
-  });
+/**
+ * The anchor a spawned command was ACTUALLY given, read back out of its argv.
+ *
+ * Both wrappers take `--anchor <value> -- <argv>`, so this is a parse, not a guess. Reading
+ * the caller's `anchor` parameter instead would record intent: a mutation that traces
+ * `LIVE_ANCHOR` while passing `captureAnchor` to `runProcess` satisfies an intent-based
+ * assertion perfectly, and that is precisely the mutation the routing check must catch.
+ */
+function anchorFromArgv(args) {
+  const i = args.indexOf("--anchor");
+  if (i === -1 || i + 1 >= args.length) throw new Error(`no --anchor in spawned argv: ${JSON.stringify(args)}`);
+  return args[i + 1];
 }
 
-function tsRun(argv, { anchor, case: c } = {}) {
-  return runProcess(process.execPath, [PATHS.cliWrapper, "--anchor", anchor, "--", ...argv], {
-    env: childEnv(fixtures.home, fixtureEnv(c)),
-  });
+/**
+ * One traced subject invocation. `phase` is explicit rather than inferred, because the two
+ * wrapper self-tests also call these functions and must NOT enter the case trace — they pass
+ * no case and exist to prove the injected clock is load-bearing at all.
+ */
+function spawnSubject({ impl, phase, argv, anchor, case: c }) {
+  const file = impl === "python" ? python : process.execPath;
+  const wrapper = impl === "python" ? PATHS.usageWrapper : PATHS.cliWrapper;
+  const args = [wrapper, "--anchor", anchor, "--", ...argv];
+  const result = spawnImpl(file, args, { env: childEnv(fixtures.home, fixtureEnv(c)) });
+  if (phase !== null) {
+    trace.push({ phase, impl, caseName: c?.name ?? null, anchor: anchorFromArgv(args) });
+  }
+  return result;
+}
+
+function pythonRun(argv, { anchor, case: c, phase = null } = {}) {
+  return spawnSubject({ impl: "python", phase, argv, anchor, case: c });
+}
+
+function tsRun(argv, { anchor, case: c, phase = null } = {}) {
+  return spawnSubject({ impl: "typescript", phase, argv, anchor, case: c });
 }
 
 // ---------------------------------------------------------------- exit

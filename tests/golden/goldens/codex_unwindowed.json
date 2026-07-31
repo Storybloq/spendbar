@@ -6,7 +6,7 @@
  "mode": "normal",
  "codex_fixture": true,
  "extra_env": {},
- "dual_run_only": false,
+ "capture_anchor": "2026-01-03",
  "exit": 0,
  "stdout": "Codex per-project usage (all time)   [totals reconcile: OK]   [session-start $36.20 vs codex daily $31.70 (Δ $+4.50)]\ncwd resolved: 8/12 sessions; unknown: $5.10 (4 sessions)\n\nProject                       Cost          Tokens  Sess   Share\n----------------------------------------------------------------\nalpha                       $18.50             185     4   51.1%\nalpha-tools                  $6.00              60     1   16.6%\nunknown (no session log)       $5.10              51     4   14.1%\nBeta Product                 $5.00              50     1   13.8%\n(agent scratchpads)          $0.90               9     1    2.5%\n-tmp-legitimate-project       $0.70               7     1    1.9%\n----------------------------------------------------------------\nTOTAL                       $36.20             362    12  100.0%\n\nmodel tokens: gpt-5.5=297  gpt-5.6-sol=40  gpt-5.4-mini=20  unclassified=5\nnote: token sum 362 differs from codex daily total 317.\n",
  "stderr": ""

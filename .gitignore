@@ -16,3 +16,8 @@ reviews.db-wal
 
 # macOS
 .DS_Store
+
+# Golden-capture working directories. Siblings of tests/golden/goldens/ so the final install
+# can be an os.rename on one filesystem; a process killed mid-capture can leave one behind.
+tests/golden/.staging-*/
+tests/golden/goldens.previous/

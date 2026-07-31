@@ -303,7 +303,7 @@ Exit code and stream are frozen; the message text is not.
 
 ### Uncatchable-Python-crash scope, continued (added 2026-07-31, T-004 Step 3)
 
-19. **`hourly --date <value datetime.date.fromisoformat rejects>`.** A fourth member of the
+19. `[ALLOWLIST-19]` **`hourly --date <value datetime.date.fromisoformat rejects>`.** A fourth member of the
     entry 10–12 class, found by measuring the argv surface rather than by reading the source.
     `cmd_hourly` is the one date-taking command that never calls `norm_date`: usage.py:600
     takes `a.date` verbatim and usage.py:618 hands it straight to
@@ -395,13 +395,35 @@ Exit code and stream are frozen; the message text is not.
     Chosen over "whatever JS insertion order gives" because an arbitrary-but-stable order is
     still arbitrary, and a user comparing two runs deserves the same table.
 
-22. **`--help` text: product name and the config-path sentence.** Three spans of the help
-    output name the product (plan section 9): argparse's `prog`, the `alltime` hint
-    `(… see 'usage codex')`, and the module docstring, which `description=__doc__` renders
-    verbatim and which contains 13 `usage <subcommand>` references plus 15 bare `usage`
-    tokens. The shipped binary calls itself `spendbar`, so its help necessarily differs from
-    every stored golden — and because argparse aligns usage-line continuations under `prog`,
-    the *wrapping* moves too, not just the word.
+22. **`--help` text: product name and the config-path sentence.**
+
+    This entry authorises two different changes with two different kinds of evidence behind
+    them, so it carries **two stable IDs**. They are classified separately on purpose: bundled
+    under one number, the half with weaker evidence sheltered under the half with stronger
+    evidence, and nothing could tell you which was which (T-005 plan §3.5).
+
+    | ID | change | how it is asserted | enforced by T-005 |
+    |---|---|---|---|
+    | `[ALLOWLIST-22a]` | the product-name spans | the reviewed shipped-help snapshot, a non-case test | no — see below |
+    | `[ALLOWLIST-22b]` | the config-path sentence | the `help-config-path` comparison policy, on 5 named cases | **yes** |
+
+    Only `ALLOWLIST-22b` is validated by the parity harness, because only it is consumed by a
+    comparison policy — and a policy is something the harness can *watch execute*, on cases it
+    can name and count. `ALLOWLIST-22a` is asserted by a snapshot test, and "a test with this
+    name exists" is not evidence that it ran or that it checks this entry. Proving that needs a
+    runner reporting which allowlist IDs actually executed, which is deferred to its own ticket
+    rather than claimed here; naming the test would be the same hollow evidence as the
+    `dual_run_only` flag this ticket removed.
+
+    **22a — the product name.** Three spans of the help output name the product (plan section
+    9): argparse's `prog`, the `alltime` hint `(… see 'usage codex')`, and the module
+    docstring, which `description=__doc__` renders verbatim and which contains 13
+    `usage <subcommand>` references plus 15 bare `usage` tokens. The shipped binary calls
+    itself `spendbar`, so its help necessarily differs from every stored golden — and because
+    argparse aligns usage-line continuations under `prog`, the *wrapping* moves too, not just
+    the word.
+
+    **22b — the config-path sentence**, below.
 
     ALLOWLIST 5 does **not** cover this. It sanctions the config default *path*; it says
     nothing about rewriting help *text*, and assuming it carried over would be an overreach.
@@ -439,13 +461,22 @@ Exit code and stream are frozen; the message text is not.
 
 ## Assertion modes
 
-- **Stored-golden mode**: byte-compare vs `goldens/*.json` on the capture machine
-  (goldens are HOME-scoped). Cases in `manifest.dualRunOnly` are excluded here.
-- **Dual-run mode**: run Python and TS at the same moment in the same env; compare
-  everything including relative-date cases. This is the authoritative check and is
-  machine-independent.
+Every case is defined once, in `cases.json`, and each mode below states which cases it runs
+and at which anchor. The parity harness proves that routing from the argv it actually
+spawned, not from what the caller intended.
 
-23. **A mid-render failure produces no partial stdout.** usage.py prints as it goes, so a
+- **Stored-golden mode**: byte-compare vs `goldens/*.json` on the capture machine (goldens
+  are HOME-scoped), for `storedGolden: true` cases, replayed at each case's own
+  `captureAnchor`. *No case is excluded.* This previously exempted `manifest.dualRunOnly` —
+  two relative-date cases whose output embedded "today", so their stored bytes were
+  meaningless — which meant two goldens nothing ever checked. Pinning the clock makes them
+  ordinary comparable goldens, and the exemption is gone rather than relabelled (T-005).
+- **Differential mode**: run Python and TS at the same moment in the same env, at a *live*
+  anchor, over every case. This is the authoritative check and is machine-independent. The
+  live anchor is asserted distinct from every `captureAnchor`, so the two modes cannot
+  silently collapse into one.
+
+23. `[ALLOWLIST-23]` **A mid-render failure produces no partial stdout.** usage.py prints as it goes, so a
     crash part way through a table leaves the header already on stdout. The port renders each
     command to a string and writes it once, so it emits *nothing* on a failure path.
 

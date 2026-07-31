@@ -6,7 +6,7 @@
  "mode": "float",
  "codex_fixture": false,
  "extra_env": {},
- "dual_run_only": false,
+ "capture_anchor": "2026-01-03",
  "exit": 0,
  "stdout": "Per-project usage (all time)   [totals reconcile: OK]\n\nProject                         Tokens         Fable          Opus        Sonnet         Haiku        Cost     Fable$\n---------------------------------------------------------------------------------------------------------------------\nfoo                                300             0             6             0             0      $84.00      $0.00\n---------------------------------------------------------------------------------------------------------------------\nTOTAL                                                                                               $84.00      $0.00\n",
  "stderr": ""

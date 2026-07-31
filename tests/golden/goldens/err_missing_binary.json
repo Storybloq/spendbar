@@ -8,7 +8,7 @@
  "extra_env": {
   "CCUSAGE_CMD": "/nonexistent/ccusage-binary-xyz"
  },
- "dual_run_only": false,
+ "capture_anchor": "2026-01-03",
  "exit": 1,
  "stdout": "",
  "stderr": "'/nonexistent/ccusage-binary-xyz' not found. Install Node.js (node + npx), or set CCUSAGE_CMD to your ccusage command (e.g. CCUSAGE_CMD='ccusage'). See README Requirements.\n"
