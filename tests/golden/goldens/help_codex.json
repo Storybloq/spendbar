@@ -1,0 +1,14 @@
+{
+ "name": "help_codex",
+ "argv": [
+  "codex",
+  "-h"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "usage: usage codex [-h] [--since SINCE] [--until UNTIL]\n\noptions:\n  -h, --help     show this help message and exit\n  --since SINCE\n  --until UNTIL\n",
+ "stderr": ""
+}

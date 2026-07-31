@@ -1,0 +1,14 @@
+{
+ "name": "help_projects",
+ "argv": [
+  "projects",
+  "-h"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "usage: usage projects [-h] [--since SINCE] [--until UNTIL]\n                      [--metric {tokens,cost,both}]\n\noptions:\n  -h, --help            show this help message and exit\n  --since SINCE\n  --until UNTIL\n  --metric {tokens,cost,both}\n                        per-model columns: tokens (default), cost, or both\n",
+ "stderr": ""
+}

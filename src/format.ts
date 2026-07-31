@@ -115,17 +115,58 @@ export function pct(part: number, whole: number): number {
 
 // ---------------------------------------------------------------- width/alignment
 
+/**
+ * CPython `len(s)`: the number of CODE POINTS (ISS-007).
+ *
+ * `s.length` is UTF-16 code units, so it counts every astral character twice. Padding
+ * computed from it emits one space too few per astral character, in every column of every
+ * renderer, and the trigger is user-controlled — the config `renames` map takes arbitrary
+ * strings and project names come from paths. `renderTable`'s rule length is `len(hdr)` for
+ * the same reason.
+ *
+ * Counted rather than `[...s].length` because this runs per cell per row, and an unpaired
+ * surrogate counts as one code point here exactly as it does in CPython.
+ */
+export function pyLen(s: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
+      const d = s.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d <= 0xdfff) i++;
+    }
+    n++;
+  }
+  return n;
+}
+
 /** CPython `f"{s:<width>}"` for a string: left-aligned, never truncates. */
 export function padRight(s: string, width: number): string {
-  return s.length >= width ? s : s + " ".repeat(width - s.length);
+  const len = pyLen(s);
+  return len >= width ? s : s + " ".repeat(width - len);
 }
 
 /** CPython `f"{s:><width>}"` for a string: right-aligned, never truncates. */
 export function padLeft(s: string, width: number): string {
-  return s.length >= width ? s : " ".repeat(width - s.length) + s;
+  const len = pyLen(s);
+  return len >= width ? s : " ".repeat(width - len) + s;
 }
 
 /** CPython `f"{x:><width>,.<decimals>f}"` in one call. */
 export function num(x: number, width: number, decimals: number, opts: FixedOpts = {}): string {
   return padLeft(pyFixed(x, decimals, opts), width);
+}
+
+/**
+ * Python truthiness for JSON values.
+ *
+ * The cases that bite: an empty dict `{}` and an empty list `[]` are FALSY in Python and
+ * TRUTHY in JavaScript, so `if not u`, `if b.get("isGap")` and `a or b` all change meaning
+ * under a literal transcription. Measured against the oracle for each site that uses it.
+ */
+export function pyTruthy(v: unknown): boolean {
+  if (v === null || v === undefined || v === false || v === 0 || v === "") return false;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === "object") return Object.keys(v as object).length > 0;
+  return Boolean(v);
 }

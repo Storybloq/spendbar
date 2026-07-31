@@ -5,7 +5,7 @@
  * the resulting YYYYMMDD keys are threaded down. Re-normalizing a relative `-Nd` inside an
  * aggregator across local midnight would shift one window by a day.
  */
-import { UsageError } from "./errors.js";
+import { UsageError, ValueError } from "./errors.js";
 import { pyRepr } from "./pyrepr.js";
 import { isDecimalDigit, decimalValue } from "./unicode-tables.js";
 import type { RuntimeDeps } from "./context.js";
@@ -115,4 +115,86 @@ export function windowLabel(
   if (!since && !until) return "(all time)";
   if (since && !until) return `(since ${show(since)})`;
   return `(${since ? show(since) : "start"} -> ${show(until as string)})`;
+}
+
+/**
+ * `datetime.date.fromisoformat(s)` as of the reference CPython, returning the resolved
+ * calendar date as `YYYY-MM-DD`, or throwing for anything it rejects.
+ *
+ * Only `cmd_hourly` reaches this — usage.py:600 takes `--date` verbatim and usage.py:618
+ * hands it straight here, so a reject is an UNCAUGHT ValueError: traceback, exit 1, no
+ * stdout (ALLOWLIST 19). Every other date-taking command routes through `norm_date` first.
+ *
+ * The accepted grammar was MEASURED against the reference interpreter, not assumed:
+ * `YYYY-MM-DD`, `YYYYMMDD`, and ISO week dates `YYYY-Www-D` / `YYYYWwwD`. It does NOT
+ * accept ordinal dates (`2026-001`), unpadded fields (`2026-1-1`), a time component,
+ * surrounding whitespace, a leading `+`, or non-ASCII digits — all of which are the
+ * plausible-looking near-misses that a hand-written regex tends to let through.
+ */
+export function pyDateFromIsoFormat(s: string): string {
+  const bad = (): never => {
+    throw new ValueError(`Invalid isoformat string: ${pyRepr(s)}`);
+  };
+  const digits = (t: string): boolean => /^[0-9]+$/.test(t);
+
+  let y: number, mo: number, da: number;
+  // The weekday is OPTIONAL and defaults to Monday: `2026W01` and `2026-W01` both resolve to
+  // 2025-12-29. The compact seven-character form is the reachable one — `2026-W01` is eight
+  // characters, so usage.py:601's len==8 rewrite mangles it to `2026-W0-1` before this is
+  // ever called, and the oracle rejects it. Measured both ways; only `2026W01` gets here.
+  const dashedWeek = /^(\d{4})-W(\d{2})(?:-(\d))?$/.exec(s);
+  const compactWeek = /^(\d{4})W(\d{2})(\d)?$/.exec(s);
+  const week = dashedWeek ?? compactWeek;
+  if (week) {
+    y = Number(week[1]);
+    const w = Number(week[2]);
+    const d = week[3] === undefined ? 1 : Number(week[3]);
+    if (y < 1 || y > 9999 || w < 1 || w > isoWeeksInYear(y) || d < 1 || d > 7) {
+      throw new ValueError(`Invalid isoformat string: ${pyRepr(s)}`);
+    }
+    // ISO week 1 contains Jan 4th; day 1 is Monday.
+    //
+    // `setUTCFullYear` is not redundant: `Date.UTC` maps years 0..99 to 1900..1999, so
+    // `0001-W01-1` would otherwise resolve against 1901 and return a 1901 date. The oracle
+    // returns 0001-01-01.
+    const jan4 = new Date(Date.UTC(y, 0, 4));
+    jan4.setUTCFullYear(y);
+    const jan4Dow = ((jan4.getUTCDay() + 6) % 7) + 1; // 1=Mon..7=Sun
+    const dt = new Date(jan4.getTime() + ((w - 1) * 7 + (d - jan4Dow)) * 86_400_000);
+    const ry = dt.getUTCFullYear();
+    // A week date near either boundary can resolve OUTSIDE datetime.date's range — the
+    // oracle raises `year 10000 is out of range` for 9999-W52-7 rather than wrapping.
+    if (ry < 1 || ry > 9999) throw new ValueError(`year ${ry} is out of range`);
+    return `${String(ry).padStart(4, "0")}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+  }
+
+  if (s.length === 10 && s[4] === "-" && s[7] === "-") {
+    const [a, b, c] = [s.slice(0, 4), s.slice(5, 7), s.slice(8, 10)];
+    if (!digits(a) || !digits(b) || !digits(c)) bad();
+    [y, mo, da] = [Number(a), Number(b), Number(c)];
+  } else if (s.length === 8 && digits(s)) {
+    [y, mo, da] = [Number(s.slice(0, 4)), Number(s.slice(4, 6)), Number(s.slice(6, 8))];
+  } else {
+    return bad();
+  }
+
+  // The oracle distinguishes these two from the parse failure above, and from each other.
+  if (mo < 1 || mo > 12) throw new ValueError("month must be in 1..12");
+  if (da < 1 || da > daysInMonth(y, mo)) throw new ValueError("day is out of range for month");
+  if (y < 1) throw new ValueError(`year ${y} is out of range`);
+  return `${String(y).padStart(4, "0")}-${String(mo).padStart(2, "0")}-${String(da).padStart(2, "0")}`;
+}
+
+function daysInMonth(y: number, m: number): number {
+  return [31, isLeap(y) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] as number;
+}
+
+function isLeap(y: number): boolean {
+  return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+}
+
+/** 53 iff Jan 1 is a Thursday, or it is a leap year starting on a Wednesday. */
+function isoWeeksInYear(y: number): number {
+  const dow = (yy: number): number => ((new Date(Date.UTC(yy, 0, 1)).getUTCDay() + 6) % 7) + 1;
+  return dow(y) === 4 || (isLeap(y) && dow(y) === 3) ? 53 : 52;
 }

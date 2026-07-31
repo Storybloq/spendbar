@@ -1,0 +1,14 @@
+{
+ "name": "help_share",
+ "argv": [
+  "share",
+  "-h"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "usage: usage share [-h] [--since SINCE] [--until UNTIL] [--vs VS]\n\noptions:\n  -h, --help     show this help message and exit\n  --since SINCE\n  --until UNTIL\n  --vs VS\n",
+ "stderr": ""
+}

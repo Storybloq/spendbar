@@ -18,7 +18,7 @@ committed reference from the capture machine.
 Run: python3 tests/golden/capture.py            # writes goldens/*.json + manifest.json
      python3 tests/golden/capture.py --check    # re-runs Python and diffs vs stored
 """
-import importlib.util, json, os, shutil, subprocess, sys, tempfile
+import importlib.util, json, os, shutil, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = os.path.dirname(HERE)
@@ -26,41 +26,34 @@ USAGE = os.path.join(TESTS, "..", "usage.py")
 FAKE = os.path.join(TESTS, "fake_ccusage.py")
 FIXTURE_CONFIG = os.path.join(TESTS, "fixture-config.json")
 GOLDENS = os.path.join(HERE, "goldens")
+HARNESS = os.path.join(TESTS, "harness")
+PARITY_ENV = os.path.join(HARNESS, "parity-env.json")
 
-# ---------------------------------------------------------------- codex fixture home
-# Mirrors the builder in test_usage.py, from the SAME CODEX_SESSIONS table the fake
-# ccusage emits, so the two sides cannot drift.
-def build_codex_home():
-    fspec = importlib.util.spec_from_file_location("fake_ccusage_fixture", FAKE)
-    fake = importlib.util.module_from_spec(fspec); fspec.loader.exec_module(fake)
-    codex_home = tempfile.mkdtemp(prefix="golden-codex-home-")
-    outside = tempfile.mkdtemp(prefix="golden-codex-outside-")
-    for s in fake.CODEX_SESSIONS:
-        loc = s["_loc"]
-        if loc == "missing":
-            continue
-        if loc == "archived":
-            d = os.path.join(codex_home, "archived_sessions")
-        else:
-            date = s["sessionFile"][8:18].split("T")[0]
-            d = os.path.join(codex_home, "sessions", *date.split("-"))
-        os.makedirs(d, exist_ok=True)
-        path = os.path.join(d, s["sessionFile"] + ".jsonl")
-        if loc == "symlink":
-            target = os.path.join(outside, "escaped.jsonl")
-            with open(target, "w") as fh:
-                fh.write(json.dumps({"type": "session_meta", "payload": {"cwd": s["_cwd"]}}) + "\n")
-            os.symlink(target, path)
-            continue
-        with open(path, "w") as fh:
-            if loc == "malformed":
-                fh.write("not json at all\n")
-                fh.write(json.dumps({"type": "event_msg", "payload": {"cwd": "/decoy/project"}}) + "\n")
-            else:
-                cwd = os.path.expanduser(s["_cwd"])
-                fh.write(json.dumps({"type": "session_meta", "payload": {"cwd": cwd}}) + "\n")
-                fh.write(json.dumps({"type": "event_msg", "payload": {}}) + "\n")
-    return codex_home, outside
+# ---------------------------------------------------------------- fixtures + pinned env
+# The synthetic CODEX_HOME and HOME live in tests/harness/fixtures.py so that this capture
+# and the Node parity harness build them from one definition instead of two that drift.
+_fspec = importlib.util.spec_from_file_location("parity_fixtures", os.path.join(HARNESS, "fixtures.py"))
+fixtures = importlib.util.module_from_spec(_fspec); _fspec.loader.exec_module(fixtures)
+build_codex_home = fixtures.build_codex_home
+
+with open(PARITY_ENV) as _fh:
+    ENV_CONTRACT = json.load(_fh)
+
+
+def child_env(fixture_home, extra):
+    """Every child's environment, CONSTRUCTED rather than inherited.
+
+    An ambient TZ or LANG on a developer's shell must not be able to change what the
+    goldens mean, so only the pinned keys, the declared passthroughs and the per-case keys
+    reach the child. tests-ts/parity.mjs builds the identical environment from the same
+    contract file; manifest.json records it so a stale capture is detectable."""
+    env = dict(ENV_CONTRACT["pinned"])
+    for k in ENV_CONTRACT["passthrough"]:
+        if k in os.environ:
+            env[k] = os.environ[k]
+    env["HOME"] = fixture_home
+    env.update(extra)
+    return env
 
 # ---------------------------------------------------------------- case matrix
 def C(name, argv, mode="normal", codex=False, env=None, dual_run_only=False):
@@ -92,6 +85,9 @@ CASES = [
     C("blocks_normal",          ["blocks"]),
     C("blocks_empty",           ["blocks"], mode="blocks_empty"),
     C("hourly_nodata",          ["hourly", "--date=20270101"], mode="empty"),
+    # The populated corpus: exercises the rate line, the table, the burst bars and the
+    # ccusage reconciliation — none of which the no-data branch reaches.
+    C("hourly_corpus",          ["hourly", "--date=20260101"]),
     # codex / combined (need the synthetic CODEX_HOME)
     C("codex_since",            ["codex", "--since", "20260101"], codex=True),
     C("codex_unwindowed",       ["codex"], codex=True),
@@ -108,19 +104,34 @@ CASES = [
     # relative dates: today-dependent -> dual-run only (stored stdout informational)
     C("rel_projects_since_3d",  ["projects", "--since", "-3d"], dual_run_only=True),
     C("rel_daily_since_7d",     ["daily", "--since", "-7d"], dual_run_only=True),
+    # --help, top-level and per subcommand (T-004 plan section 10.1). Captured BEFORE any help
+    # code is written, so the port has a measured target instead of a guess. The top-level form
+    # embeds the module docstring, which is the third product-name source; the per-subcommand
+    # forms pin the usage-line wrapping, whose continuation indent tracks the length of `prog`.
+    C("help_top_short",         ["-h"]),
+    C("help_top_long",          ["--help"]),
+    C("help_projects",          ["projects", "-h"]),
+    C("help_daily",             ["daily", "-h"]),
+    C("help_share",             ["share", "-h"]),
+    C("help_compare",           ["compare", "-h"]),
+    C("help_blocks",            ["blocks", "-h"]),
+    C("help_hourly",            ["hourly", "-h"]),
+    C("help_alltime",           ["alltime", "-h"]),
+    C("help_codex",             ["codex", "-h"]),
+    C("help_combined",          ["combined", "-h"]),
 ]
 
 # ---------------------------------------------------------------- capture / check
-def run_case(case, codex_home):
-    env = dict(os.environ,
-               CCUSAGE_CMD=f"{sys.executable} {FAKE}",
-               FAKE_MODE=case["mode"],
-               USAGE_CONFIG=FIXTURE_CONFIG)
+def run_case(case, codex_home, fixture_home):
+    extra = {"CCUSAGE_CMD": f"{sys.executable} {FAKE}",
+             "FAKE_MODE": case["mode"],
+             "USAGE_CONFIG": FIXTURE_CONFIG}
     if case["codex"]:
-        env["CODEX_HOME"] = codex_home
-    env.update(case["env"])
+        extra["CODEX_HOME"] = codex_home
+    extra.update(case["env"])
     p = subprocess.run([sys.executable, USAGE, *case["argv"]],
-                       capture_output=True, text=True, env=env)
+                       capture_output=True, text=True,
+                       env=child_env(fixture_home, extra))
     return {"name": case["name"], "argv": case["argv"], "mode": case["mode"],
             "codex_fixture": case["codex"], "extra_env": case["env"],
             "dual_run_only": case["dual_run_only"],
@@ -128,12 +139,13 @@ def run_case(case, codex_home):
 
 def main():
     check = "--check" in sys.argv
-    codex_home, outside = build_codex_home()
+    fixture_home = fixtures.build_fixture_home()
+    codex_home, outside = build_codex_home(fixture_home)
     try:
         os.makedirs(GOLDENS, exist_ok=True)
         results, diffs = [], []
         for case in CASES:
-            rec = run_case(case, codex_home)
+            rec = run_case(case, codex_home, fixture_home)
             path = os.path.join(GOLDENS, rec["name"] + ".json")
             if check:
                 with open(path) as fh:
@@ -158,9 +170,13 @@ def main():
                 "pythonInterpreter": sys.version.split()[0],
                 "caseCount": len(results),
                 "dualRunOnly": [r["name"] for r in results if r["dual_run_only"]],
+                "env": ENV_CONTRACT["pinned"],
+                "envPassthrough": ENV_CONTRACT["passthrough"],
                 "notes": [
                     "Byte-equality contract is stdout+stderr+exit vs the TS port, modulo ALLOWLIST.md.",
-                    "Goldens are machine-scoped: project keys derive from $HOME (HOME_ENC).",
+                    "'env' is the CONSTRUCTED child environment from tests/harness/parity-env.json - nothing else is inherited except 'envPassthrough' and the per-case keys. tests-ts/parity.mjs asserts this block still matches that file, so a golden captured under a stale pin is detectable.",
+                    "HOME is a synthetic empty fixture home (tests/harness/fixtures.py), so no capture reads the real ~/.claude/projects or ~/.codex.",
+                    "TZ is load-bearing: usage.py:709 formats block labels via astimezone(), so 'blocks' output moves with the zone.",
                     "All captures are non-TTY (subprocess pipes); TTY variants are a harness-level TODO.",
                     "dual_run_only cases embed 'today' (relative dates) - assert them by running both implementations at the same moment, never against stored bytes.",
                 ],
@@ -171,6 +187,7 @@ def main():
     finally:
         shutil.rmtree(codex_home, ignore_errors=True)
         shutil.rmtree(outside, ignore_errors=True)
+        shutil.rmtree(fixture_home, ignore_errors=True)
 
 if __name__ == "__main__":
     main()

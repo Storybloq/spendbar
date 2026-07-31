@@ -1,0 +1,146 @@
+# Shipped-mode help (prog = spendbar), REVIEWED SNAPSHOT — see below before editing.
+#
+# This file is DATA, not a generated artifact. tests-ts/help-snapshot.test.mjs reads it
+# and compares it against what the production help code emits; nothing regenerates it at
+# test time. That separation is the whole point (plan section 10.1 step 4): if both the
+# implementation and its expectation came from the same template, a template bug would
+# produce a wrong help text AND a matching expectation, and the test would pass.
+#
+# The oracle goldens in tests/golden/ cover prog = usage. They cannot cover this mode,
+# because the shipped CLI emits different bytes ON PURPOSE (ALLOWLIST 22). So a human
+# reviews this file, and a later diff against it is the signal.
+#
+# Checked when approved:
+#   * all 9 command-table rows and the 3 prose references say 'spendbar'
+#   * the config path reads ~/.config/spendbar/config.json, not the oracle's stale path
+#   * argparse's own 'usage:' label is UNCHANGED — it names a section, not the program,
+#     and rewriting it is the most likely blanket-substitution bug
+#   * per-subcommand usage-line continuations align under the longer prog (25 columns)
+
+===== __top__ =====
+usage: spendbar [-h]
+                {projects,daily,share,compare,blocks,hourly,alltime,codex,combined}
+                ...
+
+spendbar — a CLI over ccusage for per-project Claude Code / Codex cost tracking.
+
+Wraps `ccusage` and applies your project grouping/renames (from ~/.config/spendbar/config.json,
+or $USAGE_CONFIG), then answers the questions we keep asking:
+
+  spendbar projects [--since D] [--until D]   Per-project × model table (+ Fable cost)
+  spendbar daily    [--since D] [--until D]   Per-day cost, split by model family
+  spendbar share    [--since D] [--vs D]      % of spend per project; --vs adds a 2nd window
+  spendbar compare  --day1 D --day2 D         Two calendar days, per project, side by side
+  spendbar blocks   [--since D]               Billing blocks + $/hour burn rate
+  spendbar hourly   [--date D]                Half-hour cost histogram from raw logs (burst finder)
+  spendbar alltime                            Every project's cost to date + first/last active
+  spendbar codex    [--since D] [--until D]   Per-project Codex spend (from Codex session logs)
+  spendbar combined [--since D] [--until D]   Claude + Codex per project in one table (Total$)
+
+Dates: YYYYMMDD or YYYY-MM-DD, or relative like -3d / -30d (trailing window from today).
+
+Accuracy notes:
+  * Per-project/per-day numbers use `ccusage claude daily --instances`, which buckets by
+    real calendar date. Do NOT use `ccusage session --since` for windows — it stamps a whole
+    session on its last-activity date, pulling earlier days' tokens across the boundary.
+  * `--instances` is Claude Code ONLY — Codex/GPT sessions are absent entirely (NOT folded into
+    `misc`), so projects/share/alltime undercount total spend. `misc` is only Claude runs from the
+    home dir / ~/Developer root. Use `spendbar daily`/`blocks` for Codex-inclusive totals,
+    `spendbar codex` for the per-project Codex breakdown, and `spendbar combined` for both at once.
+  * `spendbar codex` attributes each session to the cwd it STARTED in (from the rollout log's
+    session_meta record) and windows by that session's START date (the rollout filename), which
+    avoids ccusage's last-activity bleed. Because that date basis differs from `ccusage codex
+    daily` (calendar day), each windowed run prints a Δ cross-check against the codex-daily total;
+    sessions with an unparseable filename can't be placed in a window and are excluded (noted).
+  * Every command verifies its aggregation against ccusage's own grand totals and prints the check.
+
+positional arguments:
+  {projects,daily,share,compare,blocks,hourly,alltime,codex,combined}
+    projects            per-project × model table (tokens/cost/both)
+    daily               per-day by model family, incl. Codex
+                        (cost/tokens/both)
+    share               % of spend per project; --vs for a 2nd window
+    compare             two calendar days side by side
+    blocks              billing blocks + $/hour burn rate
+    hourly              half-hour cost histogram (burst finder)
+    alltime             every project's cost to date
+    codex               per-project Codex spend (from Codex session logs)
+    combined            unified per-project Claude + Codex spend in one table
+
+options:
+  -h, --help            show this help message and exit
+
+===== projects =====
+usage: spendbar projects [-h] [--since SINCE] [--until UNTIL]
+                         [--metric {tokens,cost,both}]
+
+options:
+  -h, --help            show this help message and exit
+  --since SINCE
+  --until UNTIL
+  --metric {tokens,cost,both}
+                        per-model columns: tokens (default), cost, or both
+
+===== daily =====
+usage: spendbar daily [-h] [--since SINCE] [--until UNTIL]
+                      [--metric {cost,tokens,both}]
+
+options:
+  -h, --help            show this help message and exit
+  --since SINCE
+  --until UNTIL
+  --metric {cost,tokens,both}
+                        per-model columns: cost (default), tokens, or both
+
+===== share =====
+usage: spendbar share [-h] [--since SINCE] [--until UNTIL] [--vs VS]
+
+options:
+  -h, --help     show this help message and exit
+  --since SINCE
+  --until UNTIL
+  --vs VS
+
+===== compare =====
+usage: spendbar compare [-h] --day1 DAY1 --day2 DAY2
+
+options:
+  -h, --help   show this help message and exit
+  --day1 DAY1
+  --day2 DAY2
+
+===== blocks =====
+usage: spendbar blocks [-h] [--since SINCE]
+
+options:
+  -h, --help     show this help message and exit
+  --since SINCE
+
+===== hourly =====
+usage: spendbar hourly [-h] [--date DATE]
+
+options:
+  -h, --help   show this help message and exit
+  --date DATE
+
+===== alltime =====
+usage: spendbar alltime [-h]
+
+options:
+  -h, --help  show this help message and exit
+
+===== codex =====
+usage: spendbar codex [-h] [--since SINCE] [--until UNTIL]
+
+options:
+  -h, --help     show this help message and exit
+  --since SINCE
+  --until UNTIL
+
+===== combined =====
+usage: spendbar combined [-h] [--since SINCE] [--until UNTIL]
+
+options:
+  -h, --help     show this help message and exit
+  --since SINCE
+  --until UNTIL

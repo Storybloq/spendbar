@@ -12,7 +12,12 @@ import { DEFAULT_CONFIG } from "./context.js";
  * prefix to strip, so display names work for any user / OS (no hardcoded username).
  */
 export function encodePath(p: string): string {
-  return p.replace(/[^A-Za-z0-9]/g, "-");
+  // The `u` flag is load-bearing (ISS-006). Without it the class iterates UTF-16 code
+  // units, so one astral character becomes TWO dashes where Python's `re.sub` — which
+  // iterates code points — produces one. That shifts every subsequent character of the
+  // encoded key, so `homeEnc` stops matching and every project under such a path is
+  // mis-attributed while both implementations exit 0.
+  return p.replace(/[^A-Za-z0-9]/gu, "-");
 }
 
 /**

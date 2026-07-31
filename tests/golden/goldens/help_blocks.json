@@ -1,0 +1,14 @@
+{
+ "name": "help_blocks",
+ "argv": [
+  "blocks",
+  "-h"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "usage: usage blocks [-h] [--since SINCE]\n\noptions:\n  -h, --help     show this help message and exit\n  --since SINCE\n",
+ "stderr": ""
+}

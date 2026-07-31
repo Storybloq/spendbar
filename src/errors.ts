@@ -15,3 +15,19 @@ export class UsageError extends Error {
     this.code = code;
   }
 }
+
+/**
+ * CPython's `ValueError`, for the one place usage.py lets one escape uncaught:
+ * `cmd_hourly`'s `datetime.date.fromisoformat(a.date)` (ALLOWLIST 19).
+ *
+ * Extending UsageError keeps `main`'s existing handler in charge, so the OBSERVABLE
+ * contract the parity harness checks is preserved exactly — exit 1, empty stdout, non-empty
+ * stderr. Only the stderr TEXT differs from the oracle's traceback, which is the sanctioned
+ * delta; a traceback is not a useful thing to show a user for a mistyped date.
+ */
+export class ValueError extends UsageError {
+  constructor(message: string) {
+    super(`invalid --date: ${message}`, 1);
+    this.name = "ValueError";
+  }
+}

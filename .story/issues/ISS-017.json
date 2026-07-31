@@ -1,0 +1,33 @@
+{
+  "components": [
+    "cli",
+    "hourly"
+  ],
+  "createdBy": "T-004 Step 3 (argv surface measurement)",
+  "dedupeKey": "t004-step3-hourly-date-uncaught-valueerror",
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-017",
+  "impact": "`hourly` is the ONLY date-taking subcommand that never calls `norm_date`. usage.py:600 takes `a.date` verbatim and usage.py:618 hands it straight to `datetime.date.fromisoformat`, so any value that is not ISO-parseable raises an uncaught ValueError: a Python traceback on stderr, exit 1.\n\nMEASURED 2026-07-31 under the pinned parity environment, against the ordinary entrypoint (not merely under the test wrapper):\n\n    $ usage hourly --date -1d\n    Traceback (most recent call last):\n      File \".../usage.py\", line 784, in <module>\n      File \".../usage.py\", line 766, in main\n      File \".../usage.py\", line 618, in cmd_hourly\n        target = datetime.date.fromisoformat(date)\n    ValueError: Invalid isoformat string: '-1d'\n    exit=1\n\n    $ usage hourly --date bogus   -> identical crash, exit 1\n    $ usage hourly --date 20260101 -> works (fromisoformat accepts the compact form)\n\nREACHABILITY IS THE POINT. This is not an exotic input:\n\n- `rewrite_argv` explicitly lists `--date` in DATE_OPTS, so `--date -1d` is rewritten to `--date=-1d` and passes argparse cleanly. The CLI accepts the value and then dies on it.\n- Every OTHER date option (--since, --until, --vs, --day1, --day2) accepts `-1d` and resolves it, so typing `-1d` for `--date` is the consistent thing for a user to do.\n- `compare --day1 -1d --day2 -2d` exits 0. `hourly --date -1d` crashes. Same flag family, same syntax, opposite outcome.\n\nContrast with the intended error path: `projects --since=-xd` exits 1 with the clean one-line message `bad relative date '-xd': expected -Nd, e.g. -3d or -30d`. `hourly` has no such guard.\n\nLIKELY FIX (Python side): route `a.date` through `norm_date` like every other date option, then convert; or wrap the `fromisoformat` call in the same `sys.exit(...)` diagnostic the relative-date parser uses.\n\nNOT FIXED HERE. T-004 must leave usage.py unchanged (its definition of done requires the oracle to stay byte-stable), so the port matches the frozen part of the behaviour only: exit 1 on stderr, with a clean one-line message instead of a traceback. Recorded as ALLOWLIST entry 19, a fourth member of the existing entry 10-12 \"uncatchable Python crash\" class.\n\nAlso recorded there, because it is easy to get wrong: traceback bytes are NOT comparable through the parity harness at all, since the traceback renders the call stack and the test wrapper adds two frames of its own and rewrites the paths. The differential case asserts exit 1 / stderr non-empty / stdout empty, and nothing about the text.",
+  "location": [
+    "usage.py:600",
+    "usage.py:618"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-004"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "sourceRefs": [
+    {
+      "contentHash": "4db99236122518d64d86b9a25aebf41b3db20f44b7d387b21910a17bd96305ea",
+      "endLine": 620,
+      "path": "usage.py",
+      "revision": "d1663a687ea5d6366c48fafb04f4230edbdb95da",
+      "startLine": 600
+    }
+  ],
+  "status": "open",
+  "title": "usage.py crashes with an uncaught traceback on `hourly --date <non-ISO value>`"
+}

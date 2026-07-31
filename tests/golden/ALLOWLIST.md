@@ -301,6 +301,132 @@ Exit code and stream are frozen; the message text is not.
     known gap, and it is noted here so the stdio options are documented as a whole rather than
     one line of them.
 
+### Uncatchable-Python-crash scope, continued (added 2026-07-31, T-004 Step 3)
+
+19. **`hourly --date <value datetime.date.fromisoformat rejects>`.** A fourth member of the
+    entry 10–12 class, found by measuring the argv surface rather than by reading the source.
+    `cmd_hourly` is the one date-taking command that never calls `norm_date`: usage.py:600
+    takes `a.date` verbatim and usage.py:618 hands it straight to
+    `datetime.date.fromisoformat`, so anything that is not ISO-parseable raises an **uncaught**
+    `ValueError` — traceback on stderr, exit 1.
+
+    Reachable and easy to hit, not a corner: `rewrite_argv` lists `--date` among its date
+    options, so `hourly --date -1d` is rewritten to `--date=-1d`, sails through argparse, and
+    then crashes. Every *other* date option accepts `-1d`, so typing it here is the natural
+    thing to do. `--date bogus` crashes identically. Measured under the pinned environment,
+    exit 1 both ways, against the ordinary entrypoint and not merely under the test wrapper.
+
+    The port raises the same crash on the same inputs (exit 1, empty stdout) but writes a
+    one-line message instead of a traceback, which is why these cases carry
+    `compareStderr: false`. The accepted grammar was transcribed from measurements of the
+    reference interpreter, not from the docs, and the argv matrix pins each edge:
+    `YYYY-MM-DD` and `YYYYMMDD` are accepted, ISO **week** dates `YYYY-Www-D` are accepted
+    (`2026-W01-1` resolves to 2025-12-29), and ordinal dates, unpadded fields, a time
+    component, surrounding whitespace and non-ASCII digits are all rejected. Two subtleties
+    are easy to get wrong in a port and are therefore tested directly:
+
+    * usage.py:601 rewrites any **8-character** value to `XXXX-XX-XX` *before* parsing, so
+      the compact week form `2026W011` is first mangled into `2026-W0-11` and then dies —
+      it does NOT take the week-date path.
+    * the mtime filter compares against the **resolved** date while the records are matched
+      against the **raw** string, and the two differ for a week date. Reusing one value for
+      both filters on the wrong day.
+
+    An empty `--date` is falsy, so usage.py:600 falls back to today rather than failing the
+    parse — the one value that reaches this line without being parsed at all.
+
+    Sanctioned on the same terms as 10–12: **exit code and stream are frozen, the message
+    text is not.** The port cannot reproduce those bytes under any implementation — the
+    traceback embeds CPython frame objects, absolute paths to `usage.py` and its line
+    numbers — so it emits a clean one-line message instead.
+
+    Two consequences for the harness, recorded here because they are easy to get wrong:
+
+    - **Crash paths are not byte-comparable through the test wrappers at all.** The traceback
+      renders the *call stack*, so `tests/harness/usage-wrapper.py` adds two frames of its own
+      and rewrites the paths. Any "contract" derived from wrapper-captured traceback bytes
+      would be a property of the wrapper, not of the program. The differential case therefore
+      asserts the frozen part — exit 1, stderr non-empty, stdout empty — and nothing about the
+      text. The §4.1 wrapper self-test did not catch this because it uses a success path.
+    - This is a **defect in usage.py**, filed separately rather than fixed here: the oracle
+      stays unchanged (§15 item 3), so the port matching its exit code is the whole obligation.
+
+20. **Broken stdout pipe (`| head`, and any reader that closes early).** Measured
+    2026-07-31, ~24 MB of output against three readers:
+
+    | reader | CPython | Node (default) |
+    |---|---|---|
+    | `head -1` | **exit 120**, `BrokenPipeError` traceback (371 B) | exit 1, unhandled `'error'` event (1082 B) |
+    | early-closing script | **exit 120**, same traceback | exit 1, same class (497 B) |
+    | `sed -n 1p` | exit 0, empty stderr | exit 0, empty stderr |
+
+    The third row is a measurement about the *reader*, kept because it is the trap: `sed -n 1p`
+    consumes its whole input and only prints the first line, so the writer never sees EPIPE and
+    nothing is proven by piping to it. Small output proves nothing either — it fits the pipe
+    buffer and the writer finishes before the reader closes. Only output exceeding the buffer,
+    into a genuinely early-closing reader, reaches this path.
+
+    **Exit status 120 is reproduced exactly** — exit codes are byte-frozen below, and Node's
+    default of 1 is a real divergence on an ordinary invocation (`spendbar daily --since -365d
+    | head`), not a corner case. The port installs a stdout error guard, stops writing, and
+    exits 120.
+
+    **The stderr text is not reproducible**, on the same terms as entries 10–12 and 19: the
+    CPython bytes are a traceback naming `usage.py` and its line numbers, plus a second
+    `Exception ignored in: <_io.TextIOWrapper name='<stdout>' ...>` block emitted by the
+    interpreter's own shutdown. The port writes a short diagnostic instead. Stream and exit
+    code frozen, text not — no new category, just the first member of that class with an exit
+    code other than 1.
+
+### Ordering-and-presentation scope (added 2026-07-31, T-004 Steps 5–6)
+
+21. **Tied costs in `share` and `combined` order by project name.** usage.py:526 and :684 sort
+    over a Python **set**, and `sorted` is stable, so tied keys fall back to set iteration
+    order — which is hash-based. Python is therefore *itself nondeterministic* here; byte
+    parity is undefined rather than violated, and matching it is not possible even in
+    principle.
+
+    Measured: the full golden check under `PYTHONHASHSEED` 0, 1 and 12345 leaves all cases
+    matching, because the fixtures contain no ties. The exposure is real but unexercised.
+
+    The port defines one total order: the Python primary key first (negated cost, or negated
+    Claude+Codex total), then the project name compared by `pyCompareStr` — code points, per
+    ISS-012. Tied rows therefore appear in ascending name order, always, on every machine.
+    Chosen over "whatever JS insertion order gives" because an arbitrary-but-stable order is
+    still arbitrary, and a user comparing two runs deserves the same table.
+
+22. **`--help` text: product name and the config-path sentence.** Three spans of the help
+    output name the product (plan section 9): argparse's `prog`, the `alltime` hint
+    `(… see 'usage codex')`, and the module docstring, which `description=__doc__` renders
+    verbatim and which contains 13 `usage <subcommand>` references plus 15 bare `usage`
+    tokens. The shipped binary calls itself `spendbar`, so its help necessarily differs from
+    every stored golden — and because argparse aligns usage-line continuations under `prog`,
+    the *wrapping* moves too, not just the word.
+
+    ALLOWLIST 5 does **not** cover this. It sanctions the config default *path*; it says
+    nothing about rewriting help *text*, and assuming it carried over would be an overreach.
+    Hence this separate entry. The specific text change it authorises, beyond the product
+    name, is the docstring's config sentence, which is factually **wrong** for the port:
+
+        Python : "(from usage-config.json next to this script, or $USAGE_CONFIG)"
+        Port   : "(from ~/.config/spendbar/config.json, or $USAGE_CONFIG)"
+
+    Reproducing the Python sentence byte-for-byte would mean shipping documentation that
+    points users at a file the port never reads — inside `node_modules` under a global npm
+    install. Correcting it is the whole reason this entry exists rather than a `prog` swap.
+
+    **Assertion, in two independent modes** (they must not share a generator, or a bad
+    template would produce the implementation and its own expected output and the test would
+    pass while the help was wrong):
+
+    - *Oracle mode* (`prog: "usage"`): asserted against the eleven `help_*` stored goldens,
+      raw CPython output. Nothing derived from the port's template touches it.
+    - *Shipped mode* (`prog: "spendbar"`): asserted against a reviewed snapshot committed as
+      data, not regenerated at test time.
+
+    Everything else in the help output — option lists, choice lists and their declaration
+    order, wrap width, indentation rules — stays byte-frozen.
+
 ## Explicitly NOT sanctioned (byte-frozen)
 
 - All table layout: column widths, padding, header text, rule lengths.
@@ -318,5 +444,39 @@ Exit code and stream are frozen; the message text is not.
 - **Dual-run mode**: run Python and TS at the same moment in the same env; compare
   everything including relative-date cases. This is the authoritative check and is
   machine-independent.
+
+23. **A mid-render failure produces no partial stdout.** usage.py prints as it goes, so a
+    crash part way through a table leaves the header already on stdout. The port renders each
+    command to a string and writes it once, so it emits *nothing* on a failure path.
+
+    Reachable today through `blocks`, which still has no schema validator (ISS-002, which
+    T-004 does not close). Measured with a `costUSD` of `"100.0"` — a string where a number
+    belongs, which no validator rejects: usage.py writes the 57-byte header, then dies in
+    `rate = cost / hrs` with `TypeError: unsupported operand type(s) for /: 'str' and 'float'`,
+    exit 1. The port exits 1 with a one-line message and an empty stdout.
+
+    What is NOT sanctioned, and is asserted instead: the port must still **fail**. An earlier
+    revision returned 0 for any non-numeric value, so it rendered `$0.00` and exited 0 where
+    the oracle exited 1 — turning a loud failure into a plausible wrong number, which is
+    strictly worse than either behaviour. Booleans stay accepted, because Python's `bool` is
+    an `int` and `True / 2.0` is 0.5 rather than an error. Case: `argv_blocks_malformed`,
+    which pins that python still emits partial output, that the port emits none, that both
+    diagnose on stderr, and that both exit 1.
+
+24. **Tied costs order by project name; Python has no defined order at all.** usage.py:526
+    (`share`) and usage.py:684 (`combined`) sort a Python **set**, and `sorted` is stable, so
+    tied keys fall back to hash-based set iteration order.
+
+    Measured, not assumed: with three projects tied at $5.00, `usage.py share` produces three
+    DIFFERENT orders across `PYTHONHASHSEED` 0, 1, 2, 12345 and 99. Byte-parity is therefore
+    **undefined** here rather than violated, and a differential case would pin an accident of
+    seed 0 — so these are deliberately not parity cases.
+
+    The port defines the order instead: sort by the Python primary key, then by project name
+    via `pyCompareStr` (code points, so `Beta Product` precedes `mike`). Asserted in
+    `tests-ts/tiebreak.test.mjs` as an invariant over the rendered table, together with a
+    guard that the fixture really does contain a tie and a re-measurement that CPython is
+    still nondeterministic — if it ever stops being so, this entry needs revisiting.
+
 - TTY variants: not yet captured (all goldens are pipe/non-TTY). Harness-level TODO
   noted in manifest; add before v0.2 exit if any TTY-conditional output is found.

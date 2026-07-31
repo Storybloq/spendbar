@@ -1,0 +1,14 @@
+{
+ "name": "help_hourly",
+ "argv": [
+  "hourly",
+  "-h"
+ ],
+ "mode": "normal",
+ "codex_fixture": false,
+ "extra_env": {},
+ "dual_run_only": false,
+ "exit": 0,
+ "stdout": "usage: usage hourly [-h] [--date DATE]\n\noptions:\n  -h, --help   show this help message and exit\n  --date DATE\n",
+ "stderr": ""
+}

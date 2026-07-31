@@ -1,0 +1,29 @@
+{
+  "_note": [
+    "The single source of truth for the environment BOTH implementations run under.",
+    "tests/golden/capture.py reads this file when recording goldens and copies `pinned`",
+    "into goldens/manifest.json; tests-ts/parity.mjs reads it, asserts the manifest still",
+    "agrees, and constructs each child's environment from scratch out of `pinned` +",
+    "`passthrough` + per-case keys. Nothing else is inherited, so an ambient TZ/LANG on a",
+    "developer's shell cannot silently change what 'parity' means.",
+    "",
+    "TZ is load-bearing, not decorative: usage.py:709 renders block labels via",
+    "datetime.astimezone() with no argument, so `blocks` output moves with the local zone.",
+    "Measured 2026-07-31: TZ=UTC changes blocks_normal and nothing else. The value below is",
+    "the zone the goldens were captured under, recorded here instead of inherited.",
+    "",
+    "HOME is pinned to a synthetic, empty fixture home (tests/harness/fixtures.py) so the",
+    "harness never globs the developer's real ~/.claude/projects (usage.py:619) or their",
+    "real ~/.codex (usage.py:197). Measured 2026-07-31: all 33 goldens are byte-identical",
+    "under a synthetic HOME, so this costs no fidelity and buys determinism plus privacy."
+  ],
+  "pinned": {
+    "TZ": "America/Vancouver",
+    "LC_ALL": "C.UTF-8",
+    "LANG": "C.UTF-8",
+    "PYTHONHASHSEED": "0",
+    "COLUMNS": "80"
+  },
+  "passthrough": ["PATH", "TMPDIR"],
+  "homePinnedToFixture": true
+}

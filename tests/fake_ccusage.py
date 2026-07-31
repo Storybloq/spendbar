@@ -74,6 +74,55 @@ def blocks_normal():
 def blocks_empty():
     return {"blocks": []}
 
+def blocks_array():
+    """Top-level payload is a LIST, so `d.get` does not exist... but usage.py calls .get on it.
+
+    Included to find out what the oracle actually does rather than to assert a guess."""
+    return [{"startTime": "2026-01-01T00:00:00.000Z", "endTime": "2026-01-01T05:00:00.000Z",
+             "isGap": False, "costUSD": 3.0, "totalTokens": 30}]
+
+def blocks_str():
+    """`blocks` is a STRING: Python iterates its characters, all skipped by isinstance."""
+    return {"blocks": "abc"}
+
+def blocks_dict():
+    """`blocks` present but a DICT: `d.get("blocks", d)` returns it and Python iterates KEYS."""
+    return {"blocks": {"k": {"costUSD": 1.0, "totalTokens": 1}}}
+
+def blocks_null():
+    """`blocks` present and null: iterating None is a TypeError."""
+    return {"blocks": None}
+
+def blocks_nokey():
+    """No `blocks` key at all: the fallback is the PAYLOAD itself, so Python iterates its keys."""
+    return {"other": 1}
+
+def blocks_truthiness():
+    """Values whose Python truthiness differs from JavaScript's, plus an explicit null.
+
+    `isGap: {}` is FALSY in Python so the row is processed; in JS `{}` is truthy and it would
+    be skipped. `actualEndTime: ""` is falsy so Python falls through to `endTime`.
+    `isActive: null` is `None` from `.get`, and `str(None)` renders as `None`.
+    """
+    return {"blocks": [
+        {"startTime": "2026-01-01T00:00:00.000Z", "endTime": "2026-01-01T05:00:00.000Z",
+         "actualEndTime": "", "isActive": None, "isGap": {}, "costUSD": 10.0,
+         "totalTokens": 100}]}
+
+def blocks_malformed():
+    """Producer data that no schema validator rejects, because `blocks` has none (ISS-002).
+
+    T-004 does not add one; it only has to avoid CHANGING what malformed data does today, so
+    this freezes the current behaviour rather than asserting a desired one. Each field is a
+    different way for a producer to go wrong: a numeric field arriving as a string, a null
+    where a number is expected, and a block missing the timestamps the label is built from.
+    """
+    return {"blocks": [
+        {"startTime": "2026-01-01T00:00:00.000Z", "endTime": "2026-01-01T05:00:00.000Z",
+         "actualEndTime": "2026-01-01T02:00:00.000Z", "isActive": False, "isGap": False,
+         "costUSD": "100.0", "totalTokens": None},
+        {"isActive": False, "isGap": False, "costUSD": 5.0, "totalTokens": 10}]}
+
 # ---- codex sessions: SHARED with test_usage.py (imported), which builds the matching
 # rollout fixture files under a temp CODEX_HOME from the _cwd/_loc fields. Keys without
 # an underscore are emitted verbatim as the ccusage `codex session --json` row.
@@ -165,8 +214,24 @@ def codex_bad():
     d["sessions"][0]["costUSD"] = True   # bool must be rejected, not summed as 1
     return d
 
+def instances_tied():
+    """Two projects with EXACTLY equal cost, for the set-iteration tiebreak (plan section 12).
+
+    usage.py sorts over a Python *set* in `share`/`combined`, and `sorted` is stable, so tied
+    keys fall back to hash-based set iteration order. Python is therefore nondeterministic
+    here, not merely different from JS — so the port defines the tiebreak (primary key, then
+    project name) and the ALLOWLIST records that byte-parity is UNDEFINED rather than broken.
+    Names are chosen so the tiebreak is observable: alphabetical order is not insertion order.
+    """
+    day = lambda c: [{"date": "2026-01-01", "totalCost": c, "totalTokens": 10,
+                      "modelBreakdowns": [mb("claude-fable-5", c, 1, 1, 1, 7)]}]
+    return {"projects": {pkey("zulu"): day(5.0), pkey("alpha"): day(5.0),
+                         pkey("mike"): day(5.0)},
+            "totals": {"totalCost": 15.0, "totalTokens": 30}}
+
 INST = {"normal": instances_normal, "empty": instances_empty,
-        "mismatch": instances_mismatch, "float": instances_float}
+        "mismatch": instances_mismatch, "float": instances_float,
+        "tied": instances_tied}
 
 if __name__ == "__main__":
     if "codex" in args:
@@ -175,7 +240,10 @@ if __name__ == "__main__":
         else:
             out = {"codex_empty": codex_empty, "codex_bad": codex_bad}.get(MODE, codex_normal)()
     elif "blocks" in args:
-        out = blocks_empty() if MODE == "blocks_empty" else blocks_normal()
+        out = {"blocks_empty": blocks_empty, "blocks_malformed": blocks_malformed,
+                "blocks_dict": blocks_dict, "blocks_null": blocks_null,
+                "blocks_nokey": blocks_nokey, "blocks_truthiness": blocks_truthiness,
+                "blocks_array": blocks_array, "blocks_str": blocks_str}.get(MODE, blocks_normal)()
     elif "--instances" in args:
         out = INST.get(MODE, instances_normal)()
     elif "daily" in args:

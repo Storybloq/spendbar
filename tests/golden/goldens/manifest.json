@@ -1,14 +1,27 @@
 {
  "capturedBy": "tests/golden/capture.py",
  "pythonInterpreter": "3.11.6",
- "caseCount": 33,
+ "caseCount": 45,
  "dualRunOnly": [
   "rel_projects_since_3d",
   "rel_daily_since_7d"
  ],
+ "env": {
+  "TZ": "America/Vancouver",
+  "LC_ALL": "C.UTF-8",
+  "LANG": "C.UTF-8",
+  "PYTHONHASHSEED": "0",
+  "COLUMNS": "80"
+ },
+ "envPassthrough": [
+  "PATH",
+  "TMPDIR"
+ ],
  "notes": [
   "Byte-equality contract is stdout+stderr+exit vs the TS port, modulo ALLOWLIST.md.",
-  "Goldens are machine-scoped: project keys derive from $HOME (HOME_ENC).",
+  "'env' is the CONSTRUCTED child environment from tests/harness/parity-env.json - nothing else is inherited except 'envPassthrough' and the per-case keys. tests-ts/parity.mjs asserts this block still matches that file, so a golden captured under a stale pin is detectable.",
+  "HOME is a synthetic empty fixture home (tests/harness/fixtures.py), so no capture reads the real ~/.claude/projects or ~/.codex.",
+  "TZ is load-bearing: usage.py:709 formats block labels via astimezone(), so 'blocks' output moves with the zone.",
   "All captures are non-TTY (subprocess pipes); TTY variants are a harness-level TODO.",
   "dual_run_only cases embed 'today' (relative dates) - assert them by running both implementations at the same moment, never against stored bytes."
  ]

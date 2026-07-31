@@ -11,6 +11,7 @@ import { UsageError } from "./errors.js";
 import { pyRepr } from "./pyrepr.js";
 import { cleanName, modelFamily } from "./config.js";
 import { money, pyFixed } from "./format.js";
+import { pyMaxStr, pyMinStr } from "./pysort.js";
 import type { Ctx } from "./context.js";
 
 export interface ProjectAgg {
@@ -110,8 +111,12 @@ export function aggProjects(
       // an empty string (ALLOWLIST 14 — Python renders such a row rather than failing), so
       // a payload the validator previously rejected now flows through to here. The guard
       // was masking a real divergence rather than preventing one.
-      if (date < a.first) a.first = date;
-      if (date > a.last) a.last = date;
+      // `pyCompareStr`, not `<` / `>`: those compare UTF-16 code units and disagree with
+      // Python's code-point ordering above U+FFFF (ISS-012). `date` reaches here as whatever
+      // string the payload carried — ALLOWLIST 14 admits arbitrary ones — so this is the
+      // reachable end of that divergence, not a hypothetical.
+      a.first = pyMinStr(a.first, date);
+      a.last = pyMaxStr(a.last, date);
 
       const mbs = Array.isArray(day.modelBreakdowns) ? day.modelBreakdowns : [];
       for (const mbRaw of mbs) {
