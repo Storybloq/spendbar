@@ -1,7 +1,7 @@
 {
   "name": "spendbar",
   "version": "0.1.0-dev",
-  "description": "Per-project Claude Code + Codex spend tracking — CLI, MCP server, and native macOS menubar.",
+  "description": "Per-project Claude Code + Codex spend tracking \u2014 CLI, MCP server, and native macOS menubar.",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -24,9 +24,10 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test tests-ts/",
+    "test": "tsc -p tsconfig.json && node --test tests-ts/*.test.mjs",
     "parity": "node tests-ts/parity.mjs",
-    "spike:rounding": "node spikes/rounding/spike.mjs"
+    "spike:rounding": "node spikes/rounding/spike.mjs",
+    "gen:unicode": "python3 scripts/gen-unicode.py > src/unicode-tables.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
