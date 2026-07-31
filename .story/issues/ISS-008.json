@@ -1,0 +1,25 @@
+{
+  "components": [
+    "allowlist",
+    "byte-parity"
+  ],
+  "createdBy": "code review R6 (agent, parity/semantics lens)",
+  "dedupeKey": "allowlist-9-success-path-counterexamples",
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-008",
+  "impact": "Entry 9 states the int/float distinction is reachable \"ONLY where a diagnostic embeds f-string repr for a value that has ALREADY FAILED validation ... so it never affects a computed figure or a success-path byte.\" Two measured counterexamples, both on the success path:\n\n1. NEGATIVE ZERO. The JSON token `-0`:\n     PY: json.loads(\"-0\") -> int 0  -> f\"${0:,.2f}\"  = \"$0.00\"\n     JS: JSON.parse(\"-0\") -> -0     -> money(-0)     = \"$-0.00\"\n   `cnum(-0)` accepts it (`-0 < 0` is false) and `codex daily totals.costUSD` is printed unconditionally by cross_check, so this is a visible output byte with both sides exiting 0. Realism is low: a Rust f64 serializer emits `-0.0`, which agrees on both sides — only the bare integer token `-0` diverges.\n\n2. COSTS ARE NOT SAFE-INTEGER CHECKED. Entry 7 covers token counters; `costUSD`/`totalCost` are not checked. An integral cost above 2^53 silently rounds in the port while Python keeps it exact (measured: 9007199254740993 -> port prints ...992, Python ...993, both exit 0). Realism is essentially nil at real dollar values, but it is the same class entry 7 exists to close, and the asymmetry is currently undocumented.\n\nNeither is worth changing behaviour for on its own. The actionable part is that entry 9's scope sentence is stated more absolutely than the code supports, and this ALLOWLIST has now had a false or overstated claim found in it in four consecutive review rounds (R3, R4, R5, R6) — so the prose accuracy is itself the recurring defect.\n\nSUGGESTED RESOLUTION: soften entry 9's scope sentence to name these two exceptions explicitly, and either extend the safe-integer bound to cost fields or record deliberately why it stops at token counters.\n\nPRE-EXISTING (entry 9 dates from T-003) and not caused by T-006, so filed rather than edited inline — T-006 only owns entries 13-15. Found by code review R6 (agent, parity lens).",
+  "location": [
+    "tests/golden/ALLOWLIST.md (entry 9)",
+    "src/json.ts (checkSafeInteger coverage)",
+    "src/format.ts (money)"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-005"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "low",
+  "status": "open",
+  "title": "ALLOWLIST entry 9's \"never affects a success-path byte\" claim has two counterexamples"
+}

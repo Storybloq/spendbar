@@ -1,0 +1,26 @@
+{
+  "components": [
+    "ts-port",
+    "schema-validation"
+  ],
+  "createdBy": "code-review-r4 (agent) via T-006 autonomous session",
+  "dedupeKey": "blocks-payload-unvalidated-uncontracted",
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-002",
+  "impact": "T-006 made every ccusage payload fail loud on a producer schema change — except `blocks`.\n\n`src/ccusage.ts:88-92` returns `runCcusage(ctx, args)` for `blocks --json` with no validator, and `tests-ts/contract/schema.contract.mjs` never invokes `blocks`, so the real-binary contract test — described in its own header as \"the gate that makes a ccusage version bump safe\" — does not cover it. A `blocks` schema change would pass that gate undetected.\n\nHarmless TODAY: no TS consumer reads the payload yet (`cmd_blocks` is not ported), so there is nothing to mis-aggregate. The exposure arrives with T-004, which ports the renderers. Note `usage.py:590` reads `b.get(\"costUSD\", b.get(\"totalCost\", 0))`, i.e. it silently zeroes in BOTH languages — so porting `cmd_blocks` without a validator would reopen exactly the hole T-006 closed everywhere else, and the `costUSD`/`totalCost` fallback means a rename of EITHER key is invisible.\n\nRecommended when T-004 ports `cmd_blocks`: add `validateBlocks` following the same rule the other validators follow (validate only what the downstream would otherwise accept silently — see the header of src/json.ts), and add a `blocks` case to the real-binary contract test.\n\nFound by code review round 4.",
+  "location": [
+    "src/ccusage.ts:88",
+    "tests-ts/contract/schema.contract.mjs",
+    "usage.py:590"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-006",
+    "T-004"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "low",
+  "status": "open",
+  "title": "`blocks --json` is the one ccusage payload with no schema validation or contract coverage"
+}

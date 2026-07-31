@@ -1,0 +1,16 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-011",
+  "impact": "ALLOWLIST entry 9's claim that the int/float distinction 'never affects a success-path byte' has two measured counterexamples: JSON token -0 renders as $-0.00 vs Python's $0.00, and cost fields are not safe-integer checked so an integral cost above 2^53 silently rounds. Both low-realism, neither worth a behaviour change alone. Entry 9 predates T-006, which owns only entries 13-15, so filed as ISS-008.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "[allowlist-accuracy] ALLOWLIST entry 9's claim that the int/float distinction 'never affects a succes"
+}

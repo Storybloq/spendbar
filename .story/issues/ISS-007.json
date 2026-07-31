@@ -1,0 +1,23 @@
+{
+  "components": [
+    "format",
+    "byte-parity"
+  ],
+  "createdBy": "code review R6 (agent, parity/semantics lens)",
+  "dedupeKey": "padright-padleft-utf16-width",
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-007",
+  "impact": "`src/format.ts` computes padding as `width - s.length`. CPython's `f\"{s:<width>}\"` pads on `len(s)`, which counts code points. Any non-BMP character in a display string therefore gets one space too few per astral char, misaligning the whole column.\n\nMeasured: `padRight(\"<rocket>a\", 5)` emits 3 spaces in the port, 4 in Python.\n\nLATENT TODAY: no renderer or CLI exists in `src/` yet and nothing imports these helpers — T-004 is what wires them up. It becomes reachable the moment tables render, and the trigger is user-controlled: the config `renames` map takes arbitrary strings, and encoded project names derive from real paths.\n\nNote this is the same root cause as the encodePath issue (JS counting UTF-16 units where Python counts code points) but a separate site and a separate fix, so it is filed separately.\n\nCaveat worth recording: correct display width is not simply code-point count either — CPython's format spec pads on `len()`, so matching Python byte-for-byte means counting code points, NOT grapheme clusters and NOT East-Asian display width. Matching Python is the contract; do not \"improve\" on it.\n\nFIX: count code points (`[...s].length` or `Array.from(s).length`), and add a CPython differential test over astral, combining-mark, and wide-CJK inputs so T-004's table layout is pinned before the renderers land.\n\nPRE-EXISTING, untouched by T-006, filed per the autonomous-session rule. Found by code review R6 (agent, parity lens).",
+  "location": [
+    "src/format.ts"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-004"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "padRight/padLeft pad by UTF-16 code units while claiming CPython format-spec semantics"
+}

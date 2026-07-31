@@ -1,0 +1,25 @@
+{
+  "components": [
+    "ts-port",
+    "parity"
+  ],
+  "createdBy": "code-review-r4 (agent) via T-006 autonomous session",
+  "dedupeKey": "ccusage-stderr-slice-utf16-vs-codepoints",
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-001",
+  "impact": "Byte-parity divergence in the frozen `could not parse ccusage output.` diagnostic, and a possible U+FFFD on the wire.\n\n`src/ccusage.ts:49` does `res.stderr.slice(0, 400)`; `usage.py:124` does `out.stderr[:400]`. Python slices CODE POINTS, JS slices UTF-16 CODE UNITS, so any astral character in ccusage's stderr desynchronises them. Measured:\n\n  python3 -c \"s='😀'*300+'TAIL'; print(len(s[:400]), s[:400].endswith('TAIL'))\"\n  -> 304 True\n  node -e \"const s='😀'.repeat(300)+'TAIL'; const c=s.slice(0,400); console.log(c.length, [...c].length, c.endsWith('TAIL'))\"\n  -> 400 200 false        # the informative tail is dropped\n\nWorse, slicing at an odd offset can cut a surrogate pair in half:\n  node -e \"const c='😀'.repeat(300).slice(0,401); console.log(Buffer.from(c,'utf8').subarray(-4).toString('hex'))\"\n  -> 80efbfbd             # trailing U+FFFD\n\nThis is NOT in tests/golden/ALLOWLIST.md, so it is an unsanctioned divergence in a message the allowlist treats as frozen.\n\nPre-existing (introduced with the T-003 port of run_ccusage), NOT introduced by T-006, and outside T-006's changed files — filed rather than fixed inline per the ticket's scope rule. It is the same hazard class T-006 fixed one layer down in `truncateUtf8` (byte-based, boundary-safe), so the fix is to give this site the same treatment: slice by code point (`[...s].slice(0, 400).join(\"\")`) to match Python exactly, or reuse a boundary-safe helper.\n\nFound by code review round 4 (differential harness over usage.py).",
+  "location": [
+    "src/ccusage.ts:49",
+    "usage.py:124"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-006",
+    "T-004"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "stderr truncation in ccusage.ts slices UTF-16 units where Python slices code points"
+}

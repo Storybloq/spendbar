@@ -33,9 +33,37 @@ Dates accept `YYYYMMDD`, `YYYY-MM-DD`, or relative `-3d` / `-30d` (trailing wind
 
 ## Requirements
 
-- **`python3`** (3.8+, standard library only — no pip installs).
-- **`node` + `npx`** — the CLI shells out to `npx --yes ccusage@latest`. (Override the command with
-  the `CCUSAGE_CMD` env var if you have ccusage installed globally, e.g. `CCUSAGE_CMD="ccusage"`.)
+- **`python3`** (3.8+, standard library only — no pip installs) — for the original `usage.py`.
+- **`node`** (22.12+) — for the TypeScript port.
+
+### ccusage
+
+The port depends on [`ccusage`](https://www.npmjs.com/package/ccusage), pinned to an **exact**
+version and installed as a regular dependency. It is never fetched at run time: there is no
+`npx` fallback, because downloading and executing registry code at the moment the local
+install is broken is exactly when you least want it. If the dependency cannot be resolved the
+CLI says so and stops.
+
+ccusage ships a small JS shim plus a per-platform native binary delivered through
+**optional** dependencies, so **`npm install --omit=optional` produces a working shim with no
+binary**. That case is detected up front and reported as an install problem rather than
+surfacing as an opaque subprocess error.
+
+Supported platforms are therefore bounded by ccusage's own binaries:
+
+| | x64 | arm64 |
+|---|---|---|
+| macOS | ✅ | ✅ |
+| Linux | ✅ | ✅ |
+| Windows | ✅ | ✅ |
+
+Anything else (linux-armv7, FreeBSD, …) is refused with a message naming what *is* supported.
+On those platforms, install ccusage yourself and point `CCUSAGE_CMD` at it.
+
+Install weight: ~450 KB shim + ~3.1 MB platform binary.
+
+`CCUSAGE_CMD` overrides the command entirely (e.g. `CCUSAGE_CMD="ccusage"` for a global
+install); when set, the bundled dependency is not required at all.
 
 ## Install
 

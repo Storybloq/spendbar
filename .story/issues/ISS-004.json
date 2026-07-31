@@ -1,0 +1,16 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-004",
+  "impact": "FILED AS ISS-002, not fixed inline: `blocks --json` has no validator and no contract coverage. Harmless today (no TS consumer) but T-004 ports cmd_blocks, and usage.py:590's costUSD/totalCost fallback silently zeroes in both languages.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "[schema-validation] FILED AS ISS-002, not fixed inline: `blocks --json` has no validator and no cont"
+}

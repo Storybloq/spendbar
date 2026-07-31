@@ -107,6 +107,27 @@ export function safeRealpath(p: string): string {
   }
 }
 
+/**
+ * Python's `dict.get(key, default)` — the default applies ONLY when the key is ABSENT.
+ *
+ * `??` is NOT a faithful translation: it conflates `null` with absent. Python returns `None`
+ * for a present-but-null key, which reaches `cnum` and exits 1 with the byte-frozen message;
+ * `x ?? 0` silently substitutes 0 instead, producing a clean table with wrong per-model
+ * tokens and a wrong cross-check total (code review R4 — the only 3 of 241 differential
+ * mutations where Python errored and the port returned clean zeros).
+ *
+ * The fix belongs HERE rather than in the schema validator: making the validator reject
+ * `null` would fire before codex.ts and REPLACE cnum's frozen wording, which is exactly the
+ * shadowing bug rounds 2 and 3 caught.
+ */
+export function pyGet(o: Record<string, unknown>, key: string, dflt: unknown): unknown {
+  // `Object.hasOwn`, not `key in o`: `in` walks the prototype chain, so an inherited
+  // `totalTokens`/`costUSD` would be returned in place of the default. Python's `dict.get`
+  // consults only the dict's own keys, and this helper exists precisely to be faithful to
+  // it — half a translation is worse than none (code review R5).
+  return Object.hasOwn(o, key) ? o[key] : dflt;
+}
+
 /** Normalized `codex session` rows plus ccusage's own grand totals. */
 export function codexSessions(
   ctx: Ctx,
@@ -144,7 +165,7 @@ export function codexSessions(
           const m = mRaw as Record<string, unknown>;
           mtok.set(
             mname,
-            cnum(m.totalTokens ?? 0, `sessions[${i}].models.${mname}.totalTokens`),
+            cnum(pyGet(m, "totalTokens", 0), `sessions[${i}].models.${mname}.totalTokens`),
           );
         }
       }
@@ -175,8 +196,8 @@ export function codexDaily(
   const totalsRaw = isObj ? (d as Record<string, unknown>).totals : undefined;
   const totals =
     totalsRaw !== null && typeof totalsRaw === "object" ? (totalsRaw as Record<string, unknown>) : {};
-  const grand = cnum(totals.costUSD ?? 0.0, "codex daily totals.costUSD");
-  const grandTok = cnum(totals.totalTokens ?? 0, "codex daily totals.totalTokens");
+  const grand = cnum(pyGet(totals, "costUSD", 0.0), "codex daily totals.costUSD");
+  const grandTok = cnum(pyGet(totals, "totalTokens", 0), "codex daily totals.totalTokens");
   const rowsRaw = isObj ? (d as Record<string, unknown>).daily : [];
   return { rows: Array.isArray(rowsRaw) ? rowsRaw : [], grand, grandTok };
 }

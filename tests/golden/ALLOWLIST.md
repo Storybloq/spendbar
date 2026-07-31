@@ -89,6 +89,218 @@ Exit code and stream are frozen; the message text is not.
     U+FFFD and hand back a corrupted-but-trusted cwd. A leading BOM is likewise preserved,
     not stripped, so a BOM-prefixed line fails to parse in both languages.
 
+### Producer-contract scope (added 2026-07-31, T-006)
+
+13. **Default ccusage command.** Python shells out to `npx --yes ccusage@latest`. The port
+    depends on an exactly-pinned `ccusage` and runs the bundled shim via `process.execPath`,
+    with **no npx fallback and no run-time fetch**: acquiring and executing registry code at
+    the moment the trusted install is broken is a supply-chain hazard, and pinning a version
+    does not fix it. `CCUSAGE_CMD` behaviour is unchanged for every **non-empty** value and
+    remains byte-frozen — every stored golden sets it explicitly, so none depends on the
+    default. One narrow exception: an **explicitly empty** `CCUSAGE_CMD=""`. In Python that
+    is a set-but-degenerate command — `"".split() == []`, so `cmd = [] + args == args` and
+    `cmd[0]` becomes the bare **subcommand** (`claude`, `codex`, `daily`, `blocks`). Python
+    then execs *that*: usually `FileNotFoundError`, caught by `usage.py:115` and reported as
+    the ordinary `'claude' not found. Install Node.js…` message — but if a real program of
+    that name happens to be on `PATH` (`claude` very plausibly is, for this tool's audience)
+    Python would silently run it with ccusage's arguments. The port refuses `""` up front
+    with the no-command error instead. It is treated as *set*, not unset: treating it as
+    unset would silently substitute the bundled binary, a different program again.
+14. **Schema violations fail loud.** Two different Python behaviours are being matched here,
+    and they are not the same delta — measured, not assumed:
+
+    - Most consumed fields are **indexed directly** in Python (`day["totalTokens"]`,
+      `day["date"]`, `mb["modelName"]` — `usage.py:184-191`, `479-484`, `560-565`,
+      `608-612`; and `r["period"]` at `486`/`489`, inside the f-strings rather than the loop
+      body above it), so a **rename raises `KeyError`**: an **uncaught traceback**,
+      exit 1, stderr. The port emits a clean one-line message instead. Exit code and stream
+      are frozen; the text is not — the same shape as entries 10-12.
+
+      Wrong *types* are **not** uniformly fatal in Python, and an earlier revision of this
+      entry claimed they were (code review R5). It is value-dependent: `model_family` is
+      `(name or "").lower()` (`usage.py:91`), so a `modelName` of `None`, `False`, `0` or
+      `""` is classified as `other` with no error, while `42` raises `AttributeError`.
+      Likewise `day["date"]` is fatal on the `--instances` path (`min`/`max` against a str at
+      `usage.py:186-187`) but merely becomes an odd dict key elsewhere. The port rejects
+      every non-string here, which is a superset of what Python refuses; that is sanctioned
+      under this entry, and is why the guard is **type-only** — see the empty-string note
+      below.
+    - On the **Claude** paths, only `projects`, `daily` and `totals.totalCost` genuinely
+      default in Python (`.get(…, {})` / `.get(…, [])` / `.get("totalCost", 0)`), so only
+      those silently aggregate as zero there.
+
+      The **Codex** paths default in four more places, and an earlier revision of this entry
+      stated the sentence above globally — which contradicted its own later prose about
+      presence guards (code review R7). Measured: per-model `totalTokens` is
+      `m.get("totalTokens", 0)` (`usage.py:253`), the codex-daily totals are
+      `totals.get("costUSD", 0.0)` / `totals.get("totalTokens", 0)` (`usage.py:270-271`), and
+      the codex-daily collection is `d.get("daily", [])` (`usage.py:272`). Those four are
+      precisely the ones the port must guard for PRESENCE — they are the whole reason
+      `pyGet` exists and the reason `validateCodexDaily` keeps a root guard where
+      `validateCodexSessions` does not.
+
+    The **silent-zero this entry exists to prevent is the PORT's**: `num()`
+    (`aggregate.ts:61`) coerces anything non-numeric to 0, which would turn a producer
+    rename into a clean-looking table with wrong totals where Python at least crashed. The
+    port therefore requires every consumed field and exits non-zero.
+
+    **Required, but may be empty.** `daily` and `sessions` (always emitted), plus
+    `modelBreakdowns` on every Claude row and `models` on every Codex SESSION (daily rows are
+    unconsumed -- see below). An empty `[]`/`{}`
+    is valid — that is the unclassified-token bucket — but an **absent** one is not:
+    `aggregate.ts:116` falls back to `[]` and `codex.ts:162` falls back to "unclassified", so
+    absence would zero the per-model columns without any error, which is the exact bug this
+    entry exists to prevent. Measured against both producers before requiring: the pinned
+    binary emits `modelBreakdowns` even without `--breakdown`, and `models` on every codex
+    session and daily row; `tests/fake_ccusage.py` does the same in every mode. There is
+    still deliberately **no** "non-zero tokens implies a model breakdown" rule.
+
+    **Scope limit — this entry covers only what the port would otherwise accept SILENTLY.**
+    Fields consumed through `cnum` (all Codex costs and token counts) already fail loud on
+    absence *and* on wrong types, and that message is byte-frozen under entry 2. Validation
+    deliberately does **not** re-check them: it runs before `codex.ts` does, so a duplicate
+    check would replace the frozen wording and break golden `codex_bad_cost`. The only part
+    `cnum` cannot express is the safe-integer bound of entry 7, which is applied everywhere.
+
+    **Required outright** (all Claude-side): the numeric fields `totalCost`, `totalTokens`,
+    breakdown `cost` and the four counters (`inputTokens`, `outputTokens`,
+    `cacheCreationTokens`, `cacheReadTokens`), plus `totals.totalCost` — all reached via
+    `num()`, which silently yields 0. Also the *string* fields `date`/`period` and
+    `modelName`, which are not `num()` at all but a `typeof === "string" ? … : ""` fallback:
+    a rename there silently collapses every row into one blank date key or one blank model
+    family, which is the same class of quietly-wrong table.
+
+    Those three are checked for **type only — an EMPTY string is valid** (code review R5).
+    Refusing `""` would exit 1 where Python exits 0: `model_family("")` returns `other`
+    without raising, and an empty `date`/`period` is simply a blank key. It is a value the
+    producer can legitimately emit (an unnamed or unresolved model), and it is neither
+    missing nor mistyped, so it was never evidence of the drift the guard looks for — a
+    renamed key still reads back `undefined` and still fails.
+
+    Plus, on the Codex side only, the two things reached via a default or skipped outright:
+    `codex daily` `totals.costUSD`/`totals.totalTokens` and per-model `totalTokens` —
+    **presence only**, since their type is `cnum`'s and its wording is frozen. Note presence
+    means *the key exists*: a present-but-`null` value is NOT absence, and is deliberately
+    forwarded to `cnum` (`pyGet` in `codex.ts`) so it produces Python's frozen message rather
+    than being defaulted to 0.
+
+    **Deliberately NOT required**, because unconsumed — requiring a field nothing reads turns
+    a still-working payload into a hard failure, which is worse than the bug being fixed:
+    `totals.totalTokens` on the **Claude** paths (`aggregate.ts:128` returns only
+    `num(totals.totalCost)`; `usage.py:184`/`484` sum tokens from rows — note the **Codex**
+    totals *are* consumed at `codex.ts:145`/`200` and are guarded); the four token counters at
+    **row** level (absent from the golden fixture, never read per row);
+    `modelBreakdowns[].totalTokens` (the producer never emits it); every field of a
+    **`codex daily` row** (`codex.ts:457` discards `rows` entirely) — including the
+    **per-model `totalTokens` nested inside a daily row's `models` map**, which the shared
+    validator required unconditionally until code review R5 and which is just as unconsumed
+    as the row around it; and `directory` on a Codex session, which is optional **and
+    nullable** by design.
+
+    **Two omission tolerances are sanctioned**, both gated on the payload being *genuinely*
+    empty — **both** `totalCost`/`costUSD` **and** `totalTokens` equal to zero. Gating on cost
+    alone would be wrong: cost is zero for an unpriced or offline-resolved model while tokens
+    are positive, so a rename could still be waved through as "nothing to report".
+    (a) `projects` is omitted entirely by the pinned binary on an empty result (and is a
+    **map**, not a list). (b) `daily` may be absent: the golden fixture omits it on empty,
+    a shape the current producer no longer generates but that `usage.py` tolerates via
+    `.get("daily", [])`. Anything else missing is an error.
+15. **New process-boundary diagnostics.** All to **stderr**, all **exit 1**, message text not
+    frozen: unsupported platform; missing platform binary (`--omit=optional`); ccusage
+    timeout (120 s); output past the capture cap; termination by signal; a **synchronous**
+    spawn throw (`spawnSync` raises before returning a result for an invalid argument); an
+    empty configured executable (a whitespace-only or empty `CCUSAGE_CMD`; see entry 13 for
+    what Python does instead); and a non-ENOENT spawn failure such
+    as `EACCES` — which must NOT reuse the frozen "not found" text, since that would
+    misreport a permissions problem as a missing install. Only `ENOENT` maps to the frozen
+    not-found message.
+
+    The missing-binary preflight resolves `<platform-pkg>/bin/ccusage`
+    (`bin/ccusage.exe` on Windows) — the same specifier ccusage's own shim resolves, **and
+    from the same resolution base**: `createRequire(<resolved shim path>)`, mirroring
+    `node_modules/ccusage/src/cli.js:9`. Both halves are required for the guarantee. An
+    earlier revision matched only the specifier and resolved it from *this* module (code
+    review R5); because the platform packages are optionalDependencies of `ccusage` rather
+    than of spendbar, the two graphs coincide only under npm's flat hoisting. Under pnpm's
+    strict layout or Yarn PnP the binary sits beside the shim and is invisible from here, so
+    the preflight would have refused a working install. Checking the package manifest instead
+    would verify a different file again, letting a manifest-present/binary-missing install
+    through.
+
+    Also new here: **a spawn result with no exit status** — no `error`, no `signal`, and
+    `status === null`. `ccusage.ts:40` only treats a run as failed when `status !== 0` *and*
+    stdout is blank, so such a result carrying parseable JSON would otherwise be accepted as
+    a successful run with no process exit ever observed (code review R5).
+
+    Amends entry 8: the **64 MiB cap is a per-stream process limit** (`spawnSync` exposes a
+    single `maxBuffer` applied to each stream — there is no per-stream setting), whereas the
+    **1 MiB stderr limit is diagnostic-only**, bounding the error *message* rather than the
+    process. Truncation is byte-based and UTF-8-safe with a visible marker.
+16. **Malformed UTF-8 from the ccusage subprocess.** Extends entry 12 from rollout *files* to
+    the *process* boundary, for the same reason and with the same resolution. `usage.py:114`
+    is `subprocess.run(cmd, capture_output=True, text=True)`; text mode decodes with
+    `errors='strict'`, so malformed stdout or stderr raises `UnicodeDecodeError` — a
+    `ValueError`, therefore **not** caught by `run_ccusage`'s `except OSError` — and Python
+    dies with an uncaught traceback, exit 1. The port refuses it cleanly (stderr, exit 1,
+    text not frozen), which puts it under the entry 10-12 shape.
+
+    The port previously passed `encoding: "utf8"` to `spawnSync`, which **substitutes U+FFFD**
+    per invalid byte (code review R7). That is the leniency entry 12 already rejects, and it
+    is sharper here: replacement can turn malformed stdout into *parseable* JSON — measured,
+    `{"cost":"\xff"}` decodes to `{"cost":"�"}` and `JSON.parse` accepts it — so the port
+    would have printed a clean table from altered data exactly where Python exits non-zero.
+    Capture is now `encoding: "buffer"` with an explicit `TextDecoder{fatal}`, matching
+    `STRICT_UTF8` in `codex.ts:214`. `ignoreBOM: true` there means the BOM is **preserved,
+    not stripped**, so a BOM-prefixed payload fails to parse in both languages.
+
+    Note the port always decodes as **UTF-8**, whereas Python's text mode uses the locale
+    encoding (`locale.getencoding()`). On any UTF-8 locale — the only configuration the
+    goldens are captured under — these agree.
+17. **`~` expansion is POSIX semantics on every platform.** `expandUser` implements CPython's
+    `posixpath.expanduser`, including the two tails that are easy to miss and were both wrong
+    until code review R7: `userhome.rstrip('/')` (so `HOME=/tmp/foo/` yields `/tmp/foo` and
+    `/tmp/foo/.codex`, not `/tmp/foo/` and `/tmp/foo//.codex`) and the final `or '/'` (so an
+    empty `HOME` yields `/` and `/.codex`). An explicitly empty `HOME` is a **set** home, as
+    in Python — it is not treated as unset, which would have silently redirected a
+    deliberately hermetic caller back into the real user's `~/.claude` and `~/.codex`.
+
+    **Windows is a KNOWN GAP, not a sanctioned delta — see ISS-013.** The distinction
+    matters and an earlier revision of this entry blurred it (code review R7): everything
+    else in this file is a divergence that was measured and then deliberately accepted,
+    whereas this one is simply not implemented on a platform the README advertises as
+    supported (`README.md:58`, Windows x64/arm64 ✅). Sanctioning it here would be
+    overclaiming, so it is recorded as outstanding work instead.
+
+    Concretely, Python on Windows uses `ntpath.expanduser`, which does **not** consult `HOME`
+    at all (`USERPROFILE`, else `HOMEDRIVE`+`HOMEPATH`, else the path is returned unexpanded),
+    treats `\` as a separator alongside `/`, and resolves `~user` by swapping the home's
+    basename rather than through a passwd lookup — so it can succeed where entry 10 refuses.
+    The port reads `HOME` and falls back to `os.userInfo().homedir` on every platform (**not**
+    `os.homedir()`, which consults `$HOME` first and so cannot express "HOME is absent" —
+    code review R8). On Windows it can therefore resolve a different `CODEX_HOME`, read a
+    different session tree, and encode a different `homeEnc` than usage.py would.
+
+    It is filed rather than fixed because `expandUser` predates T-006 (T-003 wrote it; T-006
+    corrected only the POSIX `rstrip`/`or '/'` tails above), and because no measurement could
+    back an implementation today — the reference interpreter is never run on Windows here.
+18. **The ccusage child gets no stdin, and no console window on Windows.** `usage.py:114` is
+    `subprocess.run(cmd, capture_output=True, text=True)`, which redirects only the two output
+    streams — **stdin is inherited**. Measured: a child spawned that way reads the parent's
+    stdin (`'HELLO'` written into the parent's fd 0 arrives in the child). The port passes
+    `stdio: ["ignore", "pipe", "pipe"]`, so the child gets `/dev/null` and sees EOF instead.
+
+    Accepted deliberately, and in the safe direction: ccusage never reads stdin, so nothing
+    observable changes today, and if it ever did, Python would **block forever** on an
+    interactive terminal while the port returns. A hang has no byte-parity to preserve. The
+    reverse choice — inheriting — would import that hazard for no measured gain, so this is
+    not a gap to close later.
+
+    Same options object, same footing: `windowsHide: true`. Python's `subprocess` does not
+    set `STARTF_USESHOWWINDOW` by default, so on Windows a GUI-subsystem child could flash a
+    console there and not here. That only bites on the platform entry 17 already records as a
+    known gap, and it is noted here so the stdio options are documented as a whole rather than
+    one line of them.
+
 ## Explicitly NOT sanctioned (byte-frozen)
 
 - All table layout: column widths, padding, header text, rule lengths.

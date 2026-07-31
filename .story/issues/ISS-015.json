@@ -1,0 +1,41 @@
+{
+  "components": [
+    "ccusage-boundary",
+    "byte-parity"
+  ],
+  "createdBy": "code review R8, agent A (measured and expanded by the implementer)",
+  "dedupeKey": "ccusage-trim-vs-strip-whitespace-set",
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-015",
+  "impact": "`src/ccusage.ts:40-41` ports usage.py:118's `not out.stdout.strip()` / `out.stderr.strip()` as JS `.trim()`. The two whitespace sets are NOT the same. Measured exhaustively over U+0000-U+3000 plus U+FEFF:\n\n- stripped by **Python only**: U+001C U+001D U+001E U+001F U+0085\n- stripped by **JS only**: U+FEFF\n\n`src/runner.ts:276` deliberately reuses the same `.trim()` so both blankness tests agree, and its comment already names this as \"a separate, filed defect\" — this is that filing.\n\nMeasured END TO END (real usage.py vs the ported runCcusage, same fake ccusage child, same payload). All five diverge:\n\n| child output | python | port |\n|---|---|---|\n| stdout = U+001C only, exit 1 | `ccusage failed: 1` | `could not parse ccusage output.` |\n| stdout = U+0085 only, exit 1 | `ccusage failed: 1` | `could not parse ccusage output.` |\n| stdout = U+FEFF only, exit 1 | `could not parse ccusage output.` | `ccusage failed: 1` |\n| stderr = U+0085 only, blank stdout, exit 7 | `ccusage failed: 7` | `ccusage failed: <U+0085>` |\n| stderr = U+FEFF only, blank stdout, exit 7 | `ccusage failed: <U+FEFF>` | `ccusage failed: 7` |\n\nThe U+FEFF rows are the reachable ones: a BOM-prefixed payload is real, and ALLOWLIST 12 deliberately PRESERVES the BOM rather than stripping it, so a ccusage that emits only a BOM on a failing run picks the wrong branch in the port.\n\n**Why it matters:** these are byte-frozen error messages. No ALLOWLIST entry sanctions the flip, and the last two rows change the message BODY, not merely which message is chosen. The goldens miss it because none feeds a separator-only or BOM-only stream.\n\n**Fix:** one shared `pyStrip()` helper. `src/context.ts:78` already defines `PY_WHITESPACE` (the exact Python set, built for `splitCommand`); build the strip helper from that same constant so the two cannot drift, and apply it at ccusage.ts:40, ccusage.ts:41 and runner.ts:276 TOGETHER — fixing one alone splits a decision the two sites are documented to share.\n\n**Scope:** pre-existing. `src/ccusage.ts` is not in the T-006 diff (verified with git diff --stat), so it was filed rather than fixed inline. Reported by review agent A in round 8 as three branch divergences; direct measurement found five.\n\nRelated: ISS-001 (same file, the `slice(0, 400)` UTF-16 truncation), ISS-012 (project-wide UTF-16-vs-code-point comparator).",
+  "location": [
+    "src/ccusage.ts:40-41",
+    "src/runner.ts:276",
+    "src/context.ts:78",
+    "usage.py:118"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-006"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "sourceRefs": [
+    {
+      "contentHash": "add9a44fd6f1a57f630527270942407ef6e001b407abaea28ce54e156b4dddcb",
+      "endLine": 41,
+      "path": "src/ccusage.ts",
+      "revision": "48cb2344c91cfd3e52f47de0723c5909dd305821",
+      "startLine": 40
+    },
+    {
+      "contentHash": "90d5f2a749705ab53d41c5e7c7b4be786f326d15e326da75d2fea303903f5298",
+      "endLine": 282,
+      "path": "src/runner.ts",
+      "startLine": 276
+    }
+  ],
+  "status": "open",
+  "title": "ccusage.ts uses JS .trim() where Python uses str.strip(): 5 measured message divergences"
+}

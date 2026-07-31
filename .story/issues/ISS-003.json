@@ -1,0 +1,16 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-003",
+  "impact": "FILED AS ISS-001, not fixed inline (pre-existing, outside T-006's files): src/ccusage.ts:49 slices stderr by UTF-16 code units where usage.py:124 slices code points, an unsanctioned divergence in a frozen message that can also emit U+FFFD.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "[parity] FILED AS ISS-001, not fixed inline (pre-existing, outside T-006's files): src/cc"
+}

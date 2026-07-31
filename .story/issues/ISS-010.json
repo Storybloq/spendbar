@@ -1,0 +1,16 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-010",
+  "impact": "padRight/padLeft pad by UTF-16 code units while claiming CPython f-string format-spec semantics, which pad on len() (code points). Latent — nothing imports them until T-004 wires up renderers — but user-controlled input reaches them via the config renames map. PRE-EXISTING in src/format.ts; filed as ISS-007 with a note that matching Python means code points, NOT grapheme clusters or display width.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "[byte-parity-divergence] padRight/padLeft pad by UTF-16 code units while claiming CPython f-string format"
+}

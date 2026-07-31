@@ -1,0 +1,26 @@
+{
+  "components": [
+    "config",
+    "byte-parity"
+  ],
+  "createdBy": "code review R6 (agent, parity/semantics lens)",
+  "dedupeKey": "encodepath-missing-unicode-flag",
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-006",
+  "impact": "`src/config.ts` does `p.replace(/[^A-Za-z0-9]/g, \"-\")` with no `u` flag, so it iterates UTF-16 code units. `usage.py`'s `re.sub(r\"[^A-Za-z0-9]\", \"-\", p)` iterates code points. Any non-BMP character (emoji, CJK Ext-B, math alphanumerics) in a path yields TWO dashes in the port and ONE in Python.\n\nMeasured:\n  PY   : re.sub -> \"-Users-testuser\"\n  JS   : .replace(/[^A-Za-z0-9]/g,\"-\")  -> \"-Users-testuser\"\n  JS+u : .replace(/[^A-Za-z0-9]/gu,\"-\") -> \"-Users-testuser\"   (matches Python)\n\nTwo reachable consequences:\n1. Codex path — the port does the encoding itself (`codex.ts` -> `cleanName(encodePath(cwd))`, where `cwd` comes out of the rollout log's `session_meta`), so a project whose path contains an emoji is labelled differently than Python labels it.\n2. `deps.homeEnc` — with an astral character in $HOME the encoded prefix differs, so prefix stripping fails and the displayed project name changes shape entirely (measured: Python \"~/-Developer-alpha\" vs port \"alpha\").\n\nBoth sides exit 0 and print different output, so no test or golden catches it. Not covered by any ALLOWLIST entry.\n\nPRE-EXISTING and out of T-006's scope: `src/config.ts` is untouched by this ticket, and the defect is independent of anything T-006 changed. Filed rather than fixed inline per the autonomous-session rule. (The sibling finding in `aggregate.ts` WAS fixed in T-006, because T-006's own requireString relaxation is what made it reachable — different situation.)\n\nFIX: add the `u` flag. Add a differential test against CPython's `re.sub` over a set of astral code points, in the style of the existing digitValue/isprintable CPython differentials.\n\nFound by code review R6 (agent, parity lens) via an end-to-end Python-vs-port comparison on a rollout fixture with an emoji cwd.",
+  "location": [
+    "src/config.ts",
+    "src/context.ts (homeEnc)",
+    "src/codex.ts (cleanName(encodePath(cwd)))"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-004",
+    "T-005"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "status": "open",
+  "title": "encodePath splits astral characters into two dashes; Python produces one"
+}

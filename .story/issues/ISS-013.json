@@ -1,0 +1,26 @@
+{
+  "components": [
+    "src/context.ts",
+    "tests/golden/ALLOWLIST.md",
+    "README.md"
+  ],
+  "createdBy": "codex (code review R7, T-006)",
+  "dedupeKey": "t006-r7-windows-ntpath-expanduser",
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-013",
+  "impact": "README advertises Windows x64/arm64 as supported (README.md:58), but `expandUser` (src/context.ts) implements CPython's POSIX `posixpath.expanduser` on every platform. On Windows, usage.py would instead go through `ntpath.expanduser`, which differs in four measurable ways:\n\n1. It does NOT consult `HOME` at all — it reads `USERPROFILE`, falling back to `HOMEDRIVE` + `HOMEPATH`, and returns the path UNEXPANDED if neither is set.\n2. It treats both `/` and `\\` as separators when locating the end of the `~` component.\n3. `~user` is resolved by replacing the basename of the resolved home, not via a passwd lookup — so it can succeed on Windows where the port refuses (ALLOWLIST entry 10).\n4. The POSIX `userhome.rstrip('/')` and trailing `or '/'` rules do not apply.\n\nConsequence: on Windows the port can resolve a DIFFERENT `CODEX_HOME` than usage.py and therefore read a different session tree, and `homeEnc` can encode a different home so project attribution differs. This is a real behavioural divergence on an advertised platform, not merely an unmeasured one.\n\nFound by code review R7 (codex) during T-006. Filed rather than fixed: `expandUser` predates T-006 (it came from T-003) and T-006 only corrected the POSIX rstrip / empty-HOME tails, so ntpath support is out of this ticket's scope. It also cannot be verified here — the reference CPython is never run on Windows in this project, so any implementation would be unmeasured until a Windows parity run exists.\n\nResolution options, in preference order:\n(a) Implement platform-aware expansion mirroring `ntpath.expanduser`, with table-driven tests that inject `platform` + an environment map so every branch is testable from one host — the same shape as PLATFORM_PACKAGES in resolve-ccusage.ts.\n(b) If Windows parity is not going to be supported, qualify the README support table so it does not claim more than is true.\n\nRecorded as a KNOWN GAP in ALLOWLIST entry 17 (it is deliberately not written as a sanctioned delta, because sanctioning a divergence on an advertised platform would be overclaiming).",
+  "location": [
+    "src/context.ts:103",
+    "tests/golden/ALLOWLIST.md:249",
+    "README.md:58"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-006"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "Windows `~` expansion uses POSIX semantics, diverging from Python's ntpath.expanduser"
+}

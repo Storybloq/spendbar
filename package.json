@@ -27,10 +27,14 @@
     "test": "tsc -p tsconfig.json && node --test tests-ts/*.test.mjs",
     "parity": "node tests-ts/parity.mjs",
     "spike:rounding": "node spikes/rounding/spike.mjs",
-    "gen:unicode": "python3 scripts/gen-unicode.py > src/unicode-tables.ts"
+    "gen:unicode": "python3 scripts/gen-unicode.py > src/unicode-tables.ts",
+    "test:contract": "tsc -p tsconfig.json && node --test tests-ts/contract/*.contract.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "ccusage": "20.0.19"
   }
 }

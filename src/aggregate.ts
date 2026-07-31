@@ -101,8 +101,17 @@ export function aggProjects(
       a.tokens += num(day.totalTokens);
       a.cost += num(day.totalCost);
       const date = typeof day.date === "string" ? day.date : "";
-      if (date && date < a.first) a.first = date;
-      if (date && date > a.last) a.last = date;
+      // UNCONDITIONAL, matching `min`/`max` at usage.py:186-187. The `date &&` guard that
+      // used to sit here silently skipped an empty date, so Python reported a first-seen of
+      // "" where the port reported the next-earliest real date — both exiting 0, different
+      // output (code review R6).
+      //
+      // This became reachable through T-006: R5 relaxed json.ts's `requireString` to accept
+      // an empty string (ALLOWLIST 14 — Python renders such a row rather than failing), so
+      // a payload the validator previously rejected now flows through to here. The guard
+      // was masking a real divergence rather than preventing one.
+      if (date < a.first) a.first = date;
+      if (date > a.last) a.last = date;
 
       const mbs = Array.isArray(day.modelBreakdowns) ? day.modelBreakdowns : [];
       for (const mbRaw of mbs) {

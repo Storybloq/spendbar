@@ -1,12 +1,13 @@
 {
   "blockedBy": [],
-  "completedDate": null,
+  "completedDate": "2026-07-31",
   "createdDate": "2026-07-31",
   "description": "ccusage as exact-version regular dependency (20.0.19 at research; re-verify latest). Contract tests against the REAL binary: `period` vs `date` field, codex session row shape (its `directory` field = date dir, NOT cwd — verified), daily/instances JSON shapes. These tests gate every future pin bump. Harden CCUSAGE_CMD: executable path + argv array, shell:false, timeouts, stdout/stderr byte limits, exit-code checks, schema validation.",
+  "displayId": "T-006",
   "id": "T-006",
   "order": 60,
   "phase": "v0-1",
-  "status": "open",
+  "status": "complete",
   "title": "Pin ccusage + real-binary schema contract tests",
   "type": "task"
 }

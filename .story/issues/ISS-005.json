@@ -1,0 +1,27 @@
+{
+  "components": [
+    "codex",
+    "privacy",
+    "packaging"
+  ],
+  "createdBy": "code review R6 (agent, test-efficacy/privacy lens)",
+  "dedupeKey": "real-codex-rollout-id-in-source-comments",
+  "discoveredDate": "2026-07-31",
+  "id": "ISS-005",
+  "impact": "`src/codex.ts:30` and `usage.py:199` both carry the literal example rollout name `rollout-2026-07-09T00-43-18-00000000-0000-4000-8000-000000000000`. Verified against the author's machine: `~/.codex/sessions/2026/07/09/` contains that exact rollout, so this is a genuine session identifier, not a fabricated one.\n\nPRE-EXISTING, not introduced by T-006 — both lines are present at the mergebase (48cb234), so per the autonomous-session rule it is filed rather than fixed inline. T-006's own contract fixture had the same defect (a real 92 MB rollout's UUID in `tests-ts/contract/fixtures.mjs`, under a docblock asserting nothing was copied); that one WAS in scope and is fixed.\n\nImpact is bounded but real: a bare UUID with no prompt, code, or tool content. It leaks no conversation data. But the repo is public and `src/` is compiled into the published `dist/` (tsc keeps comments by default), so the identifier would ship to npm — and it contradicts the standard the project states for itself in `tests-ts/contract/fixtures.mjs`.\n\nThis matters before T-007 (npm publish), which is the point of no return for anything in the tarball.\n\nFIX: replace both with a synthetic UUIDv7 following the convention the fixtures now use — a real timestamp prefix plus all-zero random bits, e.g. `rollout-2026-07-09T00-43-18-019f4500-0000-7000-8000-000000000001` — so a copied identifier is visible on sight. Also worth adding a CI grep that fails when any id matching the local-session pattern appears in tracked files.\n\nSeparately, `product-architecture-2026-07-30.md:10` embeds an absolute path under the author's home directory including a Claude session UUID. Same class, same file-set decision needed before publish.",
+  "location": [
+    "src/codex.ts:30",
+    "usage.py:199",
+    "product-architecture-2026-07-30.md:10"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-006",
+    "T-007"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "Real Codex rollout ID from the author's machine is hard-coded in shipping source comments"
+}

@@ -17,7 +17,7 @@ import { codexStartDate, safeRealpath, codexCwd, codexProject, ROLLOUT_RE } from
 const noRunner = () => ({ status: 0, stdout: "{}", stderr: "" });
 
 function mkCtx(overrides = {}, config = {}) {
-  const deps = createDeps({}, "/Users/testuser", noRunner, {
+  const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/Users/testuser", noRunner, {
     today: () => "20260731",
     ...overrides,
   });
@@ -61,7 +61,7 @@ test("modelFamily classification incl. the codex fallback", () => {
 
 test("loadConfig: missing file is silent, malformed warns and defaults", () => {
   const warnings = [];
-  const missing = createDeps({ USAGE_CONFIG: "/nonexistent/does-not-exist.json" }, "/h", noRunner, {
+  const missing = createDeps({ CCUSAGE_CMD: "ccusage", USAGE_CONFIG: "/nonexistent/does-not-exist.json" }, "/h", noRunner, {
     warn: (m) => warnings.push(m),
   });
   assert.deepEqual(loadConfig(missing), DEFAULT_CONFIG);
@@ -70,7 +70,7 @@ test("loadConfig: missing file is silent, malformed warns and defaults", () => {
   const dir = mkdtempSync(join(tmpdir(), "cfg-"));
   const bad = join(dir, "bad.json");
   writeFileSync(bad, "{ not valid json ,,, }");
-  const badDeps = createDeps({ USAGE_CONFIG: bad }, "/h", noRunner, { warn: (m) => warnings.push(m) });
+  const badDeps = createDeps({ CCUSAGE_CMD: "ccusage", USAGE_CONFIG: bad }, "/h", noRunner, { warn: (m) => warnings.push(m) });
   assert.deepEqual(loadConfig(badDeps), DEFAULT_CONFIG);
   assert.equal(warnings.length, 1, "malformed config must warn exactly once");
   rmSync(dir, { recursive: true, force: true });
@@ -79,7 +79,7 @@ test("loadConfig: missing file is silent, malformed warns and defaults", () => {
 // ---------------------------------------------------------------- dates
 
 test("normDate handles absolute, dashed and relative forms", () => {
-  const deps = createDeps({}, "/h", noRunner, { today: () => "20260731" });
+  const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/h", noRunner, { today: () => "20260731" });
   assert.equal(normDate("20260101", deps), "20260101");
   assert.equal(normDate("2026-01-01", deps), "20260101");
   assert.equal(normDate("-3d", deps), "20260728");
@@ -88,7 +88,7 @@ test("normDate handles absolute, dashed and relative forms", () => {
 });
 
 test("normDate rejects a malformed relative date with the frozen message", () => {
-  const deps = createDeps({}, "/h", noRunner, { today: () => "20260731" });
+  const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/h", noRunner, { today: () => "20260731" });
   assert.throws(() => normDate("-xd", deps), (e) => {
     assert.ok(e instanceof UsageError);
     assert.equal(e.message, "bad relative date '-xd': expected -Nd, e.g. -3d or -30d");
@@ -99,7 +99,7 @@ test("normDate rejects a malformed relative date with the frozen message", () =>
 // usage.py:106 interpolates with `!r`. Hard-coding "'" diverges the moment the value
 // contains a quote or backslash — verified against CPython, not hand-written.
 test("normDate's error quotes via repr, matching CPython on adversarial input", () => {
-  const deps = createDeps({}, "/h", noRunner, { today: () => "20260731" });
+  const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/h", noRunner, { today: () => "20260731" });
   const cases = ["-'d", '-"d', "-\\d", "-a'b\"c\\d"];
   const script =
     "import sys,json\n" +
@@ -124,7 +124,7 @@ test("inWindow is inclusive on both ends", () => {
 });
 
 test("windowLabel renders relative dates with their resolved value", () => {
-  const deps = createDeps({}, "/h", noRunner, { today: () => "20260731" });
+  const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/h", noRunner, { today: () => "20260731" });
   assert.equal(windowLabel(null, null, deps), "(all time)");
   assert.equal(windowLabel("-3d", null, deps), "(since -3d (=20260728))");
   assert.equal(windowLabel("20260101", "20260131", deps), "(20260101 -> 20260131)");
@@ -132,18 +132,68 @@ test("windowLabel renders relative dates with their resolved value", () => {
 
 // ---------------------------------------------------------------- json guards (F1/F2/F8)
 
+// Shared minimal-valid scaffolding. The schema is strict as of T-006, so a payload must
+// carry its totals and every consumed row field; these helpers keep each test focused on
+// the ONE thing it is actually asserting.
+const CLAUDE_TOTALS = { totalCost: 0, totalTokens: 0 };
+const CODEX_TOTALS = { costUSD: 0, totalTokens: 0 };
+const codexSession = (over = {}) => ({
+  sessionFile: "rollout-2026-01-01T10-00-00-019c0000-0000-7000-8000-000000000001",
+  costUSD: 1,
+  totalTokens: 1,
+  models: {}, // required as of code review R1; empty is the unclassified bucket
+  ...over,
+});
+const codexDailyRow = (over = {}) => ({
+  date: "2026-01-01",
+  costUSD: 1,
+  totalTokens: 1,
+  models: {},
+  ...over,
+});
+/** A breakdown entry carrying every counter the validator requires. */
+const mbEntry = (over = {}) => ({
+  modelName: "claude-opus-4-8",
+  cost: 1,
+  inputTokens: 1,
+  outputTokens: 1,
+  cacheCreationTokens: 1,
+  cacheReadTokens: 1,
+  ...over,
+});
+
+// The key set is `/^(0|[1-9]\d*)$/` — CANONICAL integers, of any length. Single-character
+// keys alone cannot pin that: `/^[0-9]$/` passes such a test while letting `"10"` and `"42"`
+// through, and those ARE reordered by JS (measured: Object.keys of
+// `{"10":…,"2":…,"007":…,"-p":…}` iterates 2, 10, 007, -p — textual order lost, which is
+// exactly the float-summation hazard ALLOWLIST 6 exists for). The NON-canonical spellings
+// matter just as much in the other direction: JS does not reorder `"007"` or `"1.0"`, so
+// rejecting them would be a false positive on a key a producer could legitimately emit
+// (code review R8).
 test("validate rejects canonical-integer keys in projects (JS would reorder them)", () => {
-  assert.throws(
-    () => validateInstances({ projects: { 2: [], 1: [] } }),
-    (e) => e instanceof UsageError && /canonical-integer key/.test(e.message),
-  );
-  // A real ccusage key starts with '-' and must pass.
-  assert.doesNotThrow(() => validateInstances({ projects: { "-Users-testuser": [] } }));
+  for (const key of ["0", "1", "2", "10", "42", "100", "9007199254740993"]) {
+    assert.throws(
+      () => validateInstances({ projects: { [key]: [], "-p": [] }, totals: CLAUDE_TOTALS }),
+      (e) => e instanceof UsageError && /canonical-integer key/.test(e.message),
+      `canonical integer key ${JSON.stringify(key)} must be rejected`,
+    );
+  }
+  // NOT canonical integers — JS preserves their insertion order, so they must pass.
+  for (const key of ["-Users-testuser", "007", "01", "1.0", "1e3", "-1", "1n", " 1"]) {
+    assert.doesNotThrow(
+      () => validateInstances({ projects: { [key]: [] }, totals: CLAUDE_TOTALS }),
+      `${JSON.stringify(key)} is not a canonical integer and must be accepted`,
+    );
+  }
 });
 
 test("validate rejects canonical-integer keys in codex models", () => {
   assert.throws(
-    () => validateCodexSessions({ sessions: [{ models: { 0: { totalTokens: 1 } } }] }),
+    () =>
+      validateCodexSessions({
+        sessions: [codexSession({ models: { 0: { totalTokens: 1 } } })],
+        totals: CODEX_TOTALS,
+      }),
     (e) => e instanceof UsageError && /canonical-integer key/.test(e.message),
   );
 });
@@ -151,6 +201,7 @@ test("validate rejects canonical-integer keys in codex models", () => {
 test("safe-integer boundary: 2^53-1 ok, 2^53 and above rejected — CLAUDE path", () => {
   const mk = (tok) => ({
     projects: { "-p": [{ date: "2026-01-01", totalCost: 1, totalTokens: tok, modelBreakdowns: [] }] },
+    totals: CLAUDE_TOTALS,
   });
   assert.doesNotThrow(() => validateInstances(mk(Number.MAX_SAFE_INTEGER))); // 2^53-1
   assert.throws(() => validateInstances(mk(2 ** 53)), (e) => e instanceof UsageError);
@@ -165,17 +216,21 @@ test("safe-integer boundary also covers Claude per-model counters (cnum never se
           date: "2026-01-01",
           totalCost: 1,
           totalTokens: 1,
-          modelBreakdowns: [{ modelName: "claude-opus-4-8", cost: 1, inputTokens: tok }],
+          modelBreakdowns: [mbEntry({ inputTokens: tok })],
         },
       ],
     },
+    totals: CLAUDE_TOTALS,
   });
-  assert.doesNotThrow(() => mk(10) && validateInstances(mk(10)));
+  assert.doesNotThrow(() => validateInstances(mk(10)));
   assert.throws(() => validateInstances(mk(2 ** 53)), (e) => e instanceof UsageError);
 });
 
 test("safe-integer boundary — CODEX path", () => {
-  const mk = (tok) => ({ sessions: [{ totalTokens: tok, models: { "gpt-5.5": { totalTokens: tok } } }] });
+  const mk = (tok) => ({
+    sessions: [codexSession({ totalTokens: tok, models: { "gpt-5.5": { totalTokens: tok } } })],
+    totals: CODEX_TOTALS,
+  });
   assert.doesNotThrow(() => validateCodexSessions(mk(Number.MAX_SAFE_INTEGER)));
   assert.throws(() => validateCodexSessions(mk(2 ** 53)), (e) => e instanceof UsageError);
 });
@@ -235,6 +290,43 @@ test("aggProjects sums per project and per model family", () => {
   assert.equal(a.first, "2026-01-01");
   assert.equal(a.last, "2026-01-02");
   assert.equal(grand, 18.0);
+});
+
+// usage.py:186-187 is an UNCONDITIONAL min/max. The port used to guard with `date &&`, so an
+// empty date was skipped and `first` stayed at the next-earliest real date while Python
+// reported "". Both exit 0 — a silent output divergence, and the only one a 221-case Claude
+// mutation differential turned up (code review R6).
+//
+// T-006 is what made this reachable: R5 relaxed json.ts's requireString to accept "",
+// because Python renders such a row rather than failing (ALLOWLIST 14). Before that the
+// validator rejected the payload and the divergence could not be observed.
+test("an empty date participates in first/last exactly as Python's min/max does", () => {
+  const ctx = mkCtx();
+  const h = ctx.deps.homeEnc;
+  const { agg } = aggProjects(ctx, {
+    projects: {
+      [`${h}-Developer-alpha`]: [
+        { date: "", totalCost: 1.0, totalTokens: 1, modelBreakdowns: [] },
+        { date: "2026-07-10", totalCost: 2.0, totalTokens: 2, modelBreakdowns: [] },
+      ],
+    },
+    totals: { totalCost: 3.0 },
+  });
+  const a = agg.get("alpha");
+  assert.equal(a.first, "", 'min("9999-99-99", "", "2026-07-10") is "" — Python does not skip it');
+  assert.equal(a.last, "2026-07-10");
+
+  // A LONE empty date is the asymmetric case, and it is asymmetric in Python too: "" sorts
+  // before every non-empty string, so min() takes it while max() keeps the sentinel.
+  // Verified against CPython: min("9999-99-99","") == "" but max("0000-00-00","") ==
+  // "0000-00-00". The port must reproduce both, sentinel included.
+  const { agg: agg2 } = aggProjects(ctx, {
+    projects: { [`${h}-Developer-beta`]: [{ date: "", totalCost: 0, totalTokens: 0, modelBreakdowns: [] }] },
+    totals: { totalCost: 0 },
+  });
+  const b = agg2.get("beta");
+  assert.equal(b.first, "");
+  assert.equal(b.last, "0000-00-00", 'max("0000-00-00", "") keeps the sentinel');
 });
 
 // ---------------------------------------------------------------- codex security (F5/F9)
@@ -320,6 +412,61 @@ test("splitCommand mirrors Python str.split() and never shells out", () => {
   assert.deepEqual(splitCommand("  ccusage  "), { exe: "ccusage", prefixArgs: [] });
 });
 
+// The claim in splitCommand's docstring, checked against CPython itself rather than
+// hand-written. `\s+` was NOT the same set (code review R6): Python's str.split() also
+// splits on the C1 separators - and , which `\s` does not match, while
+// `\s` matches ﻿, which Python does not split on. Both directions matter — the first
+// yields a wrong `exe` (and so a wrong frozen "'X' not found" message and `cmd:` line), the
+// second splits a command Python would leave intact.
+// EXHAUSTIVE, over every code point — a hand-picked probe list cannot substantiate the word
+// "exactly" (code review R7). The production class spells U+2000-U+200A as a RANGE, and the
+// old list sampled only its two endpoints, so narrowing it to U+2000-U+2008 (dropping two
+// real Python whitespace characters) left this test green while its name still claimed
+// equivalence. Same shape as the `\p{Nd}` table test: compare the two SETS, not samples.
+test("splitCommand's whitespace set is exactly CPython's, verified against CPython", () => {
+  // Surrogates are excluded: they cannot survive the JSON round-trip to Python as text, and
+  // `chr(0xd800).isspace()` is False while a lone surrogate never splits here either, so
+  // they agree trivially and only complicate the transport.
+  const script =
+    "import sys, json\n" +
+    "print(json.dumps([cp for cp in range(0x110000)\n" +
+    "                  if not (0xd800 <= cp <= 0xdfff) and chr(cp).isspace()]))\n";
+  const res = spawnSync("python3", ["-c", script], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  assert.equal(res.status, 0, res.stderr);
+  const pyWhitespace = JSON.parse(res.stdout);
+  assert.ok(pyWhitespace.length > 20, `expected a real whitespace set, got ${pyWhitespace.length}`);
+
+  const jsWhitespace = [];
+  for (let cp = 0; cp < 0x110000; cp += 1) {
+    if (cp >= 0xd800 && cp <= 0xdfff) continue;
+    if (splitCommand(`a${String.fromCodePoint(cp)}b`).prefixArgs.length === 1) jsWhitespace.push(cp);
+  }
+
+  const hex = (cp) => `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
+  const pySet = new Set(pyWhitespace);
+  const jsSet = new Set(jsWhitespace);
+  assert.deepEqual(
+    jsWhitespace.filter((cp) => !pySet.has(cp)).map(hex),
+    [],
+    "the port splits on characters CPython does not (e.g. a stray U+FEFF from JS's \\s)",
+  );
+  assert.deepEqual(
+    pyWhitespace.filter((cp) => !jsSet.has(cp)).map(hex),
+    [],
+    "CPython splits on characters the port does not (e.g. the C1 separators U+001C-U+001F)",
+  );
+
+  // ...and the split RESULT itself, not merely the boolean, on both sides of the boundary.
+  for (const cp of [...pyWhitespace, 0x41, 0x30, 0x2d, 0xfeff, 0x200b, 0x180e]) {
+    const ch = String.fromCodePoint(cp);
+    assert.deepEqual(
+      splitCommand(`a${ch}b`),
+      pySet.has(cp) ? { exe: "a", prefixArgs: ["b"] } : { exe: `a${ch}b`, prefixArgs: [] },
+      hex(cp),
+    );
+  }
+});
+
 test("createDeps performs no I/O and honours env overrides", () => {
   const deps = createDeps(
     { CCUSAGE_CMD: "ccusage", CODEX_HOME: "/custom/codex", USAGE_CONFIG: "/custom/cfg.json" },
@@ -334,36 +481,131 @@ test("createDeps performs no I/O and honours env overrides", () => {
 });
 
 // usage.py:197 wraps the WHOLE lookup in expanduser, override included. Leaving '~'
+// CCUSAGE_CMD must WIN over an injected override, which is what createDeps' if/else and
+// bootstrapDeps both document. It did not: the old `return {...base, ...overrides}` put the
+// override back on top afterwards, silently inverting the documented precedence (R1).
+test("CCUSAGE_CMD beats an injected override, as documented", () => {
+  const d = createDeps({ CCUSAGE_CMD: "envcmd --flag" }, "/h", noRunner, {
+    ccusageExe: "overridden",
+    ccusagePrefixArgs: ["nope"],
+  });
+  assert.equal(d.ccusageExe, "envcmd");
+  assert.deepEqual(d.ccusagePrefixArgs, ["--flag"]);
+
+  // With no env var the override is the source, and its prefix args default to [].
+  const o = createDeps({}, "/h", noRunner, { ccusageExe: "overridden" });
+  assert.equal(o.ccusageExe, "overridden");
+  assert.deepEqual(o.ccusagePrefixArgs, []);
+});
+
+// A command that splits to nothing must fail closed here, not reach spawnSync and surface
+// as ERR_INVALID_ARG_VALUE.
+//
+// This is a SANCTIONED DIVERGENCE, not a match (ALLOWLIST 13). Python never reaches
+// `subprocess.run([])`: usage.py:112 builds `cmd = CCUSAGE + args`, so an empty prefix
+// leaves the bare subcommand (`claude`, `codex`, …) as cmd[0] and Python execs *that* —
+// usually FileNotFoundError, but a real `claude` on PATH would silently run with ccusage's
+// arguments. The port refuses up front instead. (An earlier version of this comment made
+// the `subprocess.run([])` claim; it is false — code review R5, same false claim R3 caught
+// in the ALLOWLIST prose.)
+test("a command that splits to an empty executable is refused", () => {
+  // "" included deliberately: Python's os.environ.get returns it as a SET value, so it must
+  // not be mistaken for "unset" and silently replaced by the bundled binary (R2).
+  for (const cmd of ["", "   ", "\t", "\n  \t "]) {
+    assert.throws(
+      () => createDeps({ CCUSAGE_CMD: cmd }, "/h", noRunner),
+      (e) => e instanceof UsageError && /no ccusage command available/.test(e.message),
+      `CCUSAGE_CMD=${JSON.stringify(cmd)} must be refused`,
+    );
+  }
+  assert.throws(
+    () => createDeps({}, "/h", noRunner, { ccusageExe: "" }),
+    (e) => e instanceof UsageError && /no ccusage command available/.test(e.message),
+  );
+});
+
 // unexpanded makes it a relative path, so a decoy './~/sessions' under cwd becomes the
 // trusted session root (code review R1).
 test("CODEX_HOME expands a leading ~ so it can never resolve relative to cwd", () => {
-  const mk = (v) => createDeps({ CODEX_HOME: v }, "/Users/testuser", noRunner).codexHome;
+  const mk = (v) => createDeps({ CCUSAGE_CMD: "ccusage", CODEX_HOME: v }, "/Users/testuser", noRunner).codexHome;
   assert.equal(mk("~/.codex-test"), "/Users/testuser/.codex-test");
   assert.equal(mk("~"), "/Users/testuser");
-  assert.equal(createDeps({}, "/Users/testuser", noRunner).codexHome, "/Users/testuser/.codex");
+  assert.equal(createDeps({ CCUSAGE_CMD: "ccusage" }, "/Users/testuser", noRunner).codexHome, "/Users/testuser/.codex");
   assert.equal(mk("/abs/codex"), "/abs/codex");
+});
+
+// posixpath.expanduser ends with `userhome.rstrip('/')` then `(userhome + rest) or '/'`.
+// Naive concatenation got both tails wrong, and both are silent: a trailing slash survives
+// into `homeEnc`, where it matches no encoded project key at all (code review R7).
+// Expected values measured against CPython, not derived from the implementation:
+//   HOME=/tmp/foo/  -> expanduser('~')='/tmp/foo'  expanduser('~/.codex')='/tmp/foo/.codex'
+//   HOME=""         -> expanduser('~')='/'         expanduser('~/.codex')='/.codex'
+test("home expansion follows CPython's rstrip and empty-home rules", () => {
+  const mk = (home, v) =>
+    createDeps({ CCUSAGE_CMD: "ccusage", ...(v === undefined ? {} : { CODEX_HOME: v }) }, home, noRunner);
+
+  assert.equal(mk("/tmp/foo/").codexHome, "/tmp/foo/.codex", "one trailing slash is stripped");
+  assert.equal(mk("/tmp/foo///").codexHome, "/tmp/foo/.codex", "rstrip('/') removes EVERY trailing slash");
+  assert.equal(mk("/tmp/foo/", "~").codexHome, "/tmp/foo");
+  assert.equal(mk("/tmp/foo/").homeEnc, mk("/tmp/foo").homeEnc, "a trailing slash must not change homeEnc");
+
+  // The `or '/'` tail. An empty home rstrips to "", so "~" would otherwise expand to "".
+  assert.equal(mk("").codexHome, "/.codex", "empty home + '/.codex' is already non-empty");
+  assert.equal(mk("", "~").codexHome, "/", "empty result falls back to the root");
+  // Root itself rstrips to "" and must come back as "/", not "" or "//.codex".
+  assert.equal(mk("/", "~").codexHome, "/");
+  assert.equal(mk("/").codexHome, "/.codex", "not '//.codex'");
 });
 
 // Returning `~root/.codex` unchanged has the SAME relative-path hole as the bare `~` bug,
 // just spelled differently — so another account's ~user is refused, not passed through.
 test("a ~user path for another account is refused, never left relative", () => {
-  const mk = (v, user) =>
-    createDeps({ CODEX_HOME: v, USER: user }, "/Users/testuser", noRunner).codexHome;
-  assert.throws(() => mk("~root/.codex", "testuser"), (e) => {
+  // The accepted `~user` resolves from the PASSWD entry, not from HOME and not from $USER
+  // (code review R8). CPython's `~user` branch calls `pwd.getpwnam(name).pw_dir` and never
+  // consults HOME, so the two are given DIFFERENT values here — a test that set them equal
+  // could not tell which one the port actually used.
+  const passwd = { username: "testuser", homedir: "/passwd/testuser" };
+  const mk = (v, over = {}) =>
+    createDeps({ CCUSAGE_CMD: "ccusage", CODEX_HOME: v, USER: "testuser" }, "/Users/testuser", noRunner, {
+      passwd,
+      ...over,
+    }).codexHome;
+
+  assert.throws(() => mk("~root/.codex"), (e) => {
     assert.ok(e instanceof UsageError);
     assert.match(e.message, /cannot expand CODEX_HOME '~root\/\.codex'/);
     return true;
   });
-  assert.throws(() => mk("~other", "testuser"), (e) => e instanceof UsageError);
-  // The current user's own name is resolvable, so it is honoured.
-  assert.equal(mk("~testuser/.codex", "testuser"), "/Users/testuser/.codex");
-  assert.equal(mk("~testuser", "testuser"), "/Users/testuser");
+  assert.throws(() => mk("~other"), (e) => e instanceof UsageError);
+
+  // The current account's own name IS resolvable — from pw_dir.
+  assert.equal(mk("~testuser/.codex"), "/passwd/testuser/.codex", "must use pw_dir, not HOME");
+  assert.equal(mk("~testuser"), "/passwd/testuser");
+  // ...while bare `~` still uses HOME, which is what posixpath does.
+  assert.equal(mk("~/.codex"), "/Users/testuser/.codex");
+
+  // $USER is NOT the passwd name and must not be treated as it: an env var must not make the
+  // port expand another account's `~name` to this account's home.
+  assert.throws(
+    () =>
+      createDeps(
+        { CCUSAGE_CMD: "ccusage", CODEX_HOME: "~root/.codex", USER: "root" },
+        "/Users/testuser",
+        noRunner,
+        { passwd },
+      ),
+    (e) => e instanceof UsageError,
+    "USER=root must not make ~root expand — the passwd name is the only authority",
+  );
+
+  // With no passwd entry available at all, every `~user` is refused rather than guessed.
+  assert.throws(() => mk("~testuser", { passwd: undefined }), (e) => e instanceof UsageError);
 });
 
 // ---------------------------------------------------------------- unicode digits (R2-F2)
 
 test("relative dates accept Unicode decimal digits, as Python's str.isdigit does", () => {
-  const deps = createDeps({}, "/h", noRunner, { today: () => "20260731" });
+  const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/h", noRunner, { today: () => "20260731" });
   assert.equal(normDate("-3d", deps), "20260728");
   assert.equal(normDate("-٣d", deps), "20260728", "Arabic-Indic 3");
   assert.equal(normDate("-１０d", deps), "20260721", "fullwidth 10");
@@ -387,7 +629,7 @@ test("digitValue agrees with CPython int() on every Nd code point", () => {
   const expected = JSON.parse(res.stdout);
   assert.ok(expected.length > 500, `expected many Nd code points, got ${expected.length}`);
 
-  const deps = createDeps({}, "/h", noRunner, { today: () => "20260731" });
+  const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/h", noRunner, { today: () => "20260731" });
   let checked = 0;
   for (const [cp, value] of expected) {
     // normDate("-<digit>d") shifts by exactly the digit's numeric value.
@@ -402,7 +644,7 @@ test("digitValue agrees with CPython int() on every Nd code point", () => {
 // V8 knows Unicode 16 digits (U+10D40, Garay) that CPython 3.11's Unicode 14 does not.
 // Using JS's own \p{Nd} would accept these where Python errors — a success-path divergence.
 test("a digit V8 knows but the reference CPython does not is refused", () => {
-  const deps = createDeps({}, "/h", noRunner, { today: () => "20260731" });
+  const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/h", noRunner, { today: () => "20260731" });
   const garayZero = String.fromCodePoint(0x10d40);
   assert.match(garayZero, /\p{Nd}/u, "fixture must be Nd per V8");
   const py = spawnSync("python3", ["-c", "import sys; print(sys.argv[1].isdigit())", garayZero], {
@@ -413,7 +655,7 @@ test("a digit V8 knows but the reference CPython does not is refused", () => {
 });
 
 test("a relative date outside datetime.date's year 1..9999 is refused", () => {
-  const deps = createDeps({}, "/h", noRunner, { today: () => "20260731" });
+  const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/h", noRunner, { today: () => "20260731" });
   // Python: date.today() - timedelta(days=1000000) raises OverflowError.
   assert.throws(() => normDate("-1000000d", deps), (e) => {
     assert.ok(e instanceof UsageError);
@@ -427,7 +669,7 @@ test("a relative date outside datetime.date's year 1..9999 is refused", () => {
 });
 
 test("superscripts are refused cleanly where Python's own int() would raise", () => {
-  const deps = createDeps({}, "/h", noRunner, { today: () => "20260731" });
+  const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/h", noRunner, { today: () => "20260731" });
   // '²'.isdigit() is True in Python but int('²') raises ValueError -> traceback.
   assert.throws(() => normDate("-²d", deps), (e) => e instanceof UsageError);
 });
@@ -448,7 +690,7 @@ test("a decoy '~' directory under cwd cannot capture session discovery", () => {
   mkdirSync(realDated, { recursive: true });
   writeFileSync(join(realDated, nm + ".jsonl"), meta("/Users/testuser/Developer/real"));
 
-  const deps = createDeps({ CODEX_HOME: "~/.codex-test" }, realHome, noRunner);
+  const deps = createDeps({ CCUSAGE_CMD: "ccusage", CODEX_HOME: "~/.codex-test" }, realHome, noRunner);
   const ctx = { deps, config: DEFAULT_CONFIG };
   const prev = process.cwd();
   try {
@@ -464,23 +706,24 @@ test("a decoy '~' directory under cwd cannot capture session discovery", () => {
 // ---------------------------------------------------------------- codex daily validation
 
 test("codex daily totals are safe-integer validated before cnum sees them", () => {
-  const mk = (tok) => ({ daily: [{ date: "2026-01-01", totalTokens: 1 }], totals: { totalTokens: tok } });
+  const mk = (tok) => ({ daily: [codexDailyRow()], totals: { costUSD: 0, totalTokens: tok } });
   assert.doesNotThrow(() => validateCodexDaily(mk(Number.MAX_SAFE_INTEGER)));
   assert.throws(() => validateCodexDaily(mk(2 ** 53)), (e) => e instanceof UsageError);
   assert.throws(() => validateCodexDaily(mk(2 ** 53 + 2)), (e) => e instanceof UsageError);
 });
 
 test("codex daily row and per-model token counts are validated too", () => {
+  const wrap = (row) => ({ daily: [row], totals: CODEX_TOTALS });
   assert.throws(
-    () => validateCodexDaily({ daily: [{ totalTokens: 2 ** 53 }] }),
+    () => validateCodexDaily(wrap(codexDailyRow({ totalTokens: 2 ** 53 }))),
     (e) => e instanceof UsageError && /codex daily\[0\]\.totalTokens/.test(e.message),
   );
   assert.throws(
-    () => validateCodexDaily({ daily: [{ models: { "gpt-5.5": { totalTokens: 2 ** 53 } } }] }),
+    () => validateCodexDaily(wrap(codexDailyRow({ models: { "gpt-5.5": { totalTokens: 2 ** 53 } } }))),
     (e) => e instanceof UsageError,
   );
   assert.throws(
-    () => validateCodexDaily({ daily: [{ models: { 0: { totalTokens: 1 } } }] }),
+    () => validateCodexDaily(wrap(codexDailyRow({ models: { 0: { totalTokens: 1 } } }))),
     (e) => e instanceof UsageError && /canonical-integer key/.test(e.message),
   );
 });

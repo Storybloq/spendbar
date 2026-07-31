@@ -67,14 +67,37 @@ export const DEFAULT_CONFIG: Config = {
  * no quote handling). Keeping the same splitting rule preserves the frozen `cmd:` line in
  * error diagnostics. The result is used as executable + prefix argv with `shell:false`,
  * so the string is never handed to a shell.
+ *
+ * The character class is spelled out rather than left as `\s`, because the two sets differ
+ * in both directions (code review R6 — the old `\s+` did not honour the equivalence this
+ * comment claims). Python's `str.split()` treats the C1 separators `\x1c`-`\x1f` and `\x85`
+ * as whitespace and JS's `\s` does not; conversely `\s` includes `﻿`, which Python does
+ * not split on. Below is Python's set: ASCII whitespace, the C1 separators, and the Unicode
+ * space separators — with `﻿` deliberately absent.
  */
+const PY_WHITESPACE =
+  /[\u0009\u000a\u000b\u000c\u000d\u001c-\u001f\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/;
+
 export function splitCommand(cmd: string): { exe: string; prefixArgs: string[] } {
-  const parts = cmd.split(/\s+/).filter((s) => s.length > 0);
+  const parts = cmd.split(PY_WHITESPACE).filter((s) => s.length > 0);
   if (parts.length === 0) return { exe: "", prefixArgs: [] };
   return { exe: parts[0], prefixArgs: parts.slice(1) };
 }
 
-export interface DepsOverrides extends Partial<RuntimeDeps> {}
+export interface DepsOverrides extends Partial<RuntimeDeps> {
+  /**
+   * The current account's passwd entry, as CPython's `~user` branch would consult it.
+   * Injected rather than read here because `createDeps` performs no I/O; `bootstrapDeps`
+   * supplies the real one from `os.userInfo()` (code review R8).
+   */
+  passwd?: Passwd;
+}
+
+/** The fields of a passwd entry this port can obtain: `pw_name` and `pw_dir`. */
+export interface Passwd {
+  username: string;
+  homedir: string;
+}
 
 /**
  * Python's os.path.expanduser, for the leading-`~` forms this port can encounter.
@@ -84,25 +107,60 @@ export interface DepsOverrides extends Partial<RuntimeDeps> {}
  * `~`-prefixed CODEX_HOME as a *relative* path, so a decoy `./~/sessions` tree under the
  * process cwd would become the trusted session root (code review R1).
  *
- * `~user` needs a passwd lookup Node does not expose. Returning it unchanged is NOT a safe
- * fallback — it has the same relative-path problem, just spelled `./~root/...` (code
- * review R2) — so the only `~user` accepted is the current user's own name, and anything
- * else is refused rather than silently demoted to a relative trusted root.
- * ALLOWLIST entry 10.
+ * `~user` for ANOTHER account needs `getpwnam`, which Node does not expose. Returning it
+ * unchanged is NOT a safe fallback — it has the same relative-path problem, just spelled
+ * `./~root/...` (code review R2) — so any other account is refused rather than silently
+ * demoted to a relative trusted root. ALLOWLIST entry 10.
+ *
+ * The CURRENT account is a different matter: `os.userInfo()` does expose its `pw_name` and
+ * `pw_dir`, so `~<current user>` is resolved from the passwd entry exactly as CPython does,
+ * not from HOME (code review R8).
+ *
+ * The trailing-slash and empty-home handling is CPython's, not an embellishment. posixpath's
+ * `expanduser` ends with:
+ *
+ *     userhome = userhome.rstrip('/')
+ *     return (userhome + path[i:]) or '/'
+ *
+ * so `HOME=/tmp/foo/` yields `/tmp/foo` and `/tmp/foo/.codex` (measured), where naive
+ * concatenation gives `/tmp/foo/` and `/tmp/foo//.codex`. And `HOME=""` yields `/` and
+ * `/.codex` — an empty home is a *set* home there, not an unset one. Both cases reached
+ * here as silent path divergences until code review R7; `homeEnc` and the codex session
+ * root are both derived from this, so an off-by-one slash mis-attributes every project.
  */
-export function expandUser(p: string, home: string, username?: string): string {
-  if (p === "~") return home;
-  if (p.startsWith("~/")) return home + p.slice(1);
+export function expandUser(p: string, home: string, passwd?: Passwd): string {
   if (!p.startsWith("~")) return p;
   const slash = p.indexOf("/");
-  const name = slash === -1 ? p.slice(1) : p.slice(1, slash);
-  if (username !== undefined && name === username) {
-    return slash === -1 ? home : home + p.slice(slash);
+  const i = slash === -1 ? p.length : slash;
+
+  // Bare `~` uses HOME (posixpath consults `os.environ['HOME']` first). A NAMED `~user` does
+  // NOT: CPython's `~user` branch goes straight to `pwd.getpwnam(name).pw_dir` and never
+  // looks at HOME at all. Resolving it from HOME — as this did until code review R8 — is a
+  // silent, measured divergence, because the two are routinely different:
+  //
+  //   HOME=/tmp/hermetic USER=amirshayegh CODEX_HOME=~amirshayegh/.codex
+  //     python -> /Users/testuser/.codex        port -> /tmp/hermetic/.codex
+  //
+  // Both exit 0 and read a DIFFERENT session tree, so `usage codex` reports different
+  // numbers with nothing to indicate why. `$USER` is also not required to name the current
+  // account, so comparing against it (rather than against the passwd entry) was wrong twice
+  // over: `USER=root` made the port expand `~root` to the real user's HOME.
+  let userhome = home;
+  if (i !== 1) {
+    const name = p.slice(1, i);
+    // Node exposes `pw_dir`/`pw_name` for the CURRENT user only (`os.userInfo()`), never
+    // `getpwnam` for an arbitrary account — so any other name is still refused, exactly as
+    // ALLOWLIST entry 10 records.
+    if (passwd === undefined || name !== passwd.username) {
+      throw new UsageError(
+        `cannot expand CODEX_HOME ${pyRepr(p)}: '~user' paths for other accounts are not ` +
+          `supported. Use an absolute path.`,
+      );
+    }
+    userhome = passwd.homedir;
   }
-  throw new UsageError(
-    `cannot expand CODEX_HOME ${pyRepr(p)}: '~user' paths for other accounts are not ` +
-      `supported. Use an absolute path.`,
-  );
+  // `rstrip('/')` strips EVERY trailing slash, not just one — `//` rstrips to `""`.
+  return (userhome.replace(/\/+$/, "") + p.slice(i)) || "/";
 }
 
 /**
@@ -114,10 +172,43 @@ export function createDeps(
   runner: CcusageRunner,
   overrides: DepsOverrides = {},
 ): RuntimeDeps {
-  const home = overrides.home ?? homeDir;
-  const ccusageCmd = env.CCUSAGE_CMD ?? "npx --yes ccusage@latest";
-  const { exe, prefixArgs } = splitCommand(ccusageCmd);
-  const codexHome = expandUser(env.CODEX_HOME ?? "~/.codex", home, env.USER);
+  // Normalized through the same `expanduser` algorithm Python applies at usage.py:49, so
+  // `homeEnc` below is `encode_path(os.path.expanduser("~"))` and not merely `encode_path` of
+  // whatever the caller happened to pass. A trailing slash would otherwise survive into every
+  // encoded project key and match nothing (code review R7).
+  const home = expandUser("~", overrides.home ?? homeDir);
+  const codexHome = expandUser(env.CODEX_HOME ?? "~/.codex", home, overrides.passwd);
+
+  // There is deliberately NO default command here. The old `npx --yes ccusage@latest`
+  // fallback fetched and executed registry code at run time, unpinned; leaving it reachable
+  // would keep that path alive for every caller that builds deps directly, which is exactly
+  // where it would be used. The composition layer must inject a resolved command instead
+  // (see bootstrapDeps in src/main-deps.ts). createDeps still performs no I/O.
+  const NO_COMMAND =
+    "internal: no ccusage command available. Set CCUSAGE_CMD, or construct deps through " +
+    "bootstrapDeps() so the bundled ccusage is resolved.";
+
+  let exe: string;
+  let prefixArgs: string[];
+  // `!== undefined`, not truthiness: Python uses os.environ.get, so an explicitly EMPTY
+  // CCUSAGE_CMD is a set-but-degenerate command there ("".split() == []), NOT "unset". A
+  // truthy test would treat it as unset and silently substitute the bundled binary, which
+  // is a different program than the user asked for (code review R2). It fails closed below.
+  if (env.CCUSAGE_CMD !== undefined) {
+    ({ exe, prefixArgs } = splitCommand(env.CCUSAGE_CMD));
+  } else if (overrides.ccusageExe !== undefined) {
+    exe = overrides.ccusageExe;
+    prefixArgs = overrides.ccusagePrefixArgs ?? [];
+  } else {
+    throw new UsageError(NO_COMMAND);
+  }
+
+  // Fail closed on an empty executable rather than deferring it to spawnSync. A
+  // whitespace-only CCUSAGE_CMD is truthy but `splitCommand` yields exe "" (Python instead
+  // execs the bare subcommand name, since cmd = [] + args — see ALLOWLIST 13); an empty
+  // `overrides.ccusageExe` passes the `!== undefined` test the same way. Either would
+  // otherwise reach the runner and throw ERR_INVALID_ARG_VALUE (code review R1).
+  if (exe === "") throw new UsageError(NO_COMMAND);
 
   const base: RuntimeDeps = {
     home,
@@ -139,5 +230,9 @@ export function createDeps(
     warn: () => {},
     runner,
   };
-  return { ...base, ...overrides };
+  // The command fields are applied AFTER the override spread, so the if/else above is the
+  // single authority on precedence. Previously they sat in `base` and the spread silently
+  // put `overrides.ccusageExe` back on top, which meant an override beat CCUSAGE_CMD —
+  // the exact opposite of what that branch and bootstrapDeps both document (code review R1).
+  return { ...base, ...overrides, ccusageExe: exe, ccusagePrefixArgs: prefixArgs };
 }
