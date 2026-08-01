@@ -183,6 +183,8 @@ export function rawCaseProblems(rawCases) {
       ["extraEnv", raw.extraEnv !== null && typeof raw.extraEnv === "object" && !Array.isArray(raw.extraEnv) &&
         Object.values(raw.extraEnv).every((v) => typeof v === "string"),
        "an object whose values are all strings"],
+      ["argv", Array.isArray(raw.argv) && raw.argv.every((a) => typeof a === "string"),
+       "an array of strings"],
     ]) {
       if (field in raw && !ok) {
         problems.push(`case ${raw.name}: ${field} must be ${want}, got ${JSON.stringify(raw[field])}`);
@@ -213,15 +215,6 @@ export function rawCaseProblems(rawCases) {
               `own fields; overriding it would make that declaration a lie`,
           );
         }
-      }
-    }
-
-    for (const [field, ok, want] of [
-      ["argv", Array.isArray(raw.argv) && raw.argv.every((a) => typeof a === "string"),
-       "an array of strings"],
-    ]) {
-      if (field in raw && !ok) {
-        problems.push(`case ${raw.name}: ${field} must be ${want}, got ${JSON.stringify(raw[field])}`);
       }
     }
 
