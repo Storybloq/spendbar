@@ -153,8 +153,13 @@ export function rawCaseProblems(rawCases) {
       ["codexFixture", typeof raw.codexFixture === "boolean", "a boolean"],
       ["storedGolden", typeof raw.storedGolden === "boolean", "a boolean"],
       ["mode", typeof raw.mode === "string" && raw.mode.length > 0, "a non-empty string"],
-      ["extraEnv", raw.extraEnv !== null && typeof raw.extraEnv === "object" && !Array.isArray(raw.extraEnv),
-       "an object"],
+      // Values too, not just the container. `extraEnv` is merged into a subprocess
+      // environment, where a non-string is either a low-level type error or a silent
+      // stringification — and "CCUSAGE_CMD: null" arriving as the four characters "null" is
+      // the worse of the two (code review R3).
+      ["extraEnv", raw.extraEnv !== null && typeof raw.extraEnv === "object" && !Array.isArray(raw.extraEnv) &&
+        Object.values(raw.extraEnv).every((v) => typeof v === "string"),
+       "an object whose values are all strings"],
       ["argv", Array.isArray(raw.argv) && raw.argv.every((a) => typeof a === "string"),
        "an array of strings"],
     ]) {
@@ -271,6 +276,17 @@ export function parseWaiverScopes(doc) {
   const scopes = new Map();
   const re = /\*\*Cases covered by `\[(ALLOWLIST-[0-9]+[a-z]?)\]`:\*\*([\s\S]*?)(?:\n\s*\n|$)/g;
   for (const m of doc.matchAll(re)) {
+    // A second declaration for the same ID would overwrite the first, and the exact set
+    // comparison downstream would then validate only the last one — so a document publishing
+    // two different scopes for one entry would pass while being ambiguous about what it
+    // authorises (code review R3). An ambiguous contract is the thing this check exists to
+    // prevent, so it is refused rather than resolved by ordering.
+    if (scopes.has(m[1])) {
+      throw new Error(
+        `ALLOWLIST.md declares the scope of ${m[1]} more than once; ` +
+          `an entry must publish exactly one list of the cases it covers`,
+      );
+    }
     const names = [...m[2].matchAll(/`([A-Za-z0-9_]+)`/g)].map((n) => n[1]);
     scopes.set(m[1], new Set(names));
   }
@@ -375,6 +391,30 @@ export function assertLegacyFieldsAbsent() {
   // `rewrite` is deliberately not on the list: it is an ordinary English word used throughout
   // the document in its normal sense, so matching it would be noise rather than signal.
   const RETIRED = ["compareStderr", "partialStdout", "dual_run_only", "dualRunOnly"];
+
+  // FIELDS FIRST, and on the parsed records rather than on the file's text. The scan below
+  // reads inline code spans, and cases.json contains no backticks at all — so a case record
+  // carrying a literal `"compareStderr": false` was examined by nothing, and the whole suite
+  // stayed green while a retired flag sat in the registry looking live (code review R3,
+  // reproduced). A guard that claims a field is retired has to look where that field would
+  // actually be written.
+  //
+  // `dual_run_only` is additionally caught by the text regex above; the other three were not
+  // caught anywhere, which is exactly the asymmetry that hid this.
+  for (const rec of JSON.parse(raw).cases ?? []) {
+    for (const field of RETIRED) {
+      if (Object.hasOwn(rec, field)) {
+        problems.push(`case ${rec.name} still carries the retired field ${field}`);
+      }
+    }
+  }
+  for (const name of goldenFilesOnDisk()) {
+    const g = JSON.parse(readFileSync(resolve(PATHS.goldens, `${name}.json`), "utf8"));
+    for (const field of RETIRED) {
+      if (Object.hasOwn(g, field)) problems.push(`golden ${name}.json still carries the retired field ${field}`);
+    }
+  }
+
   const doc = readFileSync(resolve(PATHS.goldens, "..", "ALLOWLIST.md"), "utf8");
   for (const [where, text] of [["cases.json", raw], ["ALLOWLIST.md", doc]]) {
     // Whole code SPANS, not a leading backtick. `manifest.dualRunOnly` is a reference to a

@@ -322,6 +322,10 @@ describe("the registry rule the policies now lean on", () => {
     ["mode", "", /mode must be a non-empty string/],
     ["mode", null, /mode must be a non-empty string/],
     ["extraEnv", [], /extraEnv must be an object/],
+    // Values, not just the container: extraEnv is merged into a subprocess environment, where
+    // a null arrives as the four characters "null" rather than as an error.
+    ["extraEnv", { CCUSAGE_CMD: null }, /extraEnv must be an object whose values are all strings/],
+    ["extraEnv", { FAKE_MODE: 3 }, /extraEnv must be an object whose values are all strings/],
     ["argv", "projects", /argv must be an array of strings/],
     // A non-string member is a different failure entirely once it reaches a subprocess
     // argument list, and `argv` is spread straight into one.
@@ -369,6 +373,19 @@ describe("allowlist scope parsing — the check that used to only look for an ID
     const scopes = parseWaiverScopes(DOC);
     assert.deepEqual([...scopes.get("ALLOWLIST-23")], ["case_d"]);
     assert.ok(!scopes.get("ALLOWLIST-23").has("case_a"));
+  });
+
+  test("a second scope declaration for one ID is REFUSED, not silently preferred", () => {
+    // Overwriting would leave the exact set comparison validating only the last declaration,
+    // so a document publishing two different scopes for one entry would pass while being
+    // ambiguous about what it authorises (code review R3).
+    const dup = [
+      "**Cases covered by `[ALLOWLIST-19]`:** `case_a`",
+      "",
+      "**Cases covered by `[ALLOWLIST-19]`:** `case_b`",
+      "",
+    ].join("\n");
+    assert.throws(() => parseWaiverScopes(dup), /declares the scope of ALLOWLIST-19 more than once/);
   });
 
   test("an entry with no scope declaration is ABSENT, not empty", () => {

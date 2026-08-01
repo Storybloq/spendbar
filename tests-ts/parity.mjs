@@ -180,7 +180,7 @@ check("every waived comparison is covered by its allowlist entry's published SCO
   assertWaiversArePublished(cases);
 });
 
-check("the dual_run_only escape hatch is fully retired", () => {
+check("every pre-T-005 comparison flag is fully retired, in the data and in the document", () => {
   assertLegacyFieldsAbsent();
 });
 
