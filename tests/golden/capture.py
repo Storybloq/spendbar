@@ -103,28 +103,49 @@ def run_case(case, codex_home, fixture_home):
     # Assert against the CONSTRUCTED command, not against a separately remembered value:
     # logging the anchor we meant to use would prove intent, and the failure this guards
     # against is exactly the one where intent and argv disagree.
+    #
+    # Raised, not asserted: `python3 -O` strips `assert`, and a guard that disappears under a
+    # flag someone else chooses is not a guard. This one exists to catch a golden being
+    # recorded at the wrong date, which is silent, durable, and committed.
     i = argv.index("--anchor")
-    assert argv[i + 1] == case["captureAnchor"], (
-        f"{case['name']}: spawned with anchor {argv[i + 1]!r}, case declares {case['captureAnchor']!r}")
+    if argv[i + 1] != case["captureAnchor"]:
+        raise RuntimeError(
+            f"{case['name']}: spawned with anchor {argv[i + 1]!r}, "
+            f"case declares {case['captureAnchor']!r}")
     return {"name": case["name"], "argv": case["argv"], "mode": case["mode"],
             "codex_fixture": case["codexFixture"], "extra_env": case["extraEnv"],
             "capture_anchor": case["captureAnchor"],
             "exit": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
 
 
-def assert_registry_matches_disk():
+def golden_names_on_disk(directory):
+    if not os.path.isdir(directory):
+        return set()
+    return {f[:-len(".json")] for f in os.listdir(directory)
+            if f.endswith(".json") and f != "manifest.json"}
+
+
+def registry_disk_problems(directory=None):
     """Exact set equality between stored cases and golden files, in BOTH directions.
 
     Adding a case without capturing is caught by the missing file. DELETING one leaves an
     orphan golden that nothing ever opens again, still carrying stale contract data - and no
     grep finds that, because an orphan file is not a second matrix, just a lie nobody reads.
+
+    Returns problems instead of raising so `recover_interrupted_swap` can ASK whether a
+    directory is complete without dying on the answer. That distinction is what lets recovery
+    tell "the swap was interrupted" from "this set is simply out of date".
     """
     declared = {c["name"] for c in STORED}
-    on_disk = {f[:-len(".json")] for f in os.listdir(GOLDENS)
-               if f.endswith(".json") and f != "manifest.json"} if os.path.isdir(GOLDENS) else set()
+    on_disk = golden_names_on_disk(GOLDENS if directory is None else directory)
     problems = [f"case {n} has no golden file" for n in sorted(declared - on_disk)]
     problems += [f"orphan golden {n}.json: no case in cases.json claims it"
                  for n in sorted(on_disk - declared)]
+    return problems
+
+
+def assert_registry_matches_disk():
+    problems = registry_disk_problems()
     if problems:
         raise SystemExit("cases.json and goldens/ disagree:\n  - " + "\n  - ".join(problems))
 
@@ -139,19 +160,36 @@ def recover_interrupted_swap():
 
     Runs before anything else touches the directory, in BOTH modes: --check must not silently
     report 45 missing goldens when a complete set is sitting in the backup.
+
+    Three outcomes, not two. The two-outcome version asked only "does GOLDENS contain any
+    JSON?" and deleted the backup if so — which meant ANY non-empty directory, including a
+    half-installed or invalid one, was enough to destroy the last known-good copy (code review
+    R1). A backup is now discarded only against a set that is actually complete.
     """
     backup = GOLDENS + ".previous"
     if not os.path.isdir(backup):
         return
-    intact = os.path.isdir(GOLDENS) and any(
-        f.endswith(".json") and f != "manifest.json" for f in os.listdir(GOLDENS))
-    if intact:
-        # The swap completed; this is leftover from the cleanup step, not a live copy.
+    if not golden_names_on_disk(GOLDENS):
+        # Nothing installed: the swap died between the two renames, and the backup is the only
+        # complete copy there is.
+        shutil.rmtree(GOLDENS, ignore_errors=True)
+        os.rename(backup, GOLDENS)
+        print(f"  recovered {os.path.relpath(GOLDENS)} from an interrupted swap")
+        return
+    problems = registry_disk_problems()
+    if not problems:
+        # The swap completed and what it installed is complete; this is cleanup leftover.
         shutil.rmtree(backup, ignore_errors=True)
         return
-    shutil.rmtree(GOLDENS, ignore_errors=True)
-    os.rename(backup, GOLDENS)
-    print(f"  recovered {os.path.relpath(GOLDENS)} from an interrupted swap")
+    # Ambiguous, so nothing is deleted and nothing is restored. "The install went wrong" and
+    # "cases.json changed and these goldens need regenerating" look identical from here, and
+    # they want opposite repairs — restoring would bury a legitimate registry edit under an
+    # older set. Both copies are left on disk and the operator is told which is which.
+    print(f"  WARNING: {os.path.relpath(GOLDENS)} is installed but does not match cases.json:")
+    for p in problems:
+        print(f"    - {p}")
+    print(f"  A previous copy is being kept at {os.path.relpath(backup)}; neither was touched.")
+    print("  Re-run without --check to regenerate, or restore that directory by hand.")
 
 
 # A staging directory this much older than now cannot belong to a live run: a full capture is
@@ -190,6 +228,44 @@ def clear_orphan_staging():
         print(f"  removed orphaned staging directory {name} ({age / 3600:.1f}h old)")
 
 
+def install_staged(staging):
+    """Swap a staged directory into place as GOLDENS, or leave the old one exactly as it was.
+
+    Swap wholesale, so an obsolete golden from a deleted case cannot survive a regeneration by
+    simply never being overwritten.
+
+    Deleting GOLDENS and then moving would put the committed artifacts at the mercy of the step
+    in between: an interruption or a failed move leaves the directory gone. Two renames
+    instead, with the old copy retained until the new one is installed AND validated, so every
+    intermediate state is recoverable.
+
+    Validation is inside the rollback block, not after it. Code review R1 found the bug that
+    put it outside: a directory that installed but failed to validate stayed installed, the
+    good backup stayed beside it, and the next run's `recover_interrupted_swap` saw JSON files
+    in GOLDENS, called it intact, and deleted the backup. An all-or-nothing write whose
+    "nothing" branch is unreachable is just a slower "all".
+
+    Extracted from `main` so the failure paths can be driven directly. They were previously
+    reachable only by killing a real capture at the right microsecond, which is why they were
+    reasoned about rather than tested — and the reasoning is what was wrong.
+    """
+    backup = GOLDENS + ".previous"
+    os.rename(GOLDENS, backup)
+    installed = False
+    try:
+        os.rename(staging, GOLDENS)
+        installed = True
+        assert_registry_matches_disk()
+    except BaseException:
+        if installed:
+            shutil.rmtree(GOLDENS, ignore_errors=True)
+        os.rename(backup, GOLDENS)  # put it back exactly as it was
+        raise
+    else:
+        # Only now is the previous copy expendable.
+        shutil.rmtree(backup, ignore_errors=True)
+
+
 def main():
     check = "--check" in sys.argv
     recover_interrupted_swap()
@@ -219,7 +295,11 @@ def main():
                 with open(path) as fh:
                     stored = json.load(fh)
                 same = all(stored[k] == rec[k] for k in ("exit", "stdout", "stderr"))
-                meta = [k for k in ("argv", "mode", "codex_fixture", "extra_env", "capture_anchor")
+                # `name` is compared even though the file was OPENED by name: the filename and
+                # the record inside it are two separate claims, and a copied or hand-renamed
+                # golden keeps the right filename while describing a different case.
+                meta = [k for k in ("name", "argv", "mode", "codex_fixture", "extra_env",
+                                    "capture_anchor")
                         if stored.get(k) != rec[k]]
                 # The AUTHORED contract, checked in this mode too. Comparing only stored
                 # against observed compares two recordings of the same run: change
@@ -280,28 +360,11 @@ def main():
             }
             with open(os.path.join(staging, "manifest.json"), "w") as fh:
                 json.dump(manifest, fh, indent=1)
-            # Swap wholesale, so an obsolete golden from a deleted case cannot survive a
-            # regeneration by simply never being overwritten.
-            #
-            # Deleting GOLDENS and then moving would put the committed artifacts at the mercy
-            # of the step in between: an interruption or a failed move leaves the directory
-            # gone. Two renames instead, with the old copy retained until the new one is
-            # installed, so every intermediate state is recoverable.
-            # No rmtree of the backup here: `recover_interrupted_swap` has already dealt with
-            # any pre-existing one, and deleting a backup before the replacement is installed
-            # is the exact ordering that turns an interruption into data loss.
-            backup = GOLDENS + ".previous"
-            os.rename(GOLDENS, backup)
-            try:
-                os.rename(staging, GOLDENS)
-            except BaseException:
-                os.rename(backup, GOLDENS)  # put it back exactly as it was
-                raise
+            # No rmtree of any pre-existing backup here: `recover_interrupted_swap` has already
+            # dealt with one, and deleting a backup before the replacement is installed is the
+            # exact ordering that turns an interruption into data loss.
+            install_staged(staging)
             staging = None
-            # Validate the INSTALLED directory before discarding the copy it replaced, so a
-            # bad install is still recoverable from disk rather than only from git.
-            assert_registry_matches_disk()
-            shutil.rmtree(backup, ignore_errors=True)
             print(f"\nWrote {len(results)} goldens + manifest to {os.path.relpath(GOLDENS)}")
     finally:
         if staging:
