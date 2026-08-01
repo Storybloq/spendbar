@@ -476,9 +476,9 @@ Exit code and stream are frozen; the message text is not.
     under one number, the half with weaker evidence sheltered under the half with stronger
     evidence, and nothing could tell you which was which (T-005 plan §3.5).
 
-    | ID | change | how it is asserted | enforced by T-005 |
+    | ID | change | how it is asserted | machine-verified |
     |---|---|---|---|
-    | `[ALLOWLIST-22a]` | the product-name spans | the reviewed shipped-help snapshot, a non-case test | no — see below |
+    | `[ALLOWLIST-22a]` | the product-name spans | the reviewed shipped-help snapshot, a non-case test | **yes** — witnessed (ISS-020) |
     | `[ALLOWLIST-22b]` | the config-path sentence | the `help-config-path` comparison policy, on the cases named below | **yes** |
 
     **Cases covered by `[ALLOWLIST-22b]`:** `argv_abbrev_help_before_subcommand`,
@@ -489,13 +489,23 @@ Exit code and stream are frozen; the message text is not.
     asserted the count (code review R2). They are named now, and the harness requires exact
     agreement between this list and the cases citing this ID.
 
-    Only `ALLOWLIST-22b` is validated by the parity harness, because only it is consumed by a
-    comparison policy — and a policy is something the harness can *watch execute*, on cases it
-    can name and count. `ALLOWLIST-22a` is asserted by a snapshot test, and "a test with this
-    name exists" is not evidence that it ran or that it checks this entry. Proving that needs a
-    runner reporting which allowlist IDs actually executed, which is deferred to its own ticket
-    rather than claimed here; naming the test would be the same hollow evidence as the
-    dual_run_only flag this ticket removed.
+    `ALLOWLIST-22b` is validated by the parity harness, because it is consumed by a comparison
+    policy — and a policy is something the harness can *watch execute*, on cases it can name and
+    count. `ALLOWLIST-22a` has no parity case, because the approved artifact is the snapshot
+    itself rather than a comparison between two implementations.
+
+    Through T-005 that left 22a documented but unverified, and the reason was explicitly that
+    naming its test would be the same hollow evidence as the dual_run_only flag T-005 removed:
+    a test can be renamed, skipped, `describe`d out, or short-circuited by an early return, and
+    the name survives all four.
+
+    **ISS-020 closed that gap** with the runner the note asked for. `witness(id)` is called
+    immediately after an assertion succeeds and records the id to a sink;
+    `scripts/allowlist-coverage.mjs` (`npm run test:allowlist`) runs the suites, collects what
+    actually executed, and compares it against `tests/golden/allowlist-assertions.json`. Both
+    directions fail: an id that claims assertion but emits no witness, and an id witnessed but
+    not declared. Coverage is therefore computed from execution, and deleting the witness call
+    — or skipping the test — fails the check while the test name sits untouched.
 
     **22a — the product name.** Three spans of the help output name the product (plan section
     9): argparse's `prog`, the `alltime` hint `(… see 'usage codex')`, and the module

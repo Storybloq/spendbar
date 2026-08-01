@@ -1,0 +1,68 @@
+{
+  "$comment": [
+    "How each published [ALLOWLIST-n] id is asserted. Checked by scripts/allowlist-coverage.mjs,",
+    "which runs the suites with a witness sink and compares what this file CLAIMS against what",
+    "actually executed.",
+    "",
+    "This file declares intent. It is not evidence, and it cannot become evidence: an id declared",
+    "`policy` or `witness` here must produce witnesses at run time, from the declared MECHANISM,",
+    "covering the declared SUBJECTS, or the coverage check fails. That asymmetry is the point of",
+    "ISS-020 \u2014 the previous arrangement argued coverage from prose and from test NAMES, the same",
+    "'code exists, therefore it ran' reasoning that dual_run_only was removed to escape.",
+    "",
+    "Modes (exactly these three; an unrecognized mode is an error, not a default):",
+    "  policy   \u2014 consumed by a comparison policy in tests-ts/harness/policies.mjs. Witnessed by",
+    "             tests-ts/parity.mjs with source 'policy', once per case, and only when the",
+    "             policy actually performed at least one assertion. The subjects must equal the",
+    "             case list ALLOWLIST.md publishes for the id.",
+    "  witness  \u2014 asserted by a test that is NOT a parity case, which calls witness() itself with",
+    "             source 'test'. `requiredSubjects` lists every assertion site that must fire;",
+    "             exact agreement is required, so deleting one of several sites fails even though",
+    "             the others still witness the id.",
+    "  none     \u2014 deliberately not machine-asserted. Requires `why`. An id here that DOES emit a",
+    "             witness is also a failure, because the declaration has gone stale in the",
+    "             direction that understates what the tests do."
+  ],
+  "version": 1,
+  "ids": {
+    "ALLOWLIST-14": {
+      "mode": "policy",
+      "policy": "ts-diag:blocks-array-attr",
+      "why": "Schema violations fail loud; asserted on argv_blocks_array."
+    },
+    "ALLOWLIST-19": {
+      "mode": "policy",
+      "policy": "ts-diag:invalid-date",
+      "why": "hourly --date values fromisoformat rejects; asserted on 13 cases."
+    },
+    "ALLOWLIST-22a": {
+      "mode": "witness",
+      "assertedBy": "tests-ts/help-snapshot.test.mjs",
+      "requiredSubjects": [
+        "snapshot:command-table-rows",
+        "snapshot:no-oracle-program-name"
+      ],
+      "why": [
+        "The product-name spans in --help. There is no parity case: the approved artifact is the",
+        "shipped-help snapshot, so the assertion reads the snapshot rather than comparing two",
+        "implementations. This was the entry ISS-020 was filed about \u2014 it used to be documented",
+        "as 'snapshot-asserted, not machine-verified'. It is now machine-verified, by execution.",
+        "",
+        "TWO sites are required, not one. The entry covers both that every command row names the",
+        "shipped program and that the oracle's program name appears nowhere as a command; those",
+        "are different claims, and requiring only 'some witness for 22a' would let either be",
+        "deleted while the other kept the entry looking covered."
+      ]
+    },
+    "ALLOWLIST-22b": {
+      "mode": "policy",
+      "policy": "help-config-path",
+      "why": "The config-path sentence; the one sanctioned rewrite, then equality for the rest."
+    },
+    "ALLOWLIST-23": {
+      "mode": "policy",
+      "policy": "partial-python-stdout",
+      "why": "A mid-render failure produces no partial stdout; asserted on two cases."
+    }
+  }
+}

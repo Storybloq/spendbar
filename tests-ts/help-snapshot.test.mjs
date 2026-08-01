@@ -20,6 +20,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { main, SUBCOMMANDS } from "../dist/main.js";
+import { witness } from "./harness/allowlist-witness.mjs";
 
 const SNAPSHOT = resolve(dirname(fileURLToPath(import.meta.url)), "snapshots", "shipped-help.txt");
 
@@ -98,11 +99,17 @@ describe("the properties the snapshot was approved for", () => {
     for (const cmd of SUBCOMMANDS) {
       assert.match(top(), new RegExp(`^  spendbar ${cmd}\\s`, "m"), `no row for ${cmd}`);
     }
+    // ALLOWLIST-22a is the product-name half of entry 22, and it is asserted HERE rather than
+    // by a comparison policy — there is no parity case for it, because the snapshot is the
+    // approved artifact. Witnessed after the assertion so coverage is derived from this
+    // having run, not from the existence of a test with a suggestive name (ISS-020).
+    witness("ALLOWLIST-22a", { source: "test", subject: "snapshot:command-table-rows" });
   });
 
   test("the oracle's program name appears nowhere as a command", () => {
     const all = [...snapshot.values()].join("\n");
     assert.doesNotMatch(all, new RegExp(`\\busage (${SUBCOMMANDS.join("|")})\\b`));
+    witness("ALLOWLIST-22a", { source: "test", subject: "snapshot:no-oracle-program-name" });
   });
 
   test("argparse's own `usage:` label is NOT rewritten", () => {

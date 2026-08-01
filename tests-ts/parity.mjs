@@ -27,7 +27,8 @@ import {
   assertWaiversArePublished,
   loadCases,
 } from "./harness/cases.mjs";
-import { resolvePolicy } from "./harness/policies.mjs";
+import { witness } from "./harness/allowlist-witness.mjs";
+import { assertionCount, beginAssertionCount, resolvePolicy } from "./harness/policies.mjs";
 import { anchorToday, assertEnvironmentContract, buildFixtures, childEnv, PATHS } from "./harness/env.mjs";
 import { describeTermination, runProcess } from "./harness/run.mjs";
 
@@ -466,7 +467,26 @@ function runDifferential() {
       // and spawns every subject anyway (code review R2, measured). The run still fails, so
       // this is a documentation fix rather than a hole — but a stated guarantee the code does
       // not provide is worse than no comment, because the next reader may drop the wrapper.
-      resolvePolicy(c.comparisonPolicy).differential(py, ts, c);
+      const policy = resolvePolicy(c.comparisonPolicy);
+      beginAssertionCount();
+      policy.differential(py, ts, c);
+      const asserted = assertionCount();
+      // AFTER the call, so the witness records that the policy's assertions ran to completion
+      // on a real case rather than that a policy object exists. `differential` throws on any
+      // violation, so reaching this line means every check inside it passed.
+      //
+      // The count is required too, because "differential returned" alone is evidence of
+      // INVOCATION rather than of assertion: an empty policy body returns normally and would
+      // otherwise record full coverage. `exact` has no waiverId and witnesses nothing.
+      if (policy.waiverId) {
+        if (asserted === 0) {
+          throw new Error(
+            `policy ${policy.id} performed NO assertions for ${c.name}, so it cannot witness ` +
+              `${policy.waiverId}. A policy that asserts nothing is not enforcing its entry.`,
+          );
+        }
+        witness(policy.waiverId, { source: "policy", subject: c.name });
+      }
     });
   }
 }

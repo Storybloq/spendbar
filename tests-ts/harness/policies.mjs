@@ -68,6 +68,7 @@ function fail(msg) {
  * that omitted the field.
  */
 function pythonTerminatedAsTranscribed(py, c) {
+  assertions++;
   if (py.termination.kind !== "exit") {
     fail(`python did not terminate normally: ${describeTermination(py.termination)}`);
   }
@@ -79,7 +80,25 @@ function pythonTerminatedAsTranscribed(py, c) {
   }
 }
 
+/**
+ * How many comparisons the current policy call has actually performed.
+ *
+ * The parity harness witnesses an allowlist id after a policy's `differential` returns. On its
+ * own that is evidence of INVOCATION, not of assertion: a policy that became an empty function,
+ * or took an assertion-free early return, would return normally and record full coverage. The
+ * counter turns the witness into evidence that comparison work happened — `differential`
+ * returns the count, and the harness refuses to witness a zero.
+ */
+let assertions = 0;
+export function beginAssertionCount() {
+  assertions = 0;
+}
+export function assertionCount() {
+  return assertions;
+}
+
 function assertSame(label, expected, actual) {
+  assertions++;
   const diffs = compareRuns(expected, actual);
   if (diffs.length) {
     fail(`${label}\n${diffs.map((d) => `  [${d.stream}] ${d.detail}`).join("\n")}`);
@@ -95,6 +114,7 @@ function assertSame(label, expected, actual) {
  * this policy registered.
  */
 function tsDiagnosticShape(ts, pattern, id) {
+  assertions++;
   const text = ts.stderr.toString("utf8");
   if (!text.endsWith("\n")) fail(`typescript stderr is not newline-terminated: ${JSON.stringify(text)}`);
   if (text.split("\n").length !== 2) {
