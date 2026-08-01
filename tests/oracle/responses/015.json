@@ -1,0 +1,20 @@
+{
+ "argv": [
+  "claude",
+  "daily",
+  "--instances",
+  "--breakdown",
+  "--json",
+  "--since",
+  "20270101",
+  "--until",
+  "20270102"
+ ],
+ "mode": "empty",
+ "stderrBase64": "",
+ "stdoutBase64": "eyJ0b3RhbHMiOiB7InRvdGFsQ29zdCI6IDAsICJ0b3RhbFRva2VucyI6IDB9fQo=",
+ "termination": {
+  "kind": "exit",
+  "status": 0
+ }
+}

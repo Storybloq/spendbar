@@ -1,0 +1,14 @@
+{
+ "argv": [
+  "daily",
+  "--breakdown",
+  "--json"
+ ],
+ "mode": "daily_empty",
+ "stderrBase64": "",
+ "stdoutBase64": "eyJ0b3RhbHMiOiB7InRvdGFsQ29zdCI6IDAsICJ0b3RhbFRva2VucyI6IDB9fQo=",
+ "termination": {
+  "kind": "exit",
+  "status": 0
+ }
+}

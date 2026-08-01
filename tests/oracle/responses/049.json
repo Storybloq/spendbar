@@ -1,0 +1,16 @@
+{
+ "argv": [
+  "codex",
+  "daily",
+  "--json",
+  "--since",
+  "20260101"
+ ],
+ "mode": "normal",
+ "stderrBase64": "",
+ "stdoutBase64": "eyJkYWlseSI6IFt7ImRhdGUiOiAiMjAyNi0wMS0wMSIsICJjb3N0VVNEIjogMTIuMCwgInRvdGFsVG9rZW5zIjogMTIwLCAibW9kZWxzIjogeyJncHQtNS41IjogeyJ0b3RhbFRva2VucyI6IDEyMH19fSwgeyJkYXRlIjogIjIwMjYtMDEtMDIiLCAiY29zdFVTRCI6IDQuMCwgInRvdGFsVG9rZW5zIjogNDAsICJtb2RlbHMiOiB7ImdwdC01LjUiOiB7InRvdGFsVG9rZW5zIjogNDB9fX1dLCAidG90YWxzIjogeyJjb3N0VVNEIjogMzEuNywgInRvdGFsVG9rZW5zIjogMzE3fX0K",
+ "termination": {
+  "kind": "exit",
+  "status": 0
+ }
+}

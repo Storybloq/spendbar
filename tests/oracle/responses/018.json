@@ -1,0 +1,13 @@
+{
+ "argv": [
+  "blocks",
+  "--json"
+ ],
+ "mode": "normal",
+ "stderrBase64": "",
+ "stdoutBase64": "eyJibG9ja3MiOiBbeyJzdGFydFRpbWUiOiAiMjAyNi0wMS0wMVQwMDowMDowMC4wMDBaIiwgImVuZFRpbWUiOiAiMjAyNi0wMS0wMVQwNTowMDowMC4wMDBaIiwgImFjdHVhbEVuZFRpbWUiOiAiMjAyNi0wMS0wMVQwMjowMDowMC4wMDBaIiwgImlzQWN0aXZlIjogZmFsc2UsICJpc0dhcCI6IGZhbHNlLCAiY29zdFVTRCI6IDEwMC4wLCAidG90YWxUb2tlbnMiOiAxMDAwfSwgeyJzdGFydFRpbWUiOiAiMjAyNi0wMS0wMVQwNTowMDowMC4wMDBaIiwgImFjdHVhbEVuZFRpbWUiOiAiMjAyNi0wMS0wMVQwNTowMDowMC4wMDBaIiwgImlzQWN0aXZlIjogdHJ1ZSwgImlzR2FwIjogZmFsc2UsICJjb3N0VVNEIjogMC4wLCAidG90YWxUb2tlbnMiOiAwfSwgeyJpc0dhcCI6IHRydWV9XX0K",
+ "termination": {
+  "kind": "exit",
+  "status": 0
+ }
+}

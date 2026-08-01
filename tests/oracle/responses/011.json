@@ -1,0 +1,14 @@
+{
+ "argv": [
+  "codex",
+  "session",
+  "--json"
+ ],
+ "mode": "codex_empty",
+ "stderrBase64": "",
+ "stdoutBase64": "eyJzZXNzaW9ucyI6IFtdLCAidG90YWxzIjogeyJjb3N0VVNEIjogMCwgInRvdGFsVG9rZW5zIjogMH19Cg==",
+ "termination": {
+  "kind": "exit",
+  "status": 0
+ }
+}

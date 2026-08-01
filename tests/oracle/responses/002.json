@@ -1,0 +1,13 @@
+{
+ "argv": [
+  "blocks",
+  "--json"
+ ],
+ "mode": "blocks_empty",
+ "stderrBase64": "",
+ "stdoutBase64": "eyJibG9ja3MiOiBbXX0K",
+ "termination": {
+  "kind": "exit",
+  "status": 0
+ }
+}
