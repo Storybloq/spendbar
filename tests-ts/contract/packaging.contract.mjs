@@ -14,12 +14,15 @@
  *     rollouts contain prompts, source code, tool arguments, environment data, credentials
  *     and third-party content. The test fixtures are synthetic, but the rule is enforced at
  *     the tarball boundary rather than by trusting each fixture's provenance.
- *   * the manifest must carry no personal attribution.
+ *   * nothing shipped may carry personal attribution — not the manifest, and not the file
+ *     contents. Both halves are load-bearing: ISS-005 put a real session ID and the
+ *     maintainer's home path into source comments, which tsc copied into dist/, which is in
+ *     `files`. The manifest was spotless the whole time.
  */
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, readFileSync, statSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,6 +47,8 @@ let tarball;
 let listing;
 /** Tarball paths from `tar -tzf`, stripped of the leading `package/`. */
 let paths;
+/** Unpacked tarball contents: tarball-relative path -> file text. */
+let contents;
 
 before(() => {
   scratch = mkdtempSync(join(tmpdir(), "spendbar-pack-"));
@@ -63,7 +68,36 @@ before(() => {
   paths = p.stdout.trim().split("\n").map((x) => x.replace(/^package\//, "").replace(/\/$/, ""))
     .filter(Boolean);
   assert.ok(paths.length > 0, "empty tarball listing");
+
+  // Unpack, so the content scans below read what a consumer actually receives rather than
+  // the working tree. dist/ is generated, and the defect these scans exist for (ISS-005)
+  // lived in a source comment that only became shipped bytes after tsc.
+  const unpacked = join(scratch, "unpacked");
+  mkdirSync(unpacked, { recursive: true });
+  const x = spawnSync("tar", ["-xzf", tarball, "-C", unpacked], { encoding: "utf8" });
+  assert.equal(x.status, 0, x.stderr);
+  contents = new Map(
+    paths
+      .filter((p) => statSync(join(unpacked, "package", p)).isFile())
+      .map((p) => [p, readFileSync(join(unpacked, "package", p), "utf8")]),
+  );
+  assert.ok(contents.size > 0, "unpacked tarball has no files");
 });
+
+/**
+ * Every `re` match across shipped file contents, as `path:line: text` — the form that
+ * tells you where to go. `re` must be global.
+ */
+function scanContents(re, skip = () => false) {
+  const hits = [];
+  for (const [path, text] of contents) {
+    if (skip(path)) continue;
+    text.split("\n").forEach((line, i) => {
+      for (const m of line.matchAll(re)) hits.push(`${path}:${i + 1}: ${m[0]}`);
+    });
+  }
+  return hits.sort();
+}
 
 after(() => {
   if (scratch) rmSync(scratch, { recursive: true, force: true });
@@ -104,6 +138,50 @@ describe("the tarball", () => {
       (p) => !p.startsWith("dist/") && !["package.json", "README.md", "LICENSE"].includes(p),
     );
     assert.deepEqual(stray, [], `unexpected entries:\n${stray.join("\n")}`);
+  });
+
+  // The three scans below read shipped file CONTENTS. The manifest check further down is
+  // not enough on its own: ISS-005 shipped a real Codex rollout ID and the maintainer's
+  // username in source comments, and 16 green contract tests missed both because the only
+  // attribution assertion read package.json. tsc keeps comments, dist/ is in `files`, and a
+  // published identifier is permanent — so the guard has to look where the bytes land.
+
+  test("carries no personal name outside the LICENSE copyright line", () => {
+    // The LICENSE copyright holder is a deliberate, still-open owner decision (T-007 asks
+    // whether MIT's named holder should be reassigned), not an oversight — so it is the one
+    // exemption, and it is narrow: the name may appear ONLY on a Copyright line of LICENSE.
+    // Anywhere else, including elsewhere in LICENSE, fails.
+    const hits = scanContents(/^.*shayegh.*$/gim, (p) => p === "LICENSE");
+    assert.deepEqual(hits, [], `personal name in shipped content:\n${hits.join("\n")}`);
+
+    const licenseHits = (contents.get("LICENSE") ?? "")
+      .split("\n")
+      .filter((l) => /shayegh/i.test(l) && !/^Copyright \(c\) /.test(l));
+    assert.deepEqual(licenseHits, [], `personal name outside LICENSE's copyright line:\n${licenseHits.join("\n")}`);
+  });
+
+  test("carries no real session identifier", () => {
+    // Rollout filenames are UUIDv7: 48 timestamp bits, then version/variant nibbles and
+    // random bits. The fixtures keep the timestamp real (it encodes the date under test)
+    // and zero every random bit, so a synthetic id ends `-7000-8000-0000000000xx`. A real
+    // one — the shipped `…-7f83-adcb-1a8480205eef` — cannot, which is precisely the
+    // difference between an example and someone's actual session.
+    const SYNTHETIC = /-7000-8000-0000000000[0-9a-f]{2}$/;
+    const real = scanContents(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g,
+    ).filter((hit) => !SYNTHETIC.test(hit));
+    assert.deepEqual(real, [], `non-synthetic UUID in shipped content:\n${real.join("\n")}`);
+  });
+
+  test("carries no real home directory path", () => {
+    // `/Users/testuser/.codex` shipped in a worked example. Placeholder accounts keep the
+    // example legible without naming anyone; the list is deliberately short so that adding
+    // to it is a conscious act rather than a reflex.
+    const PLACEHOLDER = new Set(["testuser", "you", "user", "me"]);
+    const real = scanContents(/\/(?:Users|home)\/[A-Za-z0-9._-]+/g).filter(
+      (hit) => !PLACEHOLDER.has(hit.slice(hit.lastIndexOf("/") + 1)),
+    );
+    assert.deepEqual(real, [], `real home path in shipped content:\n${real.join("\n")}`);
   });
 });
 

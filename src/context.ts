@@ -138,8 +138,8 @@ export function expandUser(p: string, home: string, passwd?: Passwd): string {
   // looks at HOME at all. Resolving it from HOME — as this did until code review R8 — is a
   // silent, measured divergence, because the two are routinely different:
   //
-  //   HOME=/tmp/hermetic USER=amirshayegh CODEX_HOME=~amirshayegh/.codex
-  //     python -> /Users/testuser/.codex        port -> /tmp/hermetic/.codex
+  //   HOME=/tmp/hermetic USER=testuser CODEX_HOME=~testuser/.codex
+  //     python -> /Users/testuser/.codex           port -> /tmp/hermetic/.codex
   //
   // Both exit 0 and read a DIFFERENT session tree, so `usage codex` reports different
   // numbers with nothing to indicate why. `$USER` is also not required to name the current

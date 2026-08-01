@@ -27,7 +27,12 @@ import { pyRepr } from "./pyrepr.js";
 
 /**
  * Rollout filenames embed the session's start timestamp + a UUID:
- *   rollout-2026-07-09T00-43-18-00000000-0000-4000-8000-000000000000
+ *   rollout-2026-01-01T10-00-00-019c0000-0000-7000-8000-000000000001
+ *
+ * The UUID above is synthetic (UUIDv7 shape, random bits zeroed) and matches the fixture
+ * convention. A real rollout name identifies a real session on someone's machine, so it
+ * does not belong in source that ships — see the tarball content scan in
+ * tests-ts/contract/packaging.contract.mjs.
  */
 export const ROLLOUT_RE =
   /^rollout-\d{4}-\d{2}-\d{2}T[\d-]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

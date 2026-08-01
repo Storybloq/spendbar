@@ -1,27 +1,27 @@
 {
   "components": [
-    "codex",
-    "privacy",
-    "packaging"
+    "packaging-privacy"
   ],
   "createdBy": "code review R6 (agent, test-efficacy/privacy lens)",
   "dedupeKey": "real-codex-rollout-id-in-source-comments",
   "discoveredDate": "2026-07-31",
+  "displayId": "ISS-005",
   "id": "ISS-005",
-  "impact": "`src/codex.ts:30` and `usage.py:199` both carry the literal example rollout name `rollout-2026-07-09T00-43-18-00000000-0000-4000-8000-000000000000`. Verified against the author's machine: `~/.codex/sessions/2026/07/09/` contains that exact rollout, so this is a genuine session identifier, not a fabricated one.\n\nPRE-EXISTING, not introduced by T-006 — both lines are present at the mergebase (48cb234), so per the autonomous-session rule it is filed rather than fixed inline. T-006's own contract fixture had the same defect (a real 92 MB rollout's UUID in `tests-ts/contract/fixtures.mjs`, under a docblock asserting nothing was copied); that one WAS in scope and is fixed.\n\nImpact is bounded but real: a bare UUID with no prompt, code, or tool content. It leaks no conversation data. But the repo is public and `src/` is compiled into the published `dist/` (tsc keeps comments by default), so the identifier would ship to npm — and it contradicts the standard the project states for itself in `tests-ts/contract/fixtures.mjs`.\n\nThis matters before T-007 (npm publish), which is the point of no return for anything in the tarball.\n\nFIX: replace both with a synthetic UUIDv7 following the convention the fixtures now use — a real timestamp prefix plus all-zero random bits, e.g. `rollout-2026-07-09T00-43-18-019f4500-0000-7000-8000-000000000001` — so a copied identifier is visible on sight. Also worth adding a CI grep that fails when any id matching the local-session pattern appears in tracked files.\n\nSeparately, `product-architecture-2026-07-30.md:10` embeds an absolute path under the author's home directory including a Claude session UUID. Same class, same file-set decision needed before publish.",
+  "impact": "The maintainer's genuine Codex session ID (verified present at ~/.codex/sessions/2026/07/09/) is hard-coded in a src/codex.ts:30 comment, survives tsc into dist/codex.js:28 (no removeComments), and dist/ is in package.json \"files\" — so it ships in every npm tarball once T-007 publishes. usage.py:199 carries the same literal but stays out of the tarball; it remains exposed via the public repo. Bare identifier only, no conversation content.\n\nTRIAGE ADDITION (2026-07-31): a second identifier of the same class ships too — src/context.ts:141-142 carries USER=amirshayegh and /Users/testuser/.codex in a comment that compiles into dist/context.js:80-81 (verified in the current build). The packaging contract test catches neither, because its attribution grep reads only package.json, never tarball file contents. T-007's gate: scrub BOTH sites and extend the contract grep to unpacked tarball contents.",
   "location": [
     "src/codex.ts:30",
-    "usage.py:199",
-    "product-architecture-2026-07-30.md:10"
+    "dist/codex.js:28",
+    "src/context.ts:141",
+    "dist/context.js:80",
+    "usage.py:199"
   ],
   "phase": null,
   "relatedTickets": [
-    "T-006",
     "T-007"
   ],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Scrubbed both shipping sites and closed the blind spot that let them through.\n\nFIXED (both compiled into dist/, which is in package.json \"files\"):\n- src/codex.ts:30 — the real rollout ID `rollout-2026-07-09T00-43-18-019f45d4-...` replaced with the fixture convention `rollout-2026-01-01T10-00-00-019c0000-0000-7000-8000-000000000001` (UUIDv7 shape, random bits zeroed). Comment now states why a real name must not appear there and points at the new guard.\n- src/context.ts:141-142 — `USER=amirshayegh` / `/Users/testuser/.codex` replaced with `testuser`, the synthetic account the test suite already uses. The worked example's pedagogical content is unchanged.\n- dist/codex.js and dist/context.js verified clean after rebuild.\n\nNOT FIXED, deliberately (both are T-007 openQuestion 3, an owner decision, and neither ships in the tarball):\n- usage.py:199 carries the same literal but is the frozen oracle; modifying it needs an explicit exemption plus a parity re-run.\n- product-architecture-2026-07-30.md:10 carries a home path + Claude session UUID. Repo-side residue only.\n- LICENSE's \"Copyright (c) 2026 Amir Shayegh\" ships, but the MIT copyright holder is T-007 openQuestion 1 — not an autonomous call.\n\nDURABLE FIX — tests-ts/contract/packaging.contract.mjs now unpacks the tarball and scans shipped file CONTENTS, not just package.json. The old attribution test read only JSON.stringify(MANIFEST), which is why 16 green contract tests missed both identifiers. Three new assertions:\n1. \"carries no personal name outside the LICENSE copyright line\" — /shayegh/i over all shipped content; the single exemption is narrow (LICENSE Copyright lines only), so the name appearing anywhere else in LICENSE still fails.\n2. \"carries no real session identifier\" — any UUID in shipped content must end `-7000-8000-0000000000xx` (version/variant nibbles plus zeroed random bits). Real UUIDv7 random bits cannot match; this is exactly the example-vs-real-session distinction.\n3. \"carries no real home directory path\" — /Users/<x> and /home/<x> must name a placeholder (testuser, you, user, me).\n\nMUTATION-VERIFIED, all three (green tests alone would prove nothing here):\n- Reintroducing the real rollout ID → assertion 2 fails (\"non-synthetic UUID in shipped content\").\n- Reintroducing the username + home path → assertions 1 and 3 both fail.\n- Adding the name to LICENSE off a Copyright line → assertion 1 fails, confirming the exemption is not a blanket file skip.\n\nSuite after fix: 314 unit tests pass, contract 19/19 (was 16), parity --final 266 passed / 0 failed / 0 skipped, 45/45 goldens byte-match, `npm run test:all` exit 0.",
+  "resolvedDate": "2026-07-31",
   "severity": "medium",
-  "status": "open",
+  "status": "resolved",
   "title": "Real Codex rollout ID from the author's machine is hard-coded in shipping source comments"
 }
