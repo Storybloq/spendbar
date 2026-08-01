@@ -1,0 +1,25 @@
+{
+  "components": [
+    "parity",
+    "python-free-ci"
+  ],
+  "createdBy": "autonomous session 909304b8 (ISS-018)",
+  "dedupeKey": "codex-until-uncovered-registry",
+  "discoveredDate": "2026-08-01",
+  "displayId": "ISS-029",
+  "id": "ISS-029",
+  "impact": "Found while building the ISS-018 oracle artifact pipeline. The two-sided window-arg check added to tests/oracle/build.py requires every window arg the inventory declares to actually appear in a recorded trace. Three do not. All three were then confirmed directly against tests/golden/cases.json — these are registry coverage gaps, not inventory errors.\n\nRaised from medium to high after the second and third were found: `blocks` turns out to have NO windowed case at all.\n\n=== 1. blocks --since (usage.py:580) — WORST ===\nAll 10 blocks cases are bare `blocks` (9 of them) plus `blocks -h`. Not one passes --since.\nSo `if a.since: args += [\"--since\", norm_date(a.since)]` at usage.py:580 is entirely untested: the TS port could drop the flag, mis-normalize the date, or pass --until instead, and the 266-case parity suite would still be green. blocks is also the only command whose shape has a single window arg, so there is no sibling case covering it by accident.\n\n=== 2. daily --until (usage.py:501) ===\n10 daily cases. Three pass --since (argv_two_errors_metric_first, argv_two_errors_since_first, rel_daily_since_7d); none passes --until. Observed trace confirms: the only windowed dailyAll key is [daily, --breakdown, --json, --since, 20251228].\n\n=== 3. codex/combined --until (usage.py:266) ===\ncodex_daily(since, until) appends --until when set, and cmd_codex -> agg_codex -> codex_daily(since_key, until_key) at usage.py:360 does reach it. All 8 codex/combined cases (codex_bad_cost, codex_empty, codex_since, codex_unwindowed, combined_empty, combined_since, help_codex, help_combined) are unwindowed or --since-only.\nThis one has an extra consequence: the asymmetry that makes codex interesting is that codex_sessions is ALWAYS passed until=None while codex_daily gets the real until (usage.py:334-336). With no --until case the two calls are indistinguishable in the trace, so nothing detects a port that wrongly forwards --until to codex_sessions as well. It also means cmd_codex's cross-check line is only ever exercised with an open-ended window.\n\nFIX: add windowed cases — at minimum `blocks --since D`, `daily --since D --until D`, `codex --since D --until D`, `combined --since D --until D`. cases.json is canonical as of T-005, so these must go through the capture flow with stored goldens rather than being hand-edited.\n\nINTERIM: all three are listed by name in tests/oracle/inventory.json's `unexercised` allowlist citing this issue, so build.py --check names each gap instead of silently permitting any undeclared window arg. build.py also fails if an allowlist entry becomes stale (the arg starts being observed), so closing this issue is self-enforcing: add the cases, and the check tells you to delete the entries.",
+  "location": [
+    "usage.py:265",
+    "usage.py:360",
+    "tests/golden/cases.json",
+    "tests/oracle/inventory.json"
+  ],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "status": "open",
+  "title": "Three ccusage window-arg branches are unexercised by the case registry (blocks --since, daily --until, codex --until)"
+}
