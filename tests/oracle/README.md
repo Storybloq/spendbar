@@ -65,13 +65,52 @@ derives its project keys from the ambient home, so a generator that forgot to fo
 commit the maintainer's real home path. `verify.py` re-checks the bytes on disk rather than
 trusting the generator's own assertion.
 
+## The consumer side (Python-free)
+
+`tests-ts/oracle/` replays all of this with no Python at all, which is what `npm run test:pure`
+exists to prove.
+
+| File | Role |
+|---|---|
+| `artifacts.mjs` | Loads the index and tree, materializes the tree, answers `(mode, argv) -> bytes`. |
+| `replay.mjs` | The `CCUSAGE_CMD` stand-in. An unrecorded key exits **97**; there is no fallback. |
+| `golden.test.mjs` | Replays all 45 stored goldens against the TS CLI with no Python. |
+| `materialize.test.mjs` | Damages the materialized tree 9 ways; each must be rejected. |
+
+Two rewrites make the canonical artifacts usable on a real machine, and both are needed:
+
+- **Tree files** flagged `substituteHome` have `/fixture/home` replaced with the materialized
+  home.
+- **Response payloads** have the *encoded* form rewritten too — the recorded project keys read
+  `-fixture-home-Developer-alpha`, and a subject running under a real home derives a different
+  `HOME_ENC`, so without this the CLI renders the raw key instead of `alpha`. This was found by
+  the golden replay failing on 12 cases, not by inspection.
+
+`test:pure` runs under a PATH stripped to a node-only directory and probes **from inside the
+child** that `python3` is `ENOENT` — asking from the parent would answer a question about the
+parent. Every test file must be classified exactly once across `PURE`, `NEEDS_PYTHON` and
+`NEEDS_TOOLCHAIN`; there is deliberately no default, and any skip or todo is a hard failure,
+because a skipped test reports as a pass at the top level.
+
+**Permission bits are deliberately not modelled.** Nothing reads them: `usage.py` opens fixture
+files for reading and has no permission-denied branch, and no case exercises one. Recording a
+mode would describe the generating machine's umask rather than the fixture. The decision is
+self-enforcing — `materialize.test.mjs` fails if any fixture file stops being readable or grows
+a setuid/setgid/sticky bit, so a future fixture that *does* rely on a mode reopens the question
+instead of silently losing it.
+
 ## Running it
 
 ```sh
-npm run test:oracle              # verify.py, --regen-check, mutation_check.py
+npm run test:oracle              # verify.py, --regen-check, mutation_check.py  (needs Python)
+npm run test:pure                # the whole Python-free suite, python3 made unreachable
 python3 tests/oracle/record.py   # re-record traces (needed if cases.json changes)
 python3 tests/oracle/build.py    # regenerate responses/
 ```
+
+After changing `cases.json` or `fake_ccusage.py`, run `record.py` then `build.py`, then both
+suites: `test:oracle` checks the artifacts against Python, `test:pure` checks that the replay
+still reproduces the goldens without it.
 
 `--regen-check` exists separately from `verify.py` because correctness and determinism come
 apart: a generator that stamped the clock or iterated a set would still emit artifacts
