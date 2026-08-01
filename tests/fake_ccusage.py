@@ -260,41 +260,71 @@ CODEX_DAILY = {"normal": codex_daily_normal, "codex_empty": codex_daily_empty}
 CODEX = {"normal": codex_normal, **CODEX}
 BLOCKS = {"normal": blocks_normal, **BLOCKS}
 DAILY = {"normal": daily_normal, "daily_empty": daily_empty}
-CLAUDE_ONLY = frozenset(INST)                     # normal, empty, mismatch, float, tied
-CODEX_ONLY = frozenset(CODEX) - {"normal"}        # codex_empty, codex_bad
+# The cross-provider tolerance, enumerated as the exact (branch, mode) PAIRS that are used
+# rather than as set arithmetic over the other provider's whole vocabulary.
+#
+# It was written as `CLAUDE_ONLY - {"normal"}` / `CODEX_ONLY` applied to four branches, which
+# authorised 12 combinations (code review R4). For the unused ones `dispatch` would have
+# returned the branch's normal fixture — the silent default the per-branch tables exist to
+# abolish — so a future case with mode `mismatch` and argv ["codex"] would have read as
+# covered while exercising `normal`. "A deliberate widening with a name" has to be the
+# widening that was actually deliberated.
+#
+# The three pairs below were measured, not reasoned about, by instrumenting this file and
+# running EVERY suite. That distinction earned its keep twice over: R4 proposed narrowing to
+# one pair, having surveyed four suites but not tests-ts/tiebreak.test.mjs, which drives
+# `combined` under FAKE_MODE=tied and reaches both codex branches. Narrowing to one pair
+# turned that suite red.
+#
+# `combined` is the whole reason this exists: it queries both providers under a single
+# FAKE_MODE, so whichever provider the mode was written for, the OTHER one still has to serve
+# an ordinary corpus underneath it.
+TOLERATED = {
+    "instances": frozenset({"codex_empty"}),   # combined_empty: Claude side of a codex-empty run
+    "codex": frozenset({"tied"}),              # tiebreak: codex side of a tied Claude corpus
+    "codex daily": frozenset({"tied"}),        # ditto, the codex-daily query
+}
 
 
-def dispatch(branch, table, tolerated=frozenset(), fallback=None):
+def dispatch(branch, table, fallback):
     if MODE in table:
         return table[MODE]()
+    tolerated = TOLERATED.get(branch, frozenset())
     if MODE in tolerated:
         # The other provider's mode, under `combined`. This branch has nothing special to say
-        # about it, so it serves its ordinary fixture — deliberately, and only for the modes
-        # named above.
+        # about it, so it serves its ordinary fixture — deliberately, and only for the exact
+        # (branch, mode) pairs named in TOLERATED.
         return fallback()
     sys.stderr.write(
         f"fake_ccusage: FAKE_MODE {MODE!r} is not a '{branch}' mode\n"
         f"  {branch} implements: {', '.join(sorted(table))}\n"
         f"  and tolerates from the other provider: {', '.join(sorted(tolerated)) or '(none)'}\n"
         f"  A mode that matches nothing is a typo. If this combination is intended, add it to\n"
-        f"  the table or the tolerance list in tests/fake_ccusage.py, on purpose.\n")
+        f"  the table or to TOLERATED in tests/fake_ccusage.py, on purpose.\n")
     sys.exit(2)
 
 
 if __name__ == "__main__":
     if "codex" in args:
         if "daily" in args:
-            out = dispatch("codex daily", CODEX_DAILY, CLAUDE_ONLY - {"normal"}, codex_daily_normal)
+            out = dispatch("codex daily", CODEX_DAILY, codex_daily_normal)
         else:
-            out = dispatch("codex", CODEX, CLAUDE_ONLY - {"normal"}, codex_normal)
+            out = dispatch("codex", CODEX, codex_normal)
     elif "blocks" in args:
-        out = dispatch("blocks", BLOCKS)
+        out = dispatch("blocks", BLOCKS, blocks_normal)
     elif "--instances" in args:
-        out = dispatch("instances", INST, CODEX_ONLY, instances_normal)
+        out = dispatch("instances", INST, instances_normal)
     elif "daily" in args:
-        out = dispatch("daily", DAILY, CODEX_ONLY, daily_normal)
+        out = dispatch("daily", DAILY, daily_normal)
     else:
-        # No subcommand this fixture models; the payload does not depend on MODE at all.
-        out = {"totals": {"totalCost": 0, "totalTokens": 0}}
+        # usage.py emits five argv shapes and every one reaches a branch above, so nothing
+        # gets here. It served a fixed payload for ANY mode, which is the silent default this
+        # file spent two review rounds removing — kept as a branch, but a loud one, so if a
+        # sixth shape ever appears it announces itself instead of quietly measuring nothing.
+        sys.stderr.write(
+            f"fake_ccusage: no fixture models argv {args!r}\n"
+            "  Every invocation usage.py makes should reach a named branch. If this is a new\n"
+            "  and legitimate shape, give it a dispatch table rather than a default payload.\n")
+        sys.exit(2)
 
     print(json.dumps(out))

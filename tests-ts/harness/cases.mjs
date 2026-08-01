@@ -113,9 +113,32 @@ export function rawCaseProblems(rawCases) {
   // below silently accepts a case that never declared anything.
   const REQUIRED = ["name", "capability", "argv", "mode", "extraEnv", "codexFixture",
                     "expectExit", "storedGolden", "comparisonPolicy", "waiver"];
+  // `captureAnchor` is the one optional field, present exactly when storedGolden (below).
+  const ALLOWED = new Set([...REQUIRED, "captureAnchor"]);
   for (const raw of rawCases) {
     for (const key of REQUIRED) {
       if (!(key in raw)) problems.push(`case ${raw.name ?? "(unnamed)"} omits required field '${key}'`);
+    }
+
+    // UNKNOWN keys are rejected, which is the general form of a rule the retired-field guard
+    // was trying to state by listing names. That list had `compareStderr` and `partialStdout`
+    // but not `rewrite` or `tsStderr` — the other two flags this ticket replaced — so a case
+    // could carry either and the whole suite stayed green (code review R4, reproduced).
+    //
+    // The omission had a reason, and the reason is the interesting part: `rewrite` was left
+    // off deliberately because it is an ordinary English word that appears throughout
+    // ALLOWLIST.md in its normal sense, so matching it there would be noise. True of the PROSE
+    // scan; meaningless for a JSON key, where `rewrite` is unambiguous. The argument was made
+    // in one representation and applied to another — the same shape as the three defects
+    // before it.
+    //
+    // A denylist can only ever be as complete as whoever last remembered to extend it. This
+    // rejects everything not on the schema, so a stray field cannot sit in the registry
+    // looking live regardless of what it is called.
+    for (const key of Object.keys(raw)) {
+      if (!ALLOWED.has(key)) {
+        problems.push(`case ${raw.name ?? "(unnamed)"} carries unknown field '${key}'`);
+      }
     }
     if ("waiver" in raw && raw.waiver !== null && typeof raw.waiver !== "string") {
       problems.push(`case ${raw.name}: waiver must be a string ID or null, got ${JSON.stringify(raw.waiver)}`);
@@ -160,6 +183,40 @@ export function rawCaseProblems(rawCases) {
       ["extraEnv", raw.extraEnv !== null && typeof raw.extraEnv === "object" && !Array.isArray(raw.extraEnv) &&
         Object.values(raw.extraEnv).every((v) => typeof v === "string"),
        "an object whose values are all strings"],
+    ]) {
+      if (field in raw && !ok) {
+        problems.push(`case ${raw.name}: ${field} must be ${want}, got ${JSON.stringify(raw[field])}`);
+      }
+    }
+
+    // extraEnv KEYS, not just values. Both the harness and capture.py merge extraEnv LAST,
+    // over the variables they compute from the case's own fields — so `extraEnv.FAKE_MODE`
+    // silently wins over `mode`, and a case declaring `blocks_dict` while running
+    // `blocks_empty` passed every check in the suite (code review R4, reproduced).
+    //
+    // This is the R2 fixture-fallback defect arriving through a door the R3 per-branch
+    // dispatch cannot see: the overriding value is a perfectly valid mode, so `fake_ccusage`
+    // is right to serve it. And the R3 extraEnv guard checks the VALUES' types, which is not
+    // the representation this failure takes.
+    //
+    // CCUSAGE_CMD is the one sanctioned override — `err_missing_binary` points it at a
+    // nonexistent path on purpose, and that is the whole case. The others are computed from
+    // fields the registry already declares, so overriding them makes the declaration a lie
+    // rather than a configuration.
+    const OVERRIDABLE = new Set(["CCUSAGE_CMD"]);
+    const HARNESS_OWNED = ["FAKE_MODE", "USAGE_CONFIG", "CODEX_HOME", "HOME"];
+    if (raw.extraEnv && typeof raw.extraEnv === "object" && !Array.isArray(raw.extraEnv)) {
+      for (const key of Object.keys(raw.extraEnv)) {
+        if (HARNESS_OWNED.includes(key) && !OVERRIDABLE.has(key)) {
+          problems.push(
+            `case ${raw.name}: extraEnv sets ${key}, which the harness computes from the case's ` +
+              `own fields; overriding it would make that declaration a lie`,
+          );
+        }
+      }
+    }
+
+    for (const [field, ok, want] of [
       ["argv", Array.isArray(raw.argv) && raw.argv.every((a) => typeof a === "string"),
        "an array of strings"],
     ]) {
@@ -210,7 +267,11 @@ export function assertRegistry(cases) {
       problems.push(`case ${c.name} has unknown capability ${c.capability}`);
     }
 
-    const policy = POLICIES[c.comparisonPolicy];
+    // `Object.hasOwn`, not a truthiness test — see `resolvePolicy`. A plain read inherits from
+    // Object.prototype, so a case naming "toString" or "constructor" would resolve to a
+    // function, sail past this guard, and then be reported as a waiver disagreement with
+    // `undefined` instead of as the unknown policy name it is.
+    const policy = Object.hasOwn(POLICIES, c.comparisonPolicy) ? POLICIES[c.comparisonPolicy] : undefined;
     if (!policy) {
       problems.push(`case ${c.name} names unknown comparisonPolicy ${JSON.stringify(c.comparisonPolicy)}`);
     } else if ((c.waiver ?? null) !== policy.waiverId) {
@@ -367,10 +428,6 @@ export function assertLegacyFieldsAbsent() {
   const raw = readFileSync(PATHS.casesJson, "utf8");
   if (/dual[_-]?run[_-]?only/i.test(raw)) problems.push("cases.json still mentions dual_run_only");
 
-  for (const name of goldenFilesOnDisk()) {
-    const g = JSON.parse(readFileSync(resolve(PATHS.goldens, `${name}.json`), "utf8"));
-    if ("dual_run_only" in g) problems.push(`golden ${name}.json still carries dual_run_only`);
-  }
   const manifest = JSON.parse(readFileSync(resolve(PATHS.goldens, "manifest.json"), "utf8"));
   if ("dualRunOnly" in manifest) problems.push("manifest.json still carries dualRunOnly");
   const notes = (manifest.notes ?? []).join("\n");
@@ -383,48 +440,42 @@ export function assertLegacyFieldsAbsent() {
   // R2). A retired field surviving in the DOCUMENT is the worse half of the problem — the
   // data is read by machines that would notice, and the prose is read by people who would not.
   //
-  // The convention this enforces: a retired field is named in PLAIN PROSE, never in a code
-  // span. Backticks mark a live identifier the reader could go and find, so `compareStderr`
-  // is a promise the codebase no longer keeps, while "compareStderr" in running text is
-  // ordinary history. That makes the rule mechanical instead of a judgement about tone.
+  // The convention this enforces: in the PUBLISHED CONTRACT, a retired field is named in
+  // plain prose, never in a code span. Backticks mark a live identifier the reader could go
+  // and find, so `compareStderr` is a promise the codebase no longer keeps, while
+  // "compareStderr" in running text is ordinary history. That makes the rule mechanical
+  // instead of a judgement about tone.
   //
-  // `rewrite` is deliberately not on the list: it is an ordinary English word used throughout
-  // the document in its normal sense, so matching it would be noise rather than signal.
-  const RETIRED = ["compareStderr", "partialStdout", "dual_run_only", "dualRunOnly"];
-
-  // FIELDS FIRST, and on the parsed records rather than on the file's text. The scan below
-  // reads inline code spans, and cases.json contains no backticks at all — so a case record
-  // carrying a literal `"compareStderr": false` was examined by nothing, and the whole suite
-  // stayed green while a retired flag sat in the registry looking live (code review R3,
-  // reproduced). A guard that claims a field is retired has to look where that field would
-  // actually be written.
+  // Scope is ALLOWLIST.md alone, and that is stated rather than implied. Source comments —
+  // policies.mjs's account of the flags it replaced, for instance — legitimately name retired
+  // fields as code while explaining what happened to them; a convention that claimed to cover
+  // them would be one this function does not enforce (code review R4).
   //
-  // `dual_run_only` is additionally caught by the text regex above; the other three were not
-  // caught anywhere, which is exactly the asymmetry that hid this.
-  for (const rec of JSON.parse(raw).cases ?? []) {
+  // The data side is no longer a name list at all. `rawCaseProblems` rejects any field the
+  // schema does not declare, which catches these four and everything else — the list here had
+  // `compareStderr` and `partialStdout` but not `rewrite` or `tsStderr`, and a denylist is
+  // only ever as complete as whoever last remembered to extend it.
+  const RETIRED = ["compareStderr", "partialStdout", "rewrite", "tsStderr", "dual_run_only", "dualRunOnly"];
+  const doc = readFileSync(resolve(PATHS.goldens, "..", "ALLOWLIST.md"), "utf8");
+  // Whole code SPANS, not a leading backtick. `manifest.dualRunOnly` is a reference to a
+  // retired field however it is qualified, and a leading-backtick test would miss it.
+  for (const span of doc.matchAll(/`([^`\n]+)`/g)) {
     for (const field of RETIRED) {
-      if (Object.hasOwn(rec, field)) {
-        problems.push(`case ${rec.name} still carries the retired field ${field}`);
+      // Word-boundary on a `.`-qualified path too, and `rewrite` only as a bare identifier —
+      // ALLOWLIST.md discusses rewriting in the ordinary sense, and a code span containing
+      // the English word inside a sentence is not a field reference.
+      if (new RegExp(`(^|\\.)${field}\\b`).test(span[1])) {
+        problems.push(`ALLOWLIST.md refers to the retired field ${field} as live code: \`${span[1]}\``);
       }
     }
   }
+
+  // Goldens are captured artifacts, so a retired key there means the generator still writes
+  // it — a different failure from a hand-edited registry, and one no schema check covers.
   for (const name of goldenFilesOnDisk()) {
     const g = JSON.parse(readFileSync(resolve(PATHS.goldens, `${name}.json`), "utf8"));
     for (const field of RETIRED) {
       if (Object.hasOwn(g, field)) problems.push(`golden ${name}.json still carries the retired field ${field}`);
-    }
-  }
-
-  const doc = readFileSync(resolve(PATHS.goldens, "..", "ALLOWLIST.md"), "utf8");
-  for (const [where, text] of [["cases.json", raw], ["ALLOWLIST.md", doc]]) {
-    // Whole code SPANS, not a leading backtick. `manifest.dualRunOnly` is a reference to a
-    // retired field however it is qualified, and a leading-backtick test would miss it.
-    for (const span of text.matchAll(/`([^`\n]+)`/g)) {
-      for (const field of RETIRED) {
-        if (new RegExp(`\\b${field}\\b`).test(span[1])) {
-          problems.push(`${where} refers to the retired field ${field} as live code: \`${span[1]}\``);
-        }
-      }
     }
   }
 

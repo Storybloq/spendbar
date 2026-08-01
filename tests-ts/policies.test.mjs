@@ -415,6 +415,51 @@ describe("allowlist scope parsing — the check that used to only look for an ID
   });
 });
 
+describe("assertRegistry's mapped-record rules actually reject", () => {
+  // `rawCaseProblems` was split out so it could be handed malformed records; its siblings were
+  // not, and the stated reason was that `assertRegistry` reads the real registry and goldens
+  // directory so a negative test cannot reach it. Code review R4 showed that argument is
+  // wrong: the raw pass reads the module-level REGISTRY and contributes nothing to a synthetic
+  // call, so the mapped rules isolate cleanly. R4 verified they are sound — but "verified once
+  // by a reviewer" is not a test, and these rules are the ones that decide whether a waiver
+  // may be applied at all.
+  const base = {
+    name: "synthetic", capability: "render:alltime", argv: ["alltime"], mode: "normal",
+    extraEnv: {}, codexFixture: false, expectExit: 0, storedGolden: false,
+    comparisonPolicy: "exact", waiver: null,
+  };
+  // A registry of one differential-only case cannot satisfy the capability-coverage or
+  // golden-set rules, so those errors are always present; each test asserts on ITS message.
+  const rejects = async (cases, pattern) => {
+    const { assertRegistry } = await import("./harness/cases.mjs");
+    assert.throws(() => assertRegistry(cases), pattern);
+  };
+
+  test("a waiver that its policy does not consume is rejected", () =>
+    rejects([{ ...base, waiver: "ALLOWLIST-19" }], /consumes null/));
+
+  test("a policy whose waiver is missing is rejected", () =>
+    rejects([{ ...base, comparisonPolicy: "help-config-path", waiver: null }],
+            /consumes "ALLOWLIST-22b"/));
+
+  test("an unknown policy name is rejected", () =>
+    rejects([{ ...base, comparisonPolicy: "no_such_policy" }], /unknown comparisonPolicy/));
+
+  test("a policy name that collides with an Object prototype key is rejected", () =>
+    // `POLICIES[c.comparisonPolicy]` is a plain property read, so "toString" would resolve to
+    // a function and read as a registered policy if the lookup were not guarded.
+    rejects([{ ...base, comparisonPolicy: "toString" }], /unknown comparisonPolicy/));
+
+  test("a duplicate case name is rejected", () =>
+    rejects([base, base], /duplicate case name/));
+
+  test("an unknown capability tag is rejected", () =>
+    rejects([{ ...base, capability: "render:nonexistent" }], /unknown capability/));
+
+  test("a malformed captureAnchor on a stored case is rejected", () =>
+    rejects([{ ...base, storedGolden: true, captureAnchor: "not-a-date" }], /malformed captureAnchor/));
+});
+
 describe("exact: the default policy compares everything", () => {
   const policy = POLICIES.exact;
   const c = { name: "synthetic", argv: ["projects"], expectExit: 0 };

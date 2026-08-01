@@ -1,0 +1,14 @@
+{
+  "components": [],
+  "discoveredDate": "2026-08-01",
+  "id": "ISS-021",
+  "impact": "tests-ts/fixture-schema.test.mjs:32-48 declares a hand-maintained CASES table commenting itself as \"Every (argv, FAKE_MODE) combination the capture harness drives\". It is derived from nothing and checked against nothing, and it is already incomplete: it omits all eight blocks_* modes and the combined-driven instances x codex_empty pair.\n\nFound during T-005 code review round 4. T-005 collapsed three parallel descriptions of the parity matrix (capture.py's CASES table, cases.mjs's EXTRA_CASES, cases.mjs's GOLDEN_CAPABILITY) into tests/golden/cases.json precisely because parallel descriptions drift without anything noticing. This table predates that work and survived it, so it is a fourth description of part of the same matrix.\n\nHarmless today: the blocks paths have no strict validator (see ISS-002), so the omitted modes are not silently unvalidated by this file's schema tests - there is nothing for them to be validated against. The risk is that the comment claims completeness the table does not have, so a future reader adding a fixture may believe this file already covers it.\n\nSuggested fix: derive the combinations from cases.json (filtering to those whose validator this file knows) rather than restating them, or narrow the comment to say exactly which subset it covers and why.\n\nOut of scope for T-005: the table predates the ticket and is not touched by it, and changing it would mean deciding how the schema-validator tests relate to the case registry, which is a design question rather than a review fix.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "low",
+  "status": "open",
+  "title": "fixture-schema.test.mjs CASES is a fourth unverified description of the parity matrix"
+}

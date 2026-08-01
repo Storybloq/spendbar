@@ -265,7 +265,11 @@ with scenario("install_staged survives the state recover_interrupted_swap leaves
     s.goldens(["a"], marker="bad")
     s.backup(["a", "b"], marker="stale")
     capture.recover_interrupted_swap()          # leaves BOTH directories, by design
-    assert s.backup_exists(), "premise: recovery left the ambiguous state in place"
+    # Raised, not asserted: `python3 -O` strips `assert`, and a premise that vanishes under a
+    # flag someone else chooses would let this scenario silently test a different state than
+    # the one it names (code review R4; the same class R1 fixed in capture.py).
+    if not s.backup_exists():
+        raise RuntimeError("premise failed: recovery did not leave the ambiguous state in place")
     staged = s.make(os.path.join(s.root, ".staging-x"), ["a", "b"], marker="fresh")
     capture.install_staged(staged)
     check("install_staged survives the state recover_interrupted_swap leaves behind",

@@ -425,13 +425,14 @@ function verifyArgvMatrix() {
       // still true — that it really does emit a traceback, or really does write a partial
       // table before dying. If that stops being so, the allowlist entry describes a
       // behaviour that no longer exists and the waiver is unearned.
+      //
+      // No exit-status assertion beside this call. Every policy's `remeasure` opens with
+      // `pythonTerminatedAsTranscribed`, which makes the identical comparison and throws
+      // first, so the copy here was unreachable for every case in the registry — deleting it
+      // failed nothing (code review R4). Restating a predicate next to the call that already
+      // enforces it is how two places come to disagree about what a case requires, which is
+      // the duplication this ticket exists to remove.
       resolvePolicy(c.comparisonPolicy).remeasure(py, c);
-      assert(
-        py.termination.status === c.expectExit,
-        `transcribed exit ${c.expectExit}, python now exits ${py.termination.status}\n` +
-          `  argv: ${JSON.stringify(c.argv)}\n` +
-          `  stderr: ${JSON.stringify(py.stderr.toString("utf8").slice(0, 200))}`,
-      );
     });
   }
 }
@@ -643,6 +644,16 @@ function assertAnchorRouting() {
         entry.caseName === (probeCase ? probeCase.name : null),
         `${where}: traced caseName ${entry.caseName}`,
       );
+      // KEPT, against a code-review R4 finding that called it two derivations of one binding
+      // and therefore deletable. Measured instead of argued, and the measurement disagrees:
+      // a divergence inside `spawnTraced` confined to the ARGV phase — which has no stored
+      // goldens, so no byte comparison can see it, and whose routing check reads the trace
+      // and is therefore satisfied — fails ONLY this assertion. With it: 1 failure. Without
+      // it: 266 passed, 0 failed.
+      //
+      // The reviewer was right that `spawnTraced` reads one binding twice; what that misses is
+      // that those two lines are now the entire trust boundary, so an assertion watching
+      // exactly them is the last thing standing between a record/execute split and a green run.
       assert(
         anchorFromArgv(seen[0]) === entry.anchor,
         `${where}: runProcess received --anchor ${anchorFromArgv(seen[0])} but the trace recorded ${entry.anchor}`,

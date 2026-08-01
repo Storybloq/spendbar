@@ -244,9 +244,12 @@ export const POLICY_CONSUMED_WAIVERS = new Set(
 );
 
 export function resolvePolicy(id) {
-  const p = POLICIES[id];
-  if (!p) throw new Error(`unknown comparisonPolicy ${JSON.stringify(id)}`);
-  return p;
+  // `Object.hasOwn`, not a truthiness test on the lookup: a plain property read inherits from
+  // Object.prototype, so `POLICIES["toString"]` returns a function and passes `if (!p)` — the
+  // registry would accept "toString" as a registered policy name and only fail later, on
+  // `.differential is not a function`. Found by a negative test written in code review R4.
+  if (!Object.hasOwn(POLICIES, id)) throw new Error(`unknown comparisonPolicy ${JSON.stringify(id)}`);
+  return POLICIES[id];
 }
 
 export { PolicyError };
