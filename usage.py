@@ -196,7 +196,7 @@ def agg_projects(since=None, until=None):
 # ---------------------------------------------------------------- codex
 CODEX_HOME = os.path.expanduser(os.environ.get("CODEX_HOME", "~/.codex"))
 # Rollout log filenames embed the session's start timestamp + a UUID:
-#   rollout-2026-07-09T00-43-18-00000000-0000-4000-8000-000000000000
+#   rollout-2026-01-01T10-00-00-019c0000-0000-7000-8000-000000000001
 ROLLOUT_RE = re.compile(r"^rollout-\d{4}-\d{2}-\d{2}T[\d-]+"
                         r"-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 DATE_DIR_RE = re.compile(r"^\d{4}/\d{2}/\d{2}$")

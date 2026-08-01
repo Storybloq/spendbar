@@ -22,13 +22,68 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const MANIFEST = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8"));
+
+/**
+ * The manifest AS SHIPPED, parsed out of the unpacked tarball in `before()`.
+ *
+ * Deliberately not the working tree's package.json. In candidate mode the tarball can have
+ * been packed from a different commit, so reading the repo would let every manifest assertion
+ * pass against HEAD while the artifact actually being audited carried different — or
+ * forbidden — metadata. The point of these tests is the bytes a user receives.
+ */
+let MANIFEST;
+
+/**
+ * A specific tarball to audit instead of packing a fresh one.
+ *
+ * Publish prep needs the artifact that the install matrix actually installed to be the same
+ * artifact this contract inspects and that `npm publish --dry-run` reports on. Two `npm pack`
+ * runs produce two different files, so "we tested the tarball" and "we audited the tarball"
+ * would otherwise be statements about different bytes. Unset — the normal case, including the
+ * LICENSE mutation check — this packs its own, exactly as before.
+ */
+const CANDIDATE = process.env.SPENDBAR_TARBALL ?? null;
+
+/**
+ * Every path the tarball is expected to contain, `package/` stripped. Hand-maintained: see
+ * the "ships exactly the expected set of files" test for why this is not generated.
+ */
+const EXPECTED_TARBALL_PATHS = [
+  "LICENSE",
+  "README.md",
+  "package.json",
+  "dist/aggregate.js",
+  "dist/argparse.js",
+  "dist/ccusage.js",
+  "dist/cli.js",
+  "dist/codex.js",
+  "dist/config.js",
+  "dist/context.js",
+  "dist/dates.js",
+  "dist/errors.js",
+  "dist/format.js",
+  "dist/help.js",
+  "dist/io.js",
+  "dist/json.js",
+  "dist/main-deps.js",
+  "dist/main.js",
+  "dist/pyrepr.js",
+  "dist/pysort.js",
+  "dist/pystr.js",
+  "dist/renderers.js",
+  "dist/resolve-ccusage.js",
+  "dist/runner.js",
+  "dist/table.js",
+  "dist/transcripts.js",
+  "dist/unicode-tables.js",
+];
 
 /** npm is chatty on stderr; only a non-zero status is a failure. */
 function npm(args, cwd, extraEnv = {}) {
@@ -52,10 +107,19 @@ let contents;
 
 before(() => {
   scratch = mkdtempSync(join(tmpdir(), "spendbar-pack-"));
-  // `npm pack` runs prepack, so this also proves the tarball cannot be cut from a stale
-  // dist/ — the build is part of packing, not something a developer has to remember.
-  const out = npm(["pack", "--pack-destination", scratch], REPO);
-  tarball = join(scratch, out.trim().split("\n").pop().trim());
+  if (CANDIDATE === null) {
+    // `npm pack` runs prepack, so this also proves the tarball cannot be cut from a stale
+    // dist/ — the build is part of packing, not something a developer has to remember.
+    const out = npm(["pack", "--pack-destination", scratch], REPO);
+    tarball = join(scratch, out.trim().split("\n").pop().trim());
+  } else {
+    tarball = resolve(CANDIDATE);
+    assert.ok(existsSync(tarball), `SPENDBAR_TARBALL does not exist: ${tarball}`);
+    // Print the digest rather than assert one: this run's job is to say WHAT it audited, so
+    // that the matrix run and the publish dry-run can be checked against the same string.
+    const sha = createHash("sha256").update(readFileSync(tarball)).digest("hex");
+    process.stderr.write(`auditing candidate tarball\n  path: ${tarball}\n  sha256: ${sha}\n`);
+  }
   assert.ok(existsSync(tarball), `npm pack did not produce ${tarball}`);
   const t = spawnSync("tar", ["-tzvf", tarball], { encoding: "utf8" });
   assert.equal(t.status, 0, t.stderr);
@@ -82,6 +146,10 @@ before(() => {
       .map((p) => [p, readFileSync(join(unpacked, "package", p), "utf8")]),
   );
   assert.ok(contents.size > 0, "unpacked tarball has no files");
+
+  const shippedManifest = contents.get("package.json");
+  assert.ok(shippedManifest, "the tarball has no package.json");
+  MANIFEST = JSON.parse(shippedManifest);
 });
 
 /**
@@ -117,10 +185,10 @@ describe("the tarball", () => {
     // precisely why a missing bit here goes unnoticed until someone execs the file by path.
     const mode = line.split(/\s+/)[0];
     assert.match(mode, /^-rwxr.xr.x/, `dist/cli.js is not executable in the tarball: ${mode}`);
-    assert.equal(
-      readFileSync(join(REPO, "dist", "cli.js"), "utf8").split("\n", 1)[0],
-      "#!/usr/bin/env node",
-    );
+    // Read the shebang out of the TARBALL, not out of the working tree's dist/. In candidate
+    // mode the tarball may have been packed from a different commit, and the whole point of
+    // that mode is to describe the artifact in hand rather than whatever is checked out.
+    assert.equal(contents.get("dist/cli.js")?.split("\n", 1)[0], "#!/usr/bin/env node");
   });
 
   test("carries no transcript, session, or fixture data", () => {
@@ -133,11 +201,20 @@ describe("the tarball", () => {
     assert.deepEqual(forbidden, [], `these must not ship:\n${forbidden.join("\n")}`);
   });
 
-  test("ships only dist/ and the documented top-level files", () => {
-    const stray = paths.filter(
-      (p) => !p.startsWith("dist/") && !["package.json", "README.md", "LICENSE"].includes(p),
-    );
-    assert.deepEqual(stray, [], `unexpected entries:\n${stray.join("\n")}`);
+  test("ships exactly the expected set of files", () => {
+    // Deliberately an exact, HAND-MAINTAINED list rather than a `dist/**` category rule.
+    // A category rule answers "is this the kind of thing we ship?", which is not the question
+    // — a new module that should never have shipped is exactly the kind of thing we ship.
+    // Adding a file here is meant to be an edit someone makes on purpose and a reviewer sees.
+    //
+    // It is NOT generated from `npm pack` output: an expected set derived from the thing it
+    // checks agrees with it by construction and proves nothing.
+    const missing = EXPECTED_TARBALL_PATHS.filter((p) => !paths.includes(p));
+    const unexpected = paths.filter((p) => !EXPECTED_TARBALL_PATHS.includes(p));
+    // Reported separately, because "we stopped shipping the CLI" and "we shipped someone's
+    // notes" are opposite emergencies and a single merged diff makes you work out which.
+    assert.deepEqual(missing, [], `expected but MISSING from the tarball:\n${missing.join("\n")}`);
+    assert.deepEqual(unexpected, [], `UNEXPECTED in the tarball:\n${unexpected.join("\n")}`);
   });
 
   // The three scans below read shipped file CONTENTS. The manifest check further down is
@@ -146,18 +223,13 @@ describe("the tarball", () => {
   // attribution assertion read package.json. tsc keeps comments, dist/ is in `files`, and a
   // published identifier is permanent — so the guard has to look where the bytes land.
 
-  test("carries no personal name outside the LICENSE copyright line", () => {
-    // The LICENSE copyright holder is a deliberate, still-open owner decision (T-007 asks
-    // whether MIT's named holder should be reassigned), not an oversight — so it is the one
-    // exemption, and it is narrow: the name may appear ONLY on a Copyright line of LICENSE.
-    // Anywhere else, including elsewhere in LICENSE, fails.
-    const hits = scanContents(/^.*shayegh.*$/gim, (p) => p === "LICENSE");
+  test("carries no personal name, anywhere, with no exemptions", () => {
+    // This scan used to exempt LICENSE's copyright line, because the named MIT holder was an
+    // open owner decision. It was decided (spendbar contributors), so the exemption is gone
+    // and the scan now runs against every shipped byte. An exemption list that is empty is
+    // worth more than one that is merely short: there is no longer a place to put a name.
+    const hits = scanContents(/^.*shayegh.*$/gim);
     assert.deepEqual(hits, [], `personal name in shipped content:\n${hits.join("\n")}`);
-
-    const licenseHits = (contents.get("LICENSE") ?? "")
-      .split("\n")
-      .filter((l) => /shayegh/i.test(l) && !/^Copyright \(c\) /.test(l));
-    assert.deepEqual(licenseHits, [], `personal name outside LICENSE's copyright line:\n${licenseHits.join("\n")}`);
   });
 
   test("carries no real session identifier", () => {
@@ -188,7 +260,8 @@ describe("the tarball", () => {
 describe("the manifest", () => {
   test("carries no personal attribution", () => {
     // A published package is permanent and its metadata is mirrored widely, so this is
-    // enforced here rather than left to review.
+    // enforced here rather than left to review — and against the SHIPPED manifest, since a
+    // clean working tree says nothing about a tarball packed from somewhere else.
     for (const field of ["author", "contributors", "maintainers"]) {
       assert.equal(MANIFEST[field], undefined, `package.json must not declare "${field}"`);
     }

@@ -1,0 +1,40 @@
+{
+  "components": [
+    "story-tickets",
+    "roadmap"
+  ],
+  "createdBy": "codex code review (T-023 CODE_REVIEW round 2)",
+  "dedupeKey": "t023-review-r2:future-ticket-descriptions",
+  "discoveredDate": "2026-08-01",
+  "id": "ISS-026",
+  "impact": "Found by codex code review during T-023 (2026-08-01). NOT introduced by T-023 — these ticket descriptions predate it. Filed rather than fixed because they are future-phase planning, out of scope for publish prep.\n\nPATTERN A — a go/no-go gate whose outcome the dependents have already assumed. T-008 evaluates a third-party locking primitive (Candidate A) against a custom lockfile (Candidate B), but:\n- T-008's own acceptance criterion 3 unconditionally requires Candidate B's pid + process-start-time + owner-token record, so a Candidate A that passes the gate cannot satisfy acceptance.\n- T-010, T-011 and T-012 each hard-code Candidate B's inode revalidation and record format in their state machines and acceptance criteria.\nNet effect: choosing Candidate A invalidates four tickets. Fix by expressing dependents in terms of the GUARANTEES T-008 must deliver — exclusive ownership, crash recovery, replacement/takeover detection, PID-reuse resistance, lease-loss notification, safe publish/unlock — and making record-format assertions conditional on B being selected.\n\nPATTERN B — tickets that contradict their own scope.\n- T-011's mandated v0.2 error message tells users to run `spendbar service repair`, while repair is listed as v0.3/out-of-scope in the same ticket. The shipped remedy would name a command that does not exist.\n- T-015 accepts an \"honestly-degraded state that doctor explains\", but doctor is out of scope in T-017 and T-017 is not a blocker.\n- T-020 requires the menubar helper to render a crash-loop health dot precisely when T-014's breaker has stopped launching that helper — nothing is left alive to draw it.\n- T-022 says in Intent that none of its three items are built inside the umbrella and that the only hard deliverable is creating child tickets, then puts the own-the-parsing spike In Scope.\n- T-014 calls a 1 MB helper size threshold a hard CI gate while acceptance only requires CI to \"flag\" it.\n\nPATTERN C — factual drift.\n- T-010 and T-013 both say `blocks --json` has no contract coverage. ISS-002 added pinned bundled-schema contract coverage; the real residual gap is no RUNTIME validator for custom CCUSAGE_CMD payloads, which ISS-023 already records as an accepted parity tradeoff.\n- T-008 and T-009 say the packaging contract enforces lifecycle-script-free installation. It does not — packaging.contract.mjs audits tarball contents and packaging mechanics; lifecycle-disabled installability is what scripts/install-matrix.mjs establishes (added in T-023).\n- T-016 says npm-path extraction is the only supported distribution channel, though pnpm/yarn/bun install the same registry package and appear in that ticket's own matrix.\n- T-017 says bare `spendbar` already prints MCP registration one-liners; it actually exits with the frozen missing-subcommand diagnostic.\n\nPATTERN D — parity contract not addressed by two future CLI changes. T-013's `--cached` flag and T-017's first-run wizard both alter CLI surface the frozen oracle defines (the wizard replaces an existing byte-parity case for no-argument invocation). Neither ticket requires a numbered ALLOWLIST divergence plus replacement shipped-mode tests, which is the established mechanism.\n\nAlso noted: T-012 plans to reuse the v0.1 subprocess runner for the daemon, but that runner is synchronous — a 60-80s spawnSync full scan would block the event loop and make status/progress/stop/cancel unresponsive. It needs an async cancellable boundary, or the sync runner confined to the CLI.\n\nSuggested handling: sweep these when each phase opens, not as one batch — most are cheap edits once the relevant decision is actually made.",
+  "location": [
+    ".story/tickets/T-008.json",
+    ".story/tickets/T-011.json",
+    ".story/tickets/T-012.json",
+    ".story/tickets/T-013.json",
+    ".story/tickets/T-017.json",
+    ".story/tickets/T-020.json",
+    ".story/tickets/T-022.json"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-008",
+    "T-009",
+    "T-010",
+    "T-011",
+    "T-012",
+    "T-013",
+    "T-014",
+    "T-015",
+    "T-016",
+    "T-017",
+    "T-020",
+    "T-022"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "v0.2/v0.3 tickets hard-code one candidate of an undecided choice, and several contradict their own scope"
+}

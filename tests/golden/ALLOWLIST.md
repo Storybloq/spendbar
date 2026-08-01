@@ -319,9 +319,15 @@ Exit code and stream are frozen; the message text is not.
     **Windows is a KNOWN GAP, not a sanctioned delta — see ISS-013.** The distinction
     matters and an earlier revision of this entry blurred it (code review R7): everything
     else in this file is a divergence that was measured and then deliberately accepted,
-    whereas this one is simply not implemented on a platform the README advertises as
-    supported (`README.md:58`, Windows x64/arm64 ✅). Sanctioning it here would be
-    overclaiming, so it is recorded as outstanding work instead.
+    whereas this one is simply not implemented. Sanctioning it here would be overclaiming,
+    so it is recorded as outstanding work instead.
+
+    As of T-023 the README no longer advertises Windows as supported — its platform table
+    marks Windows **Experimental** and states this exact divergence, which is why ISS-013
+    dropped from high to medium. That closes the half of the gap that was a false claim to
+    users; the ntpath behaviour itself is still unimplemented and belongs to the Windows
+    milestone, where it can be verified against a real Windows interpreter rather than
+    guessed at.
 
     Concretely, Python on Windows uses `ntpath.expanduser`, which does **not** consult `HOME`
     at all (`USERPROFILE`, else `HOMEDRIVE`+`HOMEPATH`, else the path is returned unexpanded),

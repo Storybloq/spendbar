@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 
 import { UsageError } from "../dist/errors.js";
 import { createDeps } from "../dist/context.js";
+import { runCcusage } from "../dist/ccusage.js";
 import { bootstrapDeps } from "../dist/main-deps.js";
 import {
   PINNED_CCUSAGE_VERSION,
@@ -423,4 +424,86 @@ test("caller overrides beat the resolved bundled command, not the other way roun
   const d = bootstrapDeps({}, { ccusagePrefixArgs: ["X"] }, { resolve: spy });
   assert.equal(d.ccusageExe, "/spy/node", "the resolved exe still fills the gap");
   assert.deepEqual(d.ccusagePrefixArgs, ["X"], "but the caller's args win over the resolver's");
+});
+
+// --- the command-selection rule ---------------------------------------------------
+//
+// The install matrix demonstrates that no PATH fallback fires on three specific failure
+// paths (missing CCUSAGE_CMD, missing shim, missing native package). Three samples cannot
+// establish the general claim "there is no npx fallback anywhere" — a fourth branch could
+// always exist, and chasing each one with another install scenario is a losing game.
+//
+// What carries the general claim is the RULE, asserted structurally: a command comes from
+// somewhere a caller named, and a failure never reaches for a different one.
+//
+// Scope, stated rather than implied. `bootstrapDeps` has THREE inputs, not two: the two
+// production ones below, plus `overrides.ccusageExe`, which is an in-process injection seam
+// with no environment or CLI route to it — its precedence is covered by "caller overrides
+// beat the resolved bundled command" above. And injecting a resolver here does not prove the
+// real resolver cannot return something odd; that is what the install matrix's identity
+// checks and canaries measure against actual installs. These two tests cover the SELECTION,
+// not the resolver's implementation.
+
+test("the two production paths select a named command, never an invented one", () => {
+  const shim = "/resolved/ccusage/src/cli.js";
+  const resolve = () => ({ exe: process.execPath, prefixArgs: [shim] });
+
+  // (1) No override: the current Node plus the resolved shim, whatever else the environment
+  // says. Not a PATH lookup, not the shim's shebang — so nothing here can depend on what
+  // happens to be installed on the machine.
+  for (const env of [{}, { HOME: "/tmp/h" }, { PATH: "/nowhere" }, { USAGE_CONFIG: "/x.json" }]) {
+    const d = bootstrapDeps(env, {}, { resolve });
+    assert.equal(d.ccusageExe, process.execPath, `env ${JSON.stringify(env)}`);
+    assert.deepEqual(d.ccusagePrefixArgs, [shim], `env ${JSON.stringify(env)}`);
+  }
+
+  // (2) CCUSAGE_CMD set: exactly what the user wrote, and the resolver is never consulted —
+  // an explicit command must not require the bundled package to exist at all.
+  let resolverCalls = 0;
+  const counting = () => {
+    resolverCalls += 1;
+    return { exe: "/never/used", prefixArgs: [] };
+  };
+  const d = bootstrapDeps({ CCUSAGE_CMD: "my-ccusage --flag" }, {}, { resolve: counting });
+  assert.equal(d.ccusageExe, "my-ccusage");
+  assert.deepEqual(d.ccusagePrefixArgs, ["--flag"]);
+  assert.equal(resolverCalls, 0, "CCUSAGE_CMD must short-circuit resolution entirely");
+});
+test("a ccusage failure is terminal — one attempt, then throw, returned OR raised", () => {
+  const attempts = [];
+  /** `behaviour` either returns a runner result or throws, after recording its attempt. */
+  const ctx = (behaviour) => ({
+    deps: {
+      ccusageExe: process.execPath,
+      ccusagePrefixArgs: ["/resolved/cli.js"],
+      runner: (exe, args) => {
+        attempts.push([exe, ...args].join(" "));
+        return behaviour();
+      },
+    },
+  });
+
+  const returns = (result) => () => result;
+  const raises = (e) => () => { throw e; };
+
+  // BOTH shapes of failure, because they are different code paths. The first three are results
+  // the runner RETURNS. The last two it RAISES — the real runner does exactly that for
+  // malformed UTF-8 (src/runner.ts decodeStream) and for a non-BufferSource capture. A
+  // returns-only test would have been survived by a mutation that caught such an exception and
+  // retried with another command, which is precisely the fallback this is here to rule out.
+  const cases = [
+    ["spawn failure", returns({ spawnError: true, status: null, stdout: "", stderr: "" })],
+    ["nonzero exit, blank stdout", returns({ spawnError: false, status: 1, stdout: "", stderr: "x" })],
+    ["unparseable stdout", returns({ spawnError: false, status: 0, stdout: "not json", stderr: "" })],
+    ["runner raises UsageError", raises(new UsageError("ccusage produced malformed UTF-8"))],
+    ["runner raises a plain Error", raises(new Error("internal: stderr was not captured as bytes"))],
+  ];
+
+  for (const [label, behaviour] of cases) {
+    attempts.length = 0;
+    assert.throws(() => runCcusage(ctx(behaviour), ["daily", "--json"]), Error, label);
+    assert.equal(attempts.length, 1, `${label}: expected exactly one attempt, got ${attempts.length}`);
+    assert.doesNotMatch(attempts[0], /npx/, `${label}: npx appeared in the attempted command`);
+    assert.ok(attempts[0].startsWith(process.execPath), `${label}: ${attempts[0]}`);
+  }
 });

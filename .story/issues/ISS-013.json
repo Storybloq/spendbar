@@ -1,24 +1,25 @@
 {
   "components": [
-    "src/context.ts",
-    "tests/golden/ALLOWLIST.md",
-    "README.md"
+    "windows-path-expansion"
   ],
   "createdBy": "codex (code review R7, T-006)",
   "dedupeKey": "t006-r7-windows-ntpath-expanduser",
   "discoveredDate": "2026-07-31",
+  "displayId": "ISS-013",
   "id": "ISS-013",
-  "impact": "README advertises Windows x64/arm64 as supported (README.md:58), but `expandUser` (src/context.ts) implements CPython's POSIX `posixpath.expanduser` on every platform. On Windows, usage.py would instead go through `ntpath.expanduser`, which differs in four measurable ways:\n\n1. It does NOT consult `HOME` at all — it reads `USERPROFILE`, falling back to `HOMEDRIVE` + `HOMEPATH`, and returns the path UNEXPANDED if neither is set.\n2. It treats both `/` and `\\` as separators when locating the end of the `~` component.\n3. `~user` is resolved by replacing the basename of the resolved home, not via a passwd lookup — so it can succeed on Windows where the port refuses (ALLOWLIST entry 10).\n4. The POSIX `userhome.rstrip('/')` and trailing `or '/'` rules do not apply.\n\nConsequence: on Windows the port can resolve a DIFFERENT `CODEX_HOME` than usage.py and therefore read a different session tree, and `homeEnc` can encode a different home so project attribution differs. This is a real behavioural divergence on an advertised platform, not merely an unmeasured one.\n\nFound by code review R7 (codex) during T-006. Filed rather than fixed: `expandUser` predates T-006 (it came from T-003) and T-006 only corrected the POSIX rstrip / empty-HOME tails, so ntpath support is out of this ticket's scope. It also cannot be verified here — the reference CPython is never run on Windows in this project, so any implementation would be unmeasured until a Windows parity run exists.\n\nResolution options, in preference order:\n(a) Implement platform-aware expansion mirroring `ntpath.expanduser`, with table-driven tests that inject `platform` + an environment map so every branch is testable from one host — the same shape as PLATFORM_PACKAGES in resolve-ccusage.ts.\n(b) If Windows parity is not going to be supported, qualify the README support table so it does not claim more than is true.\n\nRecorded as a KNOWN GAP in ALLOWLIST entry 17 (it is deliberately not written as a sanctioned delta, because sanctioning a divergence on an advertised platform would be overclaiming).",
+  "impact": "expandUser (src/context.ts:131-164) applies CPython's posixpath.expanduser on every platform, and bootstrapDeps (src/main-deps.ts:71) consults HOME first — semantics ntpath.expanduser never uses. On Windows (advertised as supported at README.md:58) the port therefore silently resolves a different CODEX_HOME and homeEnc than usage.py whenever HOME is set to anything but USERPROFILE, misattributing every project with both tools exiting 0, and it refuses backslash-separated forms (e.g. CODEX_HOME=~\\.codex) and ~user forms that Python expands successfully.\n\nDECISION (owner strategy 2026-08-01: macOS first, Windows/Linux later): the ntpath fix is deferred to the future Windows milestone, where it can be built and verified against a real Windows reference interpreter instead of guessed. What gates T-007 instead is the README half: 0.1.0's platform table must mark Windows/Linux CLI support as experimental with this exact caveat (HOME-vs-USERPROFILE and backslash `~` forms), not advertise parity. Severity stays high until that caveat lands; downgrade to medium once the README is honest, since the remaining defect is then future-platform work on an unshipped surface.\n",
   "location": [
-    "src/context.ts:103",
-    "tests/golden/ALLOWLIST.md:249",
-    "README.md:58"
+    "src/context.ts:131",
+    "src/main-deps.ts:71",
+    "README.md:58",
+    "tests/golden/ALLOWLIST.md:269"
   ],
   "phase": null,
   "relatedTickets": [
-    "T-006"
+    "T-007",
+    "T-023"
   ],
-  "resolution": null,
+  "resolution": "PARTIALLY ADDRESSED in T-023 — the README half is done, the code half is deferred by decision.\n\nWhat landed (2026-08-01): README.md now carries a \"Platform support in 0.1.0\" table that claims only what was executed. macOS arm64 is the single row marked Verified (the host the parity suite and the package-manager install matrix run on); macOS x64 and Linux are Unverified; Windows is Experimental and carries the exact caveat from this issue — POSIX `~` semantics on every platform, HOME consulted before USERPROFILE so a HOME set to anything else resolves a different CODEX_HOME, and backslash (`CODEX_HOME=~\\.codex`) and `~user` forms not expanded at all, with \"set CODEX_HOME to an absolute path\" given as the workaround. The ccusage-binary-availability table is kept separate and now states explicitly that a binary existing for a platform is not a claim spendbar has been run there.\n\nSeverity high -> medium per the decision recorded in the impact above: the package no longer advertises parity it does not have, so the remaining defect is future-platform work on a surface 0.1.0 does not claim to support.\n\nStill open: the ntpath.expanduser behaviour itself (src/context.ts expandUser, src/main-deps.ts bootstrapDeps HOME precedence). Belongs to the Windows milestone, where it can be built and verified against a real Windows reference interpreter rather than guessed. This no longer gates T-007.",
   "resolvedDate": null,
   "severity": "medium",
   "status": "open",
