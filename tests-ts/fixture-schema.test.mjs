@@ -29,23 +29,59 @@ function fixture(args, mode) {
   return JSON.parse(out.stdout);
 }
 
-// Every (argv, FAKE_MODE) combination the capture harness drives, with the validator that
-// the port applies to it.
-const CASES = [
-  [["claude", "daily", "--instances"], "normal", validateInstances],
-  [["claude", "daily", "--instances"], "empty", validateInstances],
-  [["claude", "daily", "--instances"], "mismatch", validateInstances],
-  [["claude", "daily", "--instances"], "float", validateInstances],
-  [["daily"], "normal", validateDaily],
-  [["daily"], "daily_empty", validateDaily],
-  [["codex", "session"], "normal", validateCodexSessions],
-  [["codex", "session"], "codex_empty", validateCodexSessions],
+// The (branch, FAKE_MODE) matrix is DERIVED from fake_ccusage.py, not restated here (ISS-021).
+//
+// This table used to be written by hand, commenting itself as "every (argv, FAKE_MODE)
+// combination the capture harness drives". It was derived from nothing and checked against
+// nothing, and it was already wrong: it omitted all nine blocks modes, `instances/tied`, and
+// every cross-provider `tolerated` pair — including `instances/codex_empty`, which is the one
+// `combined_empty` actually drives. T-005 collapsed three parallel descriptions of this same
+// matrix into cases.json for exactly this reason; this file was a fourth that survived it.
+//
+// cases.json is the wrong source for THIS test: it describes CLI invocations, while these
+// tests drive ccusage branches directly. The right source is fake_ccusage.py's own per-branch
+// dispatch tables, which are what decides the set of payloads the fixture can emit — and it
+// now publishes them, so a mode added there is picked up here automatically.
+const VOCABULARY = (() => {
+  const out = spawnSync("python3", [FAKE, "--dump-vocabulary"], { encoding: "utf8" });
+  assert.equal(out.status, 0, `fake_ccusage --dump-vocabulary failed: ${out.stderr}`);
+  return JSON.parse(out.stdout);
+})();
+
+// Each branch, the ccusage argv that reaches it, and the validator the port applies. A branch
+// with no validator has to be named with its reason rather than omitted, so that "not covered"
+// is a statement someone made on purpose.
+const BRANCHES = {
+  instances: { argv: ["claude", "daily", "--instances"], validate: validateInstances },
+  daily: { argv: ["daily"], validate: validateDaily },
   // codex_bad is the fixture behind golden codex_bad_cost. The validator must PASS IT
   // THROUGH so cnum can emit the byte-frozen message (code review R4).
-  [["codex", "session"], "codex_bad", validateCodexSessions],
-  [["codex", "daily"], "normal", validateCodexDaily],
-  [["codex", "daily"], "codex_empty", validateCodexDaily],
-];
+  codex: { argv: ["codex", "session"], validate: validateCodexSessions },
+  "codex daily": { argv: ["codex", "daily"], validate: validateCodexDaily },
+  // `blocks` has no validator, by a deliberate parity decision: the port reproduces Python's
+  // permissive handling of malformed blocks payloads rather than tightening it (ISS-002, and
+  // ISS-023 for the one gap that leaves). Its modes are still exercised below for acceptance —
+  // they simply have nothing to be validated against.
+  blocks: { argv: ["blocks"], validate: null },
+};
+
+// A new branch in fake_ccusage.py must fail here rather than be silently skipped, which is the
+// whole failure mode this issue was about: coverage quietly narrower than the comment claims.
+test("every fake_ccusage branch is accounted for, with or without a validator", () => {
+  assert.deepEqual(
+    Object.keys(VOCABULARY).sort(),
+    Object.keys(BRANCHES).sort(),
+    "fake_ccusage.py changed its branches; give the new one an argv + validator (or an " +
+      "explicit null with the reason) in BRANCHES above",
+  );
+});
+
+/** Every (branch, mode) pair the fixture can serve, tolerated cross-provider pairs included. */
+const ALL_PAIRS = Object.entries(VOCABULARY).flatMap(([branch, v]) =>
+  [...v.modes, ...v.tolerated].map((mode) => ({ branch, mode, ...BRANCHES[branch] })),
+);
+
+const CASES = ALL_PAIRS.filter((c) => c.validate).map((c) => [c.argv, c.mode, c.validate]);
 
 // fake_ccusage.py USED to dispatch with `TABLE.get(MODE, <default>)` and nothing else, so a
 // FAKE_MODE that did not exist SILENTLY yielded the default payload — the case then
@@ -93,12 +129,37 @@ test("the DELIBERATE cross-provider tolerance still works, so `combined` is not 
   assert.doesNotThrow(() => fixture(["claude", "daily", "--instances"], "codex_empty"));
 });
 
-test("every FAKE_MODE named above is accepted by fake_ccusage.py", () => {
+test("every (branch, mode) pair the vocabulary claims is actually served", () => {
   // The other direction, and the one that keeps the check above from being satisfiable by a
-  // fixture that refuses everything: each mode these cases name must actually run.
-  for (const [args, mode] of CASES) {
-    assert.doesNotThrow(() => fixture(args, mode), `FAKE_MODE=${mode} was refused`);
+  // fixture that refuses everything: each pair must actually run.
+  //
+  // It also stops `--dump-vocabulary` from becoming a FIFTH description of the matrix. The
+  // dump is built from the same table objects `dispatch` indexes, so it cannot drift by
+  // construction — but "cannot drift by construction" is a claim, and this is the measurement.
+  // Covers blocks too, which has no validator and would otherwise go entirely unexercised.
+  for (const { branch, argv, mode } of ALL_PAIRS) {
+    assert.doesNotThrow(() => fixture(argv, mode), `${branch} refused FAKE_MODE=${mode}`);
   }
+});
+
+test("the derived matrix covers what the old hand-written table missed", () => {
+  // Guards the fix itself. These four pairs are real combinations the suites drive, and every
+  // one was absent from the table this replaced — so a regression to any restated list, or a
+  // filter that quietly drops `tolerated`, fails here with the reason attached.
+  const have = new Set(ALL_PAIRS.map((c) => `${c.branch}/${c.mode}`));
+  for (const pair of [
+    "instances/codex_empty", // combined_empty drives it; absent from the old table
+    "instances/tied", // tiebreak.test.mjs
+    "codex/tied",
+    "blocks/blocks_malformed", // all nine blocks modes were missing
+  ]) {
+    assert.ok(have.has(pair), `derived matrix is missing ${pair}`);
+  }
+  // And the shape of the win, so a future narrowing is visible as a number rather than a diff.
+  assert.ok(
+    ALL_PAIRS.length >= 24,
+    `expected the full matrix, got ${ALL_PAIRS.length} pairs`,
+  );
 });
 
 for (const [args, mode, validate] of CASES) {

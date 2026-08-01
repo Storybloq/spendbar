@@ -304,7 +304,45 @@ def dispatch(branch, table, fallback):
     sys.exit(2)
 
 
+# The five branches, each paired with the table `__main__` actually dispatches it through.
+# Written once, here, so `--dump-vocabulary` cannot describe a branch differently from the way
+# it is served (ISS-021): a consumer deriving the (branch, mode) matrix from the dump is
+# reading the same objects the dispatch reads, not a second account of them.
+BRANCHES = {
+    "instances": INST,
+    "daily": DAILY,
+    "codex": CODEX,
+    "codex daily": CODEX_DAILY,
+    "blocks": BLOCKS,
+}
+
+
+def dump_vocabulary():
+    """Every (branch, mode) pair this fixture can serve, as JSON.
+
+    Exists so tests stop restating the matrix. tests-ts/fixture-schema.test.mjs used to carry
+    a hand-maintained table commenting itself as "every combination the capture harness
+    drives"; it was derived from nothing, checked against nothing, and already missing all
+    eight blocks modes (ISS-021). It now derives from this, and proves the derivation by
+    running every pair — so a mode added to any table above is picked up automatically
+    instead of waiting for someone to remember two files.
+    """
+    return {
+        branch: {
+            "modes": sorted(table),
+            "tolerated": sorted(TOLERATED.get(branch, frozenset())),
+        }
+        for branch, table in BRANCHES.items()
+    }
+
+
 if __name__ == "__main__":
+    # Before the dispatch below, and deliberately independent of FAKE_MODE: the vocabulary is
+    # a property of this file, not of any one invocation.
+    if args == ["--dump-vocabulary"]:
+        print(json.dumps(dump_vocabulary(), indent=1, sort_keys=True))
+        sys.exit(0)
+
     if "codex" in args:
         if "daily" in args:
             out = dispatch("codex daily", CODEX_DAILY, codex_daily_normal)

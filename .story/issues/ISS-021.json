@@ -1,14 +1,19 @@
 {
-  "components": [],
+  "components": [
+    "parity-registry"
+  ],
   "discoveredDate": "2026-08-01",
+  "displayId": "ISS-021",
   "id": "ISS-021",
   "impact": "tests-ts/fixture-schema.test.mjs:32-48 declares a hand-maintained CASES table commenting itself as \"Every (argv, FAKE_MODE) combination the capture harness drives\". It is derived from nothing and checked against nothing, and it is already incomplete: it omits all eight blocks_* modes and the combined-driven instances x codex_empty pair.\n\nFound during T-005 code review round 4. T-005 collapsed three parallel descriptions of the parity matrix (capture.py's CASES table, cases.mjs's EXTRA_CASES, cases.mjs's GOLDEN_CAPABILITY) into tests/golden/cases.json precisely because parallel descriptions drift without anything noticing. This table predates that work and survived it, so it is a fourth description of part of the same matrix.\n\nHarmless today: the blocks paths have no strict validator (see ISS-002), so the omitted modes are not silently unvalidated by this file's schema tests - there is nothing for them to be validated against. The risk is that the comment claims completeness the table does not have, so a future reader adding a fixture may believe this file already covers it.\n\nSuggested fix: derive the combinations from cases.json (filtering to those whose validator this file knows) rather than restating them, or narrow the comment to say exactly which subset it covers and why.\n\nOut of scope for T-005: the table predates the ticket and is not touched by it, and changing it would mean deciding how the schema-validator tests relate to the case registry, which is a design question rather than a review fix.",
-  "location": [],
+  "location": [
+    "tests-ts/fixture-schema.test.mjs:32"
+  ],
   "phase": null,
   "relatedTickets": [],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "The table is now DERIVED rather than restated, so the fourth parallel description is gone rather than merely corrected.\n\nSOURCE CHOICE. cases.json is the wrong source for this file: it describes CLI invocations, while these tests drive ccusage branches directly with (argv, FAKE_MODE). The right source is fake_ccusage.py's own per-branch dispatch tables, which are what actually decide the set of payloads the fixture can emit. So fake_ccusage.py now publishes them via `--dump-vocabulary`, built from the same table objects `dispatch` indexes (a BRANCHES map written once), and fixture-schema.test.mjs derives its matrix from that.\n\nWHAT THE OLD TABLE WAS MISSING — the dump made it measurable rather than suspected: all NINE blocks modes, `instances/tied`, and every cross-provider `tolerated` pair, including `instances/codex_empty`, which is the pair `combined_empty` actually drives, plus `codex/tied` and `codex daily/tied` from tiebreak.test.mjs. The hand-written table had 11 entries; the derived matrix has 24 pairs, 15 of them validator-applicable.\n\nNOT SILENTLY NARROWER. A branch with no validator must be named with its reason rather than omitted — `blocks` is declared with an explicit `validate: null` pointing at ISS-002 and ISS-023 — and a new branch appearing in fake_ccusage.py FAILS with an actionable message instead of being skipped. That is the precise failure mode the issue was about: coverage quietly narrower than the comment claims.\n\nTESTS ADDED:\n- \"every fake_ccusage branch is accounted for\" — the branch sets must match exactly.\n- \"every (branch, mode) pair the vocabulary claims is actually served\" — now covers all 24 pairs including blocks, which previously went entirely unexercised. This also stops `--dump-vocabulary` from becoming a FIFTH description: it cannot drift by construction, and this is the measurement of that claim rather than a restatement of it.\n- \"the derived matrix covers what the old hand-written table missed\" — pins the four specific pairs that were absent, so a regression to any restated list, or a filter that quietly drops `tolerated`, fails with the reason attached.\n\nMUTATION-VERIFIED, and the first one is the proof the fix works:\n- Adding a new mode to fake_ccusage's INST table that emits an invalid payload -> a new test case appears AND fails, with no second file edited. Before this change that mode would have been invisible.\n- Adding a new branch -> the accounting test fails with the \"give the new one an argv + validator\" message.\n\nSuite: 335 unit tests (was 329), contract 20/20, parity --final 266 passed / 0 failed / 0 skipped, 45/45 goldens byte-match, both Python suites pass (fake_ccusage.py is shared with them and the parity harness; `--dump-vocabulary` is an exact-argv match, so no existing invocation is affected).",
+  "resolvedDate": "2026-08-01",
   "severity": "low",
-  "status": "open",
+  "status": "resolved",
   "title": "fixture-schema.test.mjs CASES is a fourth unverified description of the parity matrix"
 }
