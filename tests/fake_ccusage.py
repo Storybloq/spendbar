@@ -233,17 +233,37 @@ INST = {"normal": instances_normal, "empty": instances_empty,
         "mismatch": instances_mismatch, "float": instances_float,
         "tied": instances_tied}
 
+CODEX = {"codex_empty": codex_empty, "codex_bad": codex_bad}
+BLOCKS = {"blocks_empty": blocks_empty, "blocks_malformed": blocks_malformed,
+          "blocks_dict": blocks_dict, "blocks_null": blocks_null,
+          "blocks_nokey": blocks_nokey, "blocks_truthiness": blocks_truthiness,
+          "blocks_array": blocks_array, "blocks_str": blocks_str}
+
+# The complete mode vocabulary, DERIVED from the dispatch tables rather than restated beside
+# them, so a fixture added above cannot be missing here.
+#
+# Every dispatch below is a `.get(MODE, <default>)`, which means an unknown mode silently
+# produced the DEFAULT fixture. A case naming `blocks_truthinesss` therefore ran
+# `blocks_normal`, both implementations agreed on it perfectly, and the case read as covered
+# while asserting nothing about the fixture it named — measured end to end in code review R2,
+# with the whole suite still green. Fixtures are chosen by name; a name that matches nothing
+# is a typo, not a request for the default.
+KNOWN_MODES = frozenset({"normal", "daily_empty"} | set(CODEX) | set(BLOCKS) | set(INST))
+
 if __name__ == "__main__":
+    if MODE not in KNOWN_MODES:
+        sys.stderr.write(
+            f"fake_ccusage: unknown FAKE_MODE {MODE!r}\n"
+            f"  known modes: {', '.join(sorted(KNOWN_MODES))}\n")
+        sys.exit(2)
+
     if "codex" in args:
         if "daily" in args:
             out = codex_daily_empty() if MODE == "codex_empty" else codex_daily_normal()
         else:
-            out = {"codex_empty": codex_empty, "codex_bad": codex_bad}.get(MODE, codex_normal)()
+            out = CODEX.get(MODE, codex_normal)()
     elif "blocks" in args:
-        out = {"blocks_empty": blocks_empty, "blocks_malformed": blocks_malformed,
-                "blocks_dict": blocks_dict, "blocks_null": blocks_null,
-                "blocks_nokey": blocks_nokey, "blocks_truthiness": blocks_truthiness,
-                "blocks_array": blocks_array, "blocks_str": blocks_str}.get(MODE, blocks_normal)()
+        out = BLOCKS.get(MODE, blocks_normal)()
     elif "--instances" in args:
         out = INST.get(MODE, instances_normal)()
     elif "daily" in args:

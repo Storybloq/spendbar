@@ -106,8 +106,18 @@ Exit code and stream are frozen; the message text is not.
     Python would silently run it with ccusage's arguments. The port refuses `""` up front
     with the no-command error instead. It is treated as *set*, not unset: treating it as
     unset would silently substitute the bundled binary, a different program again.
-14. **Schema violations fail loud.** Two different Python behaviours are being matched here,
-    and they are not the same delta — measured, not assumed:
+14. `[ALLOWLIST-14]` **Schema violations fail loud.** Two different Python behaviours are being
+    matched here, and they are not the same delta — measured, not assumed:
+
+    **Cases covered by `[ALLOWLIST-14]`:** `argv_blocks_array`
+
+    That case carried `[ALLOWLIST-19]` until code review R2. Entry 19 is scoped to
+    `hourly --date <value fromisoformat rejects>`; `argv_blocks_array` runs `blocks` and dies
+    with `AttributeError: 'list' object has no attribute 'get'` at usage.py:582, because the
+    payload is a list where dicts were indexed. Both are uncaught tracebacks, which is what
+    made the mis-citation easy — but "both crash" is not "both are the same sanctioned
+    delta", and the check that was supposed to catch this only asked whether the ID string
+    appeared anywhere in this file.
 
     - Most consumed fields are **indexed directly** in Python (`day["totalTokens"]`,
       `day["date"]`, `mb["modelName"]` — `usage.py:184-191`, `479-484`, `560-565`,
@@ -310,6 +320,17 @@ Exit code and stream are frozen; the message text is not.
     `datetime.date.fromisoformat`, so anything that is not ISO-parseable raises an **uncaught**
     `ValueError` — traceback on stderr, exit 1.
 
+    **Cases covered by `[ALLOWLIST-19]`:** `argv_hourly_date_bogus_crash`,
+    `argv_hourly_date_datetime`, `argv_hourly_date_feb29_nonleap`, `argv_hourly_date_feb30`,
+    `argv_hourly_date_leading_space`, `argv_hourly_date_month13`, `argv_hourly_date_nonascii`,
+    `argv_hourly_date_ordinal`, `argv_hourly_date_reldate_crash`, `argv_hourly_date_unpadded`,
+    `argv_hourly_date_week_compact`, `argv_hourly_date_week_dashed_noday`,
+    `argv_hourly_date_week_overflow`
+
+    Every one of those is a `hourly --date` value, which is what this entry sanctions. The
+    list is enforced in both directions: a case citing this entry must appear here, and a name
+    here must be a real case citing this entry.
+
     Reachable and easy to hit, not a corner: `rewrite_argv` lists `--date` among its date
     options, so `hourly --date -1d` is rewritten to `--date=-1d`, sails through argparse, and
     then crashes. Every *other* date option accepts `-1d`, so typing it here is the natural
@@ -317,8 +338,13 @@ Exit code and stream are frozen; the message text is not.
     exit 1 both ways, against the ordinary entrypoint and not merely under the test wrapper.
 
     The port raises the same crash on the same inputs (exit 1, empty stdout) but writes a
-    one-line message instead of a traceback, which is why these cases carry
-    `compareStderr: false`. The accepted grammar was transcribed from measurements of the
+    one-line message instead of a traceback, which is why these cases use the
+    `ts-diag:invalid-date` comparison policy. (They carried a "compareStderr: false" boolean until T-005 replaced
+    the flags with named policies; the sentence still said so until code review R2. Retired
+    fields are named in plain prose from here on — backticks mark a live identifier, and the
+    harness enforces that distinction.) That policy does not merely skip stderr — it requires the port's stderr to be
+    exactly one newline-terminated line matching `/^invalid --date: /`, so a traceback or a
+    module-load failure cannot pass as a diagnostic. The accepted grammar was transcribed from measurements of the
     reference interpreter, not from the docs, and the argv matrix pins each edge:
     `YYYY-MM-DD` and `YYYYMMDD` are accepted, ISO **week** dates `YYYY-Www-D` are accepted
     (`2026-W01-1` resolves to 2025-12-29), and ordinal dates, unpadded fields, a time
@@ -405,7 +431,15 @@ Exit code and stream are frozen; the message text is not.
     | ID | change | how it is asserted | enforced by T-005 |
     |---|---|---|---|
     | `[ALLOWLIST-22a]` | the product-name spans | the reviewed shipped-help snapshot, a non-case test | no — see below |
-    | `[ALLOWLIST-22b]` | the config-path sentence | the `help-config-path` comparison policy, on 5 named cases | **yes** |
+    | `[ALLOWLIST-22b]` | the config-path sentence | the `help-config-path` comparison policy, on the cases named below | **yes** |
+
+    **Cases covered by `[ALLOWLIST-22b]`:** `argv_abbrev_help_before_subcommand`,
+    `argv_abbrev_help_before_subcommand_long`, `argv_help_before_subcommand`, `help_top_long`,
+    `help_top_short`
+
+    The row above used to say "on 5 named cases" while naming none of them, and nothing
+    asserted the count (code review R2). They are named now, and the harness requires exact
+    agreement between this list and the cases citing this ID.
 
     Only `ALLOWLIST-22b` is validated by the parity harness, because only it is consumed by a
     comparison policy — and a policy is something the harness can *watch execute*, on cases it
@@ -413,7 +447,7 @@ Exit code and stream are frozen; the message text is not.
     name exists" is not evidence that it ran or that it checks this entry. Proving that needs a
     runner reporting which allowlist IDs actually executed, which is deferred to its own ticket
     rather than claimed here; naming the test would be the same hollow evidence as the
-    `dual_run_only` flag this ticket removed.
+    dual_run_only flag this ticket removed.
 
     **22a — the product name.** Three spans of the help output name the product (plan section
     9): argparse's `prog`, the `alltime` hint `(… see 'usage codex')`, and the module
@@ -467,7 +501,7 @@ spawned, not from what the caller intended.
 
 - **Stored-golden mode**: byte-compare vs `goldens/*.json` on the capture machine (goldens
   are HOME-scoped), for `storedGolden: true` cases, replayed at each case's own
-  `captureAnchor`. *No case is excluded.* This previously exempted `manifest.dualRunOnly` —
+  `captureAnchor`. *No case is excluded.* This previously exempted manifest.dualRunOnly —
   two relative-date cases whose output embedded "today", so their stored bytes were
   meaningless — which meant two goldens nothing ever checked. Pinning the clock makes them
   ordinary comparable goldens, and the exemption is gone rather than relabelled (T-005).
@@ -490,9 +524,19 @@ spawned, not from what the caller intended.
     revision returned 0 for any non-numeric value, so it rendered `$0.00` and exited 0 where
     the oracle exited 1 — turning a loud failure into a plausible wrong number, which is
     strictly worse than either behaviour. Booleans stay accepted, because Python's `bool` is
-    an `int` and `True / 2.0` is 0.5 rather than an error. Case: `argv_blocks_malformed`,
-    which pins that python still emits partial output, that the port emits none, that both
-    diagnose on stderr, and that both exit 1.
+    an `int` and `True / 2.0` is 0.5 rather than an error.
+
+    **Cases covered by `[ALLOWLIST-23]`:** `argv_blocks_malformed`, `argv_blocks_null`
+
+    Both pin that python still emits partial output, that the port emits none, that both
+    diagnose on stderr, and that both exit 1 — but they reach that state by different routes,
+    and this entry previously named only the first while silently covering the second (code
+    review R2). Measured: `argv_blocks_malformed` dies in `rate = cost / hrs` on a str/float
+    division; `argv_blocks_null` dies earlier, in `for b in blocks`, with
+    `'NoneType' object is not iterable`. The sanctioned delta is the same in both — Python
+    prints as it goes and so leaves a header behind, the port renders to a string and writes
+    once — which is why one entry covers both. Naming them is what makes that a decision
+    rather than an accident.
 
 24. **Tied costs order by project name; Python has no defined order at all.** usage.py:526
     (`share`) and usage.py:684 (`combined`) sort a Python **set**, and `sorted` is stable, so

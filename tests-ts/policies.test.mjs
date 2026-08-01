@@ -21,7 +21,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import { POLICIES, NON_EXACT_POLICIES, SANCTIONED_STDOUT_REWRITE } from "./harness/policies.mjs";
-import { rawCaseProblems } from "./harness/cases.mjs";
+import { rawCaseProblems, parseWaiverScopes } from "./harness/cases.mjs";
 
 const exit = (status) => ({ kind: "exit", status, signal: null, code: null });
 
@@ -287,7 +287,7 @@ describe("the registry rule the policies now lean on", () => {
   // be true of the current registry by luck.
   const wellFormed = {
     name: "synthetic", capability: "hourly", argv: ["hourly"], mode: "claude", extraEnv: {},
-    codexFixture: null, expectExit: 0, storedGolden: false, comparisonPolicy: "exact", waiver: null,
+    codexFixture: false, expectExit: 0, storedGolden: false, comparisonPolicy: "exact", waiver: null,
   };
 
   test("control: a well-formed record raises nothing", () => {
@@ -308,6 +308,93 @@ describe("the registry rule the policies now lean on", () => {
     const { expectExit, ...withoutIt } = wellFormed;
     const problems = rawCaseProblems([withoutIt]);
     assert.ok(problems.some((p) => /omits required field 'expectExit'/.test(p)), JSON.stringify(problems));
+  });
+
+  // Types, not just presence. Each of these feeds something that would otherwise accept the
+  // wrong shape in silence (code review R2).
+  for (const [field, bad, want] of [
+    // The measured one: `codexFixture` is read for TRUTHINESS, so the string "false" sets
+    // CODEX_HOME on both implementations. The case then agrees with itself perfectly while
+    // running the opposite fixture from the one it names.
+    ["codexFixture", "false", /codexFixture must be a boolean/],
+    ["codexFixture", 0, /codexFixture must be a boolean/],
+    ["storedGolden", "true", /storedGolden must be a boolean/],
+    ["mode", "", /mode must be a non-empty string/],
+    ["mode", null, /mode must be a non-empty string/],
+    ["extraEnv", [], /extraEnv must be an object/],
+    ["argv", "projects", /argv must be an array of strings/],
+    // A non-string member is a different failure entirely once it reaches a subprocess
+    // argument list, and `argv` is spread straight into one.
+    ["argv", ["projects", 3], /argv must be an array of strings/],
+  ]) {
+    test(`rejects ${field}: ${JSON.stringify(bad)}`, () => {
+      const problems = rawCaseProblems([{ ...wellFormed, [field]: bad }]);
+      assert.ok(problems.some((p) => want.test(p)), `got ${JSON.stringify(problems)}`);
+    });
+  }
+});
+
+describe("allowlist scope parsing — the check that used to only look for an ID string", () => {
+  // The published-waiver check once asked whether "[ALLOWLIST-19]" appeared anywhere in a
+  // 500-line document. It did, so `argv_blocks_array` cited an entry scoped to
+  // `hourly --date` for years without objection (code review R2). These tests pin the parser
+  // that replaced it, because a scope check that silently parses NOTHING degrades to exactly
+  // the old behaviour: every scope empty, every comparison vacuously in agreement.
+  const DOC = [
+    "19. `[ALLOWLIST-19]` **Something.**",
+    "",
+    "    **Cases covered by `[ALLOWLIST-19]`:** `case_a`, `case_b`,",
+    "    `case_c`",
+    "",
+    "    Trailing prose that mentions `not_a_case` and must not be swept in.",
+    "",
+    "23. `[ALLOWLIST-23]` **Another.**",
+    "",
+    "    **Cases covered by `[ALLOWLIST-23]`:** `case_d`",
+    "",
+  ].join("\n");
+
+  test("parses one entry's cases, including across a wrapped line", () => {
+    const scopes = parseWaiverScopes(DOC);
+    assert.deepEqual([...(scopes.get("ALLOWLIST-19") ?? [])].sort(), ["case_a", "case_b", "case_c"]);
+  });
+
+  test("stops at the blank line, so following prose is not absorbed as scope", () => {
+    // Without a terminator the parser would swallow the rest of the document and every case
+    // name in it would read as authorised — the failure mode that looks like a passing check.
+    assert.ok(!parseWaiverScopes(DOC).get("ALLOWLIST-19").has("not_a_case"));
+  });
+
+  test("keeps separate entries separate", () => {
+    const scopes = parseWaiverScopes(DOC);
+    assert.deepEqual([...scopes.get("ALLOWLIST-23")], ["case_d"]);
+    assert.ok(!scopes.get("ALLOWLIST-23").has("case_a"));
+  });
+
+  test("an entry with no scope declaration is ABSENT, not empty", () => {
+    // Absent and empty must not be the same state: absent means "nobody wrote a scope" and
+    // has to fail loudly, where empty would read as "this entry legitimately covers nothing".
+    assert.equal(parseWaiverScopes("14. `[ALLOWLIST-14]` **No scope line here.**").get("ALLOWLIST-14"), undefined);
+  });
+
+  test("the REAL document covers exactly the cases that cite each ID", async () => {
+    // The end-to-end assertion, run against the committed ALLOWLIST.md and cases.json rather
+    // than a fixture — this is the one that would have caught the original mis-citation.
+    const { loadCases, assertWaiversArePublished } = await import("./harness/cases.mjs");
+    assertWaiversArePublished(loadCases());
+  });
+
+  test("a case citing an entry that does not name it is REJECTED", async () => {
+    const { assertWaiversArePublished, loadCases } = await import("./harness/cases.mjs");
+    const cases = loadCases().map((c) =>
+      c.name === "argv_blocks_array" ? { ...c, name: "argv_blocks_array_renamed" } : c);
+    assert.throws(() => assertWaiversArePublished(cases), /published scope does not name it/);
+  });
+
+  test("an entry naming a case that no longer cites it is REJECTED", async () => {
+    const { assertWaiversArePublished, loadCases } = await import("./harness/cases.mjs");
+    const cases = loadCases().filter((c) => c.name !== "argv_blocks_null");
+    assert.throws(() => assertWaiversArePublished(cases), /claims to cover argv_blocks_null/);
   });
 });
 

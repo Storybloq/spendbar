@@ -5,7 +5,8 @@
  "pythonInterpreter": "3.11.6",
  "caseCount": 45,
  "captureAnchors": [
-  "2026-01-03"
+  "2026-01-03",
+  "2026-01-04"
  ],
  "env": {
   "TZ": "America/Vancouver",

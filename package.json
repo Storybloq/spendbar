@@ -29,8 +29,11 @@
     "prepack": "npm run build",
     "prepare": "npm run build",
     "spike:rounding": "node spikes/rounding/spike.mjs",
-    "test": "tsc -p tsconfig.json && node --test tests-ts/*.test.mjs",
-    "test:contract": "tsc -p tsconfig.json && node --test tests-ts/contract/*.contract.mjs"
+    "test": "tsc -p tsconfig.json && node --test tests-ts/*.test.mjs && npm run test:python",
+    "test:all": "npm test && npm run test:contract && npm run parity -- --final && npm run test:goldens",
+    "test:contract": "tsc -p tsconfig.json && node --test tests-ts/contract/*.contract.mjs",
+    "test:goldens": "python3 tests/golden/capture.py --check",
+    "test:python": "python3 tests/test_usage.py && python3 tests/golden/test_capture_recovery.py"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

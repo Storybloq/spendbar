@@ -92,13 +92,19 @@ function check(name, fn) {
 }
 
 /**
- * A skipped case. `sanctioned` marks a skip that is PHASE-appropriate rather than a
- * coverage hole — the case is asserted in a different phase. The final invariant does not
- * take that label on trust: it re-checks that the differential phase really did run it.
+ * A skipped case. Every skip is a coverage hole, full stop.
+ *
+ * There used to be a `sanctioned` flag here marking a skip as phase-appropriate rather than
+ * a hole, plus a `--final` check that re-proved the label. Deleting `dual_run_only` removed
+ * the only producer, and no call site has passed it since — so the filter that read it was
+ * the identity function, and the check that verified it always ran on an empty array.
+ * Deleting the whole mechanism rather than keeping it "in case": a branch no test can kill
+ * implies a hazard that does not exist, and this one also kept a retired concept alive in
+ * the summary line (code review R2).
  */
-function skip(name, why, opts = {}) {
+function skip(name, why) {
   tally.skip++;
-  skipped.push({ section, name, why, sanctioned: opts.sanctioned === true });
+  skipped.push({ section, name, why });
   process.stdout.write(`  skip  ${name}  (${why})\n`);
 }
 
@@ -160,13 +166,18 @@ if (!python) {
   report();
 }
 
-const cases = loadCases();
+// Inside `check`, so a registry that cannot even be READ is reported as a failed check
+// rather than as a raw ENOENT stack from a missing golden file (code review R2).
+let cases = [];
+check("the case registry loads", () => {
+  cases = loadCases();
+});
 check("every case carries a known capability tag, and every tag names a real case", () => {
   assertRegistry(cases);
 });
 
-check("every waived comparison cites a published allowlist entry", () => {
-  assertWaiversArePublished();
+check("every waived comparison is covered by its allowlist entry's published SCOPE", () => {
+  assertWaiversArePublished(cases);
 });
 
 check("the dual_run_only escape hatch is fully retired", () => {
@@ -446,9 +457,14 @@ function runDifferential() {
       // here would mean two places could disagree about what a case requires, which is the
       // duplication this ticket exists to remove.
       //
-      // The policy throws on any violation and `check` reports it like any other failure.
-      // `resolvePolicy` cannot throw here: assertRegistry already rejected unknown policy
-      // names before a single subject was spawned.
+      // The policy throws on any violation and `check` reports it like any other failure —
+      // including `resolvePolicy` itself, if the name is unknown. An earlier comment here
+      // claimed it "cannot throw, because assertRegistry already rejected unknown policy
+      // names before a single subject was spawned". That was false: `check` catches and
+      // continues, so a bad policy name fails the registry check and then the run carries on
+      // and spawns every subject anyway (code review R2, measured). The run still fails, so
+      // this is a documentation fix rather than a hole — but a stated guarantee the code does
+      // not provide is worse than no comment, because the next reader may drop the wrapper.
       resolvePolicy(c.comparisonPolicy).differential(py, ts, c);
     });
   }
@@ -461,22 +477,11 @@ function finalInvariant() {
     const missing = ALL_CAPABILITIES.filter((c) => !enabled.has(c));
     assert(missing.length === 0, `not enabled: ${missing.join(", ")}`);
   });
-  check("every skip is phase-appropriate, not a coverage hole", () => {
-    const holes = skipped.filter((s) => !s.sanctioned);
+  check("nothing was skipped", () => {
     assert(
-      holes.length === 0,
-      `${holes.length} case(s) skipped with nothing else asserting them: ` +
-        holes.map((s) => `${s.name} [${s.section}]`).join(", "),
-    );
-  });
-  check("every sanctioned skip really was asserted by the differential phase", () => {
-    // The label is a claim; this is the proof. Without it, marking a skip `sanctioned`
-    // would be a way to delete coverage and still pass `--final`.
-    const unproven = skipped.filter((s) => tally3(PHASE.DIFF, "python", s.name) !== 1);
-    assert(
-      unproven.length === 0,
-      `skipped but never dual-run: ` +
-        unproven.map((s) => `${s.name} ran ${tally3(PHASE.DIFF, "python", s.name)}×`).join(", "),
+      skipped.length === 0,
+      `${skipped.length} case(s) skipped with nothing else asserting them: ` +
+        skipped.map((s) => `${s.name} [${s.section}]`).join(", "),
     );
   });
 
@@ -549,39 +554,83 @@ function assertAnchorRouting() {
     assert(!anchors.has(LIVE_ANCHOR), "stored replay ran at the live anchor; the split is not real");
   });
 
+  check("the per-case anchor is READ per case, not a constant wearing a field name", () => {
+    // cases.json defends `captureAnchor` being per-case at length. That argument was
+    // unfalsifiable while all 45 stored cases shared one value: code review R2 replaced the
+    // per-case read with the literal "2026-01-03" and all 265 checks still passed, so nothing
+    // distinguished the design from a constant.
+    //
+    // The two relative-date cases are now captured a day later than the rest. They are the
+    // only cases whose OUTPUT embeds the anchor, so they are the only ones that can tell —
+    // which is exactly why they carry the distinct value rather than an arbitrary case doing
+    // so for symmetry.
+    const anchors = new Set(cases.filter((c) => c.storedGolden).map((c) => c.captureAnchor));
+    assert(
+      anchors.size >= 2,
+      `all stored cases share captureAnchor ${[...anchors][0]}; substituting a constant for the ` +
+        `per-case read would pass every check, so the field is undiscriminated`,
+    );
+    const replayAnchors = new Set(trace.filter((t) => t.phase === PHASE.REPLAY).map((t) => t.anchor));
+    assert(
+      replayAnchors.size >= 2,
+      `replay used a single anchor (${[...replayAnchors].join(", ")}) though the registry declares ` +
+        `${anchors.size}; the per-case value is not reaching the spawn`,
+    );
+  });
+
   check("the traced anchor is what runProcess RECEIVED, not what the caller intended", () => {
     // A real spy, wrapping the spawn boundary. An earlier version of this check read the
     // argv array off the trace entry — but the trace and the spawn were reading the SAME
     // local array, so a regression that built one array to record and a different one to
     // execute would satisfy it. Two readings of one variable are not two witnesses.
     //
-    // Here `seen` is captured inside runProcess's own call, so the comparison is between
-    // what was executed and what was recorded, which is the question.
-    const before = trace.length;
-    const probe = "2026-03-04";
-    const seen = [];
-    const real = spawnImpl;
-    spawnImpl = (file, args, opts) => {
-      // Snapshot, not a reference. Holding the live array would let a later mutation of it
-      // move BOTH observations together, which is the same shared-source defect this spy was
-      // rewritten to eliminate — one level further in.
-      seen.push([...args]);
-      return real(file, args, opts);
-    };
-    try {
-      pythonRun(["projects"], { anchor: probe, case: null, phase: PHASE.DIFF });
-    } finally {
-      spawnImpl = real;
+    // Probed across EVERY (implementation, phase) pair, not just one. With a single probe at
+    // python/differential, a record-versus-execute split confined to the replay phase, or to
+    // the TypeScript path, passed all four routing checks untouched — code review R2 built
+    // exactly that mutation and the only thing that objected was the two relative-date
+    // goldens, which is luck rather than mechanism. A witness that watches one of four doors
+    // is not watching the building.
+    const probes = [
+      { impl: "python", phase: PHASE.REPLAY, run: pythonRun, anchor: "2026-03-04" },
+      { impl: "python", phase: PHASE.ARGV, run: pythonRun, anchor: "2026-03-05" },
+      { impl: "python", phase: PHASE.DIFF, run: pythonRun, anchor: "2026-03-06" },
+      { impl: "typescript", phase: PHASE.REPLAY, run: tsRun, anchor: "2026-03-07" },
+      { impl: "typescript", phase: PHASE.ARGV, run: tsRun, anchor: "2026-03-08" },
+      { impl: "typescript", phase: PHASE.DIFF, run: tsRun, anchor: "2026-03-09" },
+    ];
+    // Distinct anchors per probe, so a wrapper that returned a cached or shared argv would
+    // show up as an equality that holds for the wrong reason.
+    assert(new Set(probes.map((p) => p.anchor)).size === probes.length, "probe anchors must be distinct");
+
+    for (const { impl, phase, run, anchor } of probes) {
+      const before = trace.length;
+      const seen = [];
+      const real = spawnImpl;
+      spawnImpl = (file, args, opts) => {
+        // Snapshot, not a reference. Holding the live array would let a later mutation of it
+        // move BOTH observations together, which is the same shared-source defect this spy
+        // was rewritten to eliminate — one level further in.
+        seen.push([...args]);
+        return real(file, args, opts);
+      };
+      try {
+        run(["projects"], { anchor, case: null, phase });
+      } finally {
+        spawnImpl = real;
+      }
+      const where = `${impl}/${phase}`;
+      assert(seen.length === 1, `${where}: the probe spawned ${seen.length} processes, expected 1`);
+      assert(trace.length === before + 1, `${where}: the probe did not produce exactly one trace entry`);
+      const entry = trace[trace.length - 1];
+      assert(entry.impl === impl, `${where}: traced impl ${entry.impl}`);
+      assert(entry.phase === phase, `${where}: traced phase ${entry.phase}`);
+      assert(
+        anchorFromArgv(seen[0]) === entry.anchor,
+        `${where}: runProcess received --anchor ${anchorFromArgv(seen[0])} but the trace recorded ${entry.anchor}`,
+      );
+      assert(entry.anchor === anchor, `${where}: traced ${entry.anchor}, requested ${anchor}`);
+      trace.pop(); // a probe is not a case execution and must not pollute the tallies
     }
-    assert(seen.length === 1, `the probe spawned ${seen.length} processes, expected 1`);
-    assert(trace.length === before + 1, "the probe did not produce exactly one trace entry");
-    const entry = trace[trace.length - 1];
-    assert(
-      anchorFromArgv(seen[0]) === entry.anchor,
-      `runProcess received --anchor ${anchorFromArgv(seen[0])} but the trace recorded ${entry.anchor}`,
-    );
-    assert(entry.anchor === probe, `traced ${entry.anchor}, requested ${probe}`);
-    trace.pop(); // the probe is not a case execution and must not pollute the tallies
   });
 }
 
@@ -641,11 +690,8 @@ function report() {
     process.stdout.write(`\n${bold(`FAIL ${f.section} / ${f.name}`)}\n  ${f.message.replace(/\n/g, "\n  ")}\n`);
   }
   if (!FINAL && tally.skip > 0) {
-    const holes = skipped.filter((s) => !s.sanctioned).length;
     process.stdout.write(
-      `\nnote: ${tally.skip} case(s) skipped ` +
-        `(${holes} by the capability gate, ${tally.skip - holes} asserted by dual-run instead); ` +
-        `\`--final\` checks both.\n`,
+      `\nnote: ${tally.skip} case(s) skipped by the capability gate; \`--final\` requires none.\n`,
     );
   }
   process.exit(tally.fail > 0 ? 1 : 0);

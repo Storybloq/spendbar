@@ -227,7 +227,7 @@
    "expectExit": 1,
    "storedGolden": false,
    "comparisonPolicy": "ts-diag:blocks-array-attr",
-   "waiver": "ALLOWLIST-19"
+   "waiver": "ALLOWLIST-14"
   },
   {
    "name": "argv_blocks_dict",
@@ -1799,7 +1799,7 @@
    "codexFixture": false,
    "expectExit": 0,
    "storedGolden": true,
-   "captureAnchor": "2026-01-03",
+   "captureAnchor": "2026-01-04",
    "comparisonPolicy": "exact",
    "waiver": null
   },
@@ -1816,7 +1816,7 @@
    "codexFixture": false,
    "expectExit": 0,
    "storedGolden": true,
-   "captureAnchor": "2026-01-03",
+   "captureAnchor": "2026-01-04",
    "comparisonPolicy": "exact",
    "waiver": null
   },

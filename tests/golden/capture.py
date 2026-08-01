@@ -104,17 +104,21 @@ def run_case(case, codex_home, fixture_home):
     # logging the anchor we meant to use would prove intent, and the failure this guards
     # against is exactly the one where intent and argv disagree.
     #
-    # Raised, not asserted: `python3 -O` strips `assert`, and a guard that disappears under a
-    # flag someone else chooses is not a guard. This one exists to catch a golden being
-    # recorded at the wrong date, which is silent, durable, and committed.
-    i = argv.index("--anchor")
-    if argv[i + 1] != case["captureAnchor"]:
-        raise RuntimeError(
-            f"{case['name']}: spawned with anchor {argv[i + 1]!r}, "
-            f"case declares {case['captureAnchor']!r}")
+    # The recorded anchor is read back out of the argv that was SPAWNED, not copied from the
+    # case a second time. Both spellings look identical today, because `argv` is built from
+    # `case["captureAnchor"]` a few lines up with nothing in between — code review R2 was
+    # right that a comparison between the two proves almost nothing, and that the old version
+    # then went on to record the intent anyway, which is the value a comparison would have
+    # been defending against.
+    #
+    # So there is no comparison. The golden simply records what ran. If the two ever diverge
+    # the artifact reports the truth, and `--check` and the parity harness both compare that
+    # recorded value against cases.json, where a disagreement is caught by something that
+    # reads the two independently rather than by an assertion standing next to the argv.
+    spawned_anchor = argv[argv.index("--anchor") + 1]
     return {"name": case["name"], "argv": case["argv"], "mode": case["mode"],
             "codex_fixture": case["codexFixture"], "extra_env": case["extraEnv"],
-            "capture_anchor": case["captureAnchor"],
+            "capture_anchor": spawned_anchor,
             "exit": p.returncode, "stdout": p.stdout, "stderr": p.stderr}
 
 
@@ -172,6 +176,11 @@ def recover_interrupted_swap():
     if not golden_names_on_disk(GOLDENS):
         # Nothing installed: the swap died between the two renames, and the backup is the only
         # complete copy there is.
+        #
+        # "Nothing installed" counts CASE goldens only, so a directory holding just
+        # manifest.json qualifies and that manifest is deleted with it. Deliberate: a manifest
+        # describing a set of goldens that are not there is not a partial success worth
+        # keeping, and the backup supplies both.
         shutil.rmtree(GOLDENS, ignore_errors=True)
         os.rename(backup, GOLDENS)
         print(f"  recovered {os.path.relpath(GOLDENS)} from an interrupted swap")
@@ -250,6 +259,19 @@ def install_staged(staging):
     reasoned about rather than tested — and the reasoning is what was wrong.
     """
     backup = GOLDENS + ".previous"
+    # A pre-existing backup has to go FIRST, or `os.rename` onto a non-empty directory raises
+    # OSError(ENOTEMPTY). That is not hypothetical: `recover_interrupted_swap`'s ambiguous
+    # branch deliberately leaves both directories on disk and tells the operator to "re-run
+    # without --check to regenerate" — and before this, the very next run crashed on that
+    # advice, after all 45 captures, with `main`'s finally then discarding the fresh staging
+    # directory (code review R2, reproduced).
+    #
+    # Deleting it is safe HERE and nowhere else: a complete staged replacement is already
+    # built and about to be installed, so the old copy has a successor. That is the same
+    # condition the `else` branch below relies on.
+    if os.path.isdir(backup):
+        print(f"  discarding a stale {os.path.relpath(backup)} left by an earlier interrupted run")
+        shutil.rmtree(backup)
     os.rename(GOLDENS, backup)
     installed = False
     try:
@@ -259,6 +281,13 @@ def install_staged(staging):
     except BaseException:
         if installed:
             shutil.rmtree(GOLDENS, ignore_errors=True)
+        if os.path.isdir(GOLDENS):
+            # The rmtree above did not take. Renaming onto a directory that still exists would
+            # raise a SECOND OSError that masks the real failure and leaves the bad copy
+            # installed, so say what is where instead of guessing (code review R2).
+            raise RuntimeError(
+                f"install failed AND rollback could not proceed: {GOLDENS} still exists.\n"
+                f"  The previous goldens are intact at {backup}; restore them by hand.")
         os.rename(backup, GOLDENS)  # put it back exactly as it was
         raise
     else:

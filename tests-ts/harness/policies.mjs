@@ -106,14 +106,22 @@ function tsDiagnosticShape(ts, pattern, id) {
 }
 
 /**
- * ALLOWLIST 19: an uncaught CPython traceback, whose bytes name CPython source files and
- * line numbers and which the port cannot emit under any implementation. One policy per
- * distinct diagnostic, so the pattern is never a per-case free variable.
+ * An uncaught CPython traceback, whose bytes name CPython source files and line numbers and
+ * which the port cannot emit under any implementation. One policy per distinct diagnostic, so
+ * the pattern is never a per-case free variable.
+ *
+ * The waiver is a PARAMETER, not a constant. Both of these used to cite ALLOWLIST-19, which
+ * is scoped to `hourly --date <value fromisoformat rejects>` — right for the 13 invalid-date
+ * cases and wrong for `argv_blocks_array`, whose argv is `["blocks"]` and whose traceback is
+ * an AttributeError from a list-shaped payload. Its home is entry 14, "Schema violations fail
+ * loud". Nothing noticed, because the published-waiver check only asked whether the ID string
+ * appeared somewhere in the document (code review R2). Two crashes are not one delta just
+ * because both are tracebacks.
  */
-function tsDiag(id, pattern) {
+function tsDiag(id, pattern, waiverId) {
   return {
     id: `ts-diag:${id}`,
-    waiverId: "ALLOWLIST-19",
+    waiverId,
     pattern,
     remeasure(py, c) {
       pythonTerminatedAsTranscribed(py, c);
@@ -221,8 +229,8 @@ export const POLICIES = {
     },
   },
 
-  "ts-diag:invalid-date": tsDiag("invalid-date", /^invalid --date: /),
-  "ts-diag:blocks-array-attr": tsDiag("blocks-array-attr", /object has no attribute 'get'/),
+  "ts-diag:invalid-date": tsDiag("invalid-date", /^invalid --date: /, "ALLOWLIST-19"),
+  "ts-diag:blocks-array-attr": tsDiag("blocks-array-attr", /object has no attribute 'get'/, "ALLOWLIST-14"),
 };
 
 /** Policy IDs that waive something, i.e. every one whose replacement assertions matter. */

@@ -47,23 +47,37 @@ const CASES = [
   [["codex", "daily"], "codex_empty", validateCodexDaily],
 ];
 
-// fake_ccusage.py dispatches with `TABLE.get(MODE, <default>)`, so a FAKE_MODE that does not
-// exist SILENTLY yields the default payload — the case then duplicates "normal" while
-// appearing to cover something else. A stale "assoc" entry did exactly that and no schema
-// assertion could ever catch it, because the fallback payload is valid (code review R3).
-test("every FAKE_MODE named above actually exists in fake_ccusage.py", () => {
-  // Behavioural, not source-parsing: a mode that does not exist yields byte-identical output
-  // to a deliberately bogus one, since both hit the same `.get(MODE, default)` fallback.
-  // "normal" IS the default for every table, so it is exempt by construction.
-  const BOGUS = "__no_such_fake_mode__";
+// fake_ccusage.py USED to dispatch with `TABLE.get(MODE, <default>)` and nothing else, so a
+// FAKE_MODE that did not exist SILENTLY yielded the default payload — the case then
+// duplicated "normal" while appearing to cover something else. A stale "assoc" entry did
+// exactly that and no schema assertion could catch it, because the fallback payload is valid
+// (code review R3).
+//
+// The test below used to detect that by comparing each mode's output against a deliberately
+// bogus mode's, which was the best available check while the fallback was silent. It only
+// ever covered the 11 combinations listed above, though — and code review R2 found the same
+// defect reaching cases.json, where a mode typo'd as `blocks_truthinesss` ran the
+// `blocks_normal` fixture with the entire parity suite green.
+//
+// So the fallback is no longer silent: fake_ccusage.py now validates FAKE_MODE against a
+// vocabulary derived from its own dispatch tables and exits 2 on anything else. That fixes it
+// for every caller at once rather than for an enumerated list, and it makes this test's old
+// technique obsolete — a bogus mode no longer produces a payload to compare against.
+test("an unknown FAKE_MODE is REFUSED, not silently served the default payload", () => {
+  const out = spawnSync("python3", [FAKE, "daily"], {
+    encoding: "utf8",
+    env: { ...process.env, FAKE_MODE: "__no_such_fake_mode__" },
+  });
+  assert.notEqual(out.status, 0, "an unknown FAKE_MODE produced a payload instead of failing");
+  assert.match(out.stderr, /unknown FAKE_MODE/);
+  assert.equal(out.stdout.trim(), "", "a refused mode must not also emit a payload");
+});
+
+test("every FAKE_MODE named above is accepted by fake_ccusage.py", () => {
+  // The other direction, and the one that keeps the check above from being satisfiable by a
+  // fixture that refuses everything: each mode these cases name must actually run.
   for (const [args, mode] of CASES) {
-    if (mode === "normal") continue;
-    assert.notDeepEqual(
-      fixture(args, mode),
-      fixture(args, BOGUS),
-      `FAKE_MODE=${mode} is not defined in fake_ccusage.py — it silently fell back to the ` +
-        `default payload, so this case duplicates "normal" instead of covering ${mode}`,
-    );
+    assert.doesNotThrow(() => fixture(args, mode), `FAKE_MODE=${mode} was refused`);
   }
 });
 

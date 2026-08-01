@@ -40,13 +40,45 @@ export function loadCases() {
     captureAnchor: c.captureAnchor,
     comparisonPolicy: c.comparisonPolicy,
     waiver: c.waiver,
-    golden: c.storedGolden ? readGolden(c.name) : undefined,
+    golden: c.storedGolden ? readGolden(c.name, c) : undefined,
   }));
 }
 
-function readGolden(name) {
+/**
+ * Load a golden AND check that it describes the case it is filed under.
+ *
+ * The record used to be returned as `record` and never read by anything (code review R2), so
+ * the JS harness compared only bytes: a stored case's `captureAnchor` could be edited in
+ * cases.json and 43 of the 45 replays still reproduced byte-for-byte, because most goldens do
+ * not embed the date. Only `capture.py --check` noticed, and that is a manual step.
+ *
+ * A golden's own metadata is an independent recording of the invocation. Comparing it against
+ * the registry is what turns "these bytes match" into "these bytes match, and they were
+ * produced by the invocation this case declares".
+ */
+function readGolden(name, c) {
   const g = JSON.parse(readFileSync(resolve(PATHS.goldens, `${name}.json`), "utf8"));
-  return { stdout: g.stdout, stderr: g.stderr, record: g };
+  const disagreements = [];
+  const claim = (field, stored, declared) => {
+    if (JSON.stringify(stored) !== JSON.stringify(declared)) {
+      disagreements.push(`${field}: golden has ${JSON.stringify(stored)}, cases.json declares ${JSON.stringify(declared)}`);
+    }
+  };
+  claim("name", g.name, name);
+  claim("argv", g.argv, c.argv);
+  claim("mode", g.mode, c.mode);
+  claim("extra_env", g.extra_env, c.extraEnv);
+  claim("codex_fixture", g.codex_fixture, c.codexFixture);
+  claim("capture_anchor", g.capture_anchor, c.captureAnchor);
+  claim("exit", g.exit, c.expectExit);
+  if (disagreements.length) {
+    throw new Error(
+      `golden ${name}.json does not describe the case it is filed under:\n  - ` +
+        disagreements.join("\n  - ") +
+        `\n  Re-capture with: python3 tests/golden/capture.py`,
+    );
+  }
+  return { stdout: g.stdout, stderr: g.stderr };
 }
 
 /** Golden files actually on disk, excluding the manifest. */
@@ -98,6 +130,37 @@ export function rawCaseProblems(rawCases) {
     // those kind checks be removed rather than kept as branches no test could kill.
     if ("expectExit" in raw && !Number.isInteger(raw.expectExit)) {
       problems.push(`case ${raw.name}: expectExit must be an integer, got ${JSON.stringify(raw.expectExit)}`);
+    }
+
+    // TYPES, not just presence. Every field below feeds something that would otherwise accept
+    // the wrong shape silently (code review R2):
+    //
+    //   `codexFixture` is read for TRUTHINESS by capture.py and the harness, so the string
+    //   "false" sets CODEX_HOME on both sides — and the case then agrees with itself while
+    //   exercising the opposite fixture from the one it names.
+    //
+    //   `storedGolden` decides whether a case has a golden at all, so a truthy non-boolean
+    //   silently reclassifies it.
+    //
+    //   `argv` is spread into a subprocess argument list, where a non-string member is a
+    //   different kind of failure entirely.
+    //
+    // `mode` is deliberately NOT value-checked here. Its vocabulary belongs to
+    // tests/fake_ccusage.py, which now rejects an unknown FAKE_MODE outright rather than
+    // falling back to a default fixture; validating it in two places is how the two
+    // descriptions drift apart, which is the defect this whole ticket exists to remove.
+    for (const [field, ok, want] of [
+      ["codexFixture", typeof raw.codexFixture === "boolean", "a boolean"],
+      ["storedGolden", typeof raw.storedGolden === "boolean", "a boolean"],
+      ["mode", typeof raw.mode === "string" && raw.mode.length > 0, "a non-empty string"],
+      ["extraEnv", raw.extraEnv !== null && typeof raw.extraEnv === "object" && !Array.isArray(raw.extraEnv),
+       "an object"],
+      ["argv", Array.isArray(raw.argv) && raw.argv.every((a) => typeof a === "string"),
+       "an array of strings"],
+    ]) {
+      if (field in raw && !ok) {
+        problems.push(`case ${raw.name}: ${field} must be ${want}, got ${JSON.stringify(raw[field])}`);
+      }
     }
 
     // "Present exactly when storedGolden" means PRESENT, not present-and-null. Testing for a
@@ -155,9 +218,11 @@ export function assertRegistry(cases) {
       );
     }
 
-    if (c.waiver !== null && c.waiver !== undefined && !POLICY_CONSUMED_WAIVERS.has(c.waiver)) {
-      problems.push(`case ${c.name} names waiver ${c.waiver}, which no comparison policy consumes`);
-    }
+    // No separate "names a waiver no policy consumes" check. Every input that would trip it
+    // has already been reported by the policy/waiver agreement above — an unknown policy name
+    // pushes one problem, and a known policy whose waiverId differs pushes another (code
+    // review R2 demonstrated both reachable shapes). A third message for the same defect is a
+    // branch no test can kill.
 
     // Presence of captureAnchor is checked above, against the raw record. What is left for
     // the mapped record is its FORM: a stored case must replay at a real date, and a wrong
@@ -193,27 +258,84 @@ export function assertRegistry(cases) {
 }
 
 /**
- * Every waiver a comparison policy consumes must name a real, published allowlist entry.
+ * Parse the machine-readable scope declarations out of ALLOWLIST.md.
  *
- * This is the enforceable half of the allowlist domain, and deliberately only that half.
- * `ALLOWLIST.md` is organised as prose scopes, and many entries govern unit tests, packaging
- * or platform gaps rather than any case — requiring bidirectional coverage over all of them
- * is unsatisfiable. What IS checkable is the direction that matters: a policy cannot waive a
- * byte comparison by citing an entry that does not exist.
+ * Format, one per ID'd entry, visible in the rendered document on purpose:
  *
- * Note what this does NOT claim. It reads the document for an ID, which proves the entry was
- * written, not that any test asserts it. That weaker guarantee is stated rather than dressed
- * up, because "a name exists" was exactly the evidence `dual_run_only` offered.
+ *   **Cases covered by `[ALLOWLIST-19]`:** `case_a`, `case_b`, …
+ *
+ * Visible rather than an HTML comment because the point is that the DOCUMENT states its own
+ * scope. A hidden marker is one an editor revising the prose would not think to update.
  */
-export function assertWaiversArePublished() {
+export function parseWaiverScopes(doc) {
+  const scopes = new Map();
+  const re = /\*\*Cases covered by `\[(ALLOWLIST-[0-9]+[a-z]?)\]`:\*\*([\s\S]*?)(?:\n\s*\n|$)/g;
+  for (const m of doc.matchAll(re)) {
+    const names = [...m[2].matchAll(/`([A-Za-z0-9_]+)`/g)].map((n) => n[1]);
+    scopes.set(m[1], new Set(names));
+  }
+  return scopes;
+}
+
+/**
+ * Every waived comparison must be authorised by an entry whose published SCOPE covers it.
+ *
+ * This used to check only that the ID string appeared somewhere in the document. That is how
+ * `argv_blocks_array` came to cite `[ALLOWLIST-19]` — an entry scoped to
+ * `hourly --date <value fromisoformat rejects>` — while actually being a `blocks` case dying
+ * on an AttributeError, and how `[ALLOWLIST-23]` came to cover a second case it never named
+ * (code review R2). The ticket's headline claim was that a comparison cannot grant itself a
+ * licence nothing authorised; with an existence check, "authorised" meant "the ID is spelled
+ * somewhere in a 500-line file".
+ *
+ * So the check reads the scope and requires exact set agreement, in BOTH directions:
+ *
+ *   - a case citing an ID must be NAMED by that entry — otherwise the entry's prose describes
+ *     one situation while the harness applies it to another;
+ *   - a name in an entry must be a real case citing that ID — otherwise a rename or deletion
+ *     leaves the document promising coverage that no longer exists, which reads as authority
+ *     to anyone who greps for the case name.
+ *
+ * Still deliberately NOT claimed: that any test asserts the entry's prose. This proves the
+ * scope is agreed, not that the behaviour is measured.
+ */
+export function assertWaiversArePublished(cases = loadCases()) {
   const doc = readFileSync(resolve(PATHS.goldens, "..", "ALLOWLIST.md"), "utf8");
-  const published = new Set([...doc.matchAll(/\[(ALLOWLIST-[0-9]+[a-z]?)\]/g)].map((m) => m[1]));
-  const missing = [...POLICY_CONSUMED_WAIVERS].filter((w) => !published.has(w));
-  if (missing.length) {
-    throw new Error(
-      `comparison policies consume waivers that ALLOWLIST.md does not publish: ${missing.join(", ")}\n` +
-        `  published: ${[...published].sort().join(", ") || "(none)"}`,
-    );
+  const scopes = parseWaiverScopes(doc);
+  const problems = [];
+
+  for (const w of POLICY_CONSUMED_WAIVERS) {
+    if (!scopes.has(w)) {
+      problems.push(
+        `${w} is consumed by a comparison policy but ALLOWLIST.md publishes no scope for it ` +
+          `(expected a "**Cases covered by \`[${w}]\`:**" line)`,
+      );
+    }
+  }
+
+  const declared = new Map();
+  for (const c of cases) {
+    if (!c.waiver) continue;
+    if (!declared.has(c.waiver)) declared.set(c.waiver, new Set());
+    declared.get(c.waiver).add(c.name);
+  }
+
+  for (const [id, scope] of scopes) {
+    const actual = declared.get(id) ?? new Set();
+    for (const name of actual) {
+      if (!scope.has(name)) {
+        problems.push(`case ${name} cites ${id}, but that entry's published scope does not name it`);
+      }
+    }
+    for (const name of scope) {
+      if (!actual.has(name)) {
+        problems.push(`${id} claims to cover ${name}, but no case cites ${id} under that name`);
+      }
+    }
+  }
+
+  if (problems.length) {
+    throw new Error(`allowlist scope disagrees with the case registry:\n  - ${problems.join("\n  - ")}`);
   }
 }
 
@@ -238,7 +360,35 @@ export function assertLegacyFieldsAbsent() {
   const notes = (manifest.notes ?? []).join("\n");
   if (/dual[_-]?run[_-]?only/i.test(notes)) problems.push("manifest notes still describe dual_run_only");
 
+  // The comparison flags this ticket replaced with named policies. Hunting them in
+  // ALLOWLIST.md too, not just in the data: the guard previously watched cases.json and the
+  // goldens only, so the published contract went on telling readers that cases "carry
+  // `compareStderr: false`" for a full ticket after the field stopped existing (code review
+  // R2). A retired field surviving in the DOCUMENT is the worse half of the problem — the
+  // data is read by machines that would notice, and the prose is read by people who would not.
+  //
+  // The convention this enforces: a retired field is named in PLAIN PROSE, never in a code
+  // span. Backticks mark a live identifier the reader could go and find, so `compareStderr`
+  // is a promise the codebase no longer keeps, while "compareStderr" in running text is
+  // ordinary history. That makes the rule mechanical instead of a judgement about tone.
+  //
+  // `rewrite` is deliberately not on the list: it is an ordinary English word used throughout
+  // the document in its normal sense, so matching it would be noise rather than signal.
+  const RETIRED = ["compareStderr", "partialStdout", "dual_run_only", "dualRunOnly"];
+  const doc = readFileSync(resolve(PATHS.goldens, "..", "ALLOWLIST.md"), "utf8");
+  for (const [where, text] of [["cases.json", raw], ["ALLOWLIST.md", doc]]) {
+    // Whole code SPANS, not a leading backtick. `manifest.dualRunOnly` is a reference to a
+    // retired field however it is qualified, and a leading-backtick test would miss it.
+    for (const span of text.matchAll(/`([^`\n]+)`/g)) {
+      for (const field of RETIRED) {
+        if (new RegExp(`\\b${field}\\b`).test(span[1])) {
+          problems.push(`${where} refers to the retired field ${field} as live code: \`${span[1]}\``);
+        }
+      }
+    }
+  }
+
   if (problems.length) {
-    throw new Error(`the dual_run_only escape hatch is not fully retired:\n  - ${problems.join("\n  - ")}`);
+    throw new Error(`the pre-T-005 comparison flags are not fully retired:\n  - ${problems.join("\n  - ")}`);
   }
 }
