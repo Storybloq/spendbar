@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { pyRepr } from "../dist/pyrepr.js";
+import { money } from "../dist/format.js";
 
 // Each case: [jsValue, pythonExpression]. Python side is evaluated by python3 so the
 // expectation is generated, never hand-written.
@@ -86,4 +87,87 @@ test("pyRepr of a boolean is capitalized (the codex_bad_cost golden)", () => {
     `unexpected ccusage codex output: sessions[0].costUSD = ${pyRepr(true)} (expected a finite non-negative number)`,
     "unexpected ccusage codex output: sessions[0].costUSD = True (expected a finite non-negative number)",
   );
+});
+
+/**
+ * ALLOWLIST entry 9, the success-path half (ISS-008).
+ *
+ * Entry 9 used to claim the int/float token distinction "never affects a computed figure or
+ * a success-path byte". The bare token `-0` is a counterexample: Python parses it to `int`
+ * 0, which has no sign, so `f"{v:,.2f}"` is `0.00`; `JSON.parse` gives float `-0`, which
+ * formats as `-0.00`. `cnum` accepts it, so both sides exit 0 and print different bytes.
+ *
+ * These tests exist because that entry has now had an overstated claim found in it in five
+ * consecutive review rounds. Prose is what kept being wrong, so the fix is to hold the
+ * corrected prose to a measurement — including the part that says what does NOT diverge.
+ */
+const MONEY_TOKENS = ["-0", "-0.0", "0", "0.0", "-1", "-1.0", "1e2", "0.005", "-0.004"];
+
+/** `f"${v:,.2f}"` — usage.py's money(), evaluated by CPython from the raw JSON token. */
+function pythonMoney(tokens) {
+  const script =
+    "import sys, json\n" +
+    "for t in json.loads(sys.argv[1]):\n" +
+    "    v = json.loads(t)\n" +
+    '    print(f"${v:,.2f}")\n';
+  const out = spawnSync("python3", ["-c", script, JSON.stringify(tokens)], { encoding: "utf8" });
+  if (out.error?.code === "ENOENT") return null;
+  assert.equal(out.status, 0, out.stderr);
+  return out.stdout.replace(/\n$/, "").split("\n");
+}
+
+const moneyOracle = pythonMoney(MONEY_TOKENS);
+
+test("money() agrees with CPython on every token EXCEPT the sanctioned `-0` (ISS-008)", {
+  skip: moneyOracle === null ? "python3 is unavailable" : false,
+}, () => {
+  const got = MONEY_TOKENS.map((t) => money(JSON.parse(t)));
+  const diverged = MONEY_TOKENS.filter((t, i) => got[i] !== moneyOracle[i]);
+
+  // The exception is exactly one token, and it is the one entry 9 now names. Asserting the
+  // SET rather than just the known case is what makes this a guard: a new divergence shows
+  // up here rather than silently joining an already-sanctioned one.
+  assert.deepEqual(diverged, ["-0"], `unexpected money divergences: ${diverged.join(", ")}`);
+  assert.equal(money(JSON.parse("-0")), "$-0.00");
+  assert.equal(moneyOracle[MONEY_TOKENS.indexOf("-0")], "$0.00");
+
+  // And the near-miss that makes the entry's wording precise: the FLOAT token keeps its sign
+  // in Python, so `-0.0` agrees. Only the integer token loses it.
+  assert.equal(money(JSON.parse("-0.0")), "$-0.00");
+  assert.equal(moneyOracle[MONEY_TOKENS.indexOf("-0.0")], "$-0.00");
+});
+
+/**
+ * The refutation, kept as a test so it stays true (ISS-008, entry 7).
+ *
+ * ISS-008 also proposed unchecked cost fields as a success-path counterexample, on the
+ * grounds that Python keeps integers above 2^53 exact. It does — but no cost reaches output
+ * as an integer: `.2f` converts to binary64 on both sides, and every cost accumulator in
+ * usage.py is seeded `0.0`, so summation is float arithmetic in both languages. If either of
+ * those ever stops being true, entry 7's stated reason for stopping at token counters is
+ * void, and this test is what says so.
+ */
+test("an out-of-safe-range cost cannot change a printed byte (ISS-008, entry 7)", {
+  skip: moneyOracle === null ? "python3 is unavailable" : false,
+}, () => {
+  const BIG = "9007199254740993"; // 2^53 + 1: exact as a Python int, unrepresentable as f64
+  const single = pythonMoney([BIG]);
+  assert.equal(money(JSON.parse(BIG)), single[0], "a single huge cost must format identically");
+
+  // The summation case, which is the only way Python's exact ints could have shown through.
+  // Python's accumulator is a float, so `0.0 + 9007199254740993 + 1` is float arithmetic —
+  // the same value JS computes.
+  const script =
+    "import sys, json\n" +
+    "acc = 0.0\n" +
+    "for t in json.loads(sys.argv[1]): acc += json.loads(t)\n" +
+    'print(f"${acc:,.2f}")\n';
+  const out = spawnSync("python3", ["-c", script, JSON.stringify([BIG, "1"])], { encoding: "utf8" });
+  assert.equal(out.status, 0, out.stderr);
+  const jsAcc = [BIG, "1"].reduce((n, t) => n + JSON.parse(t), 0);
+  assert.equal(money(jsAcc), out.stdout.trim(), "float accumulators must agree across languages");
+
+  // The premise, stated so it cannot rot: this value really is beyond exact f64.
+  assert.ok(!Number.isSafeInteger(JSON.parse(BIG)));
+  assert.notEqual(String(JSON.parse(BIG)), BIG, "JSON.parse must round it, or there is nothing to test");
 });

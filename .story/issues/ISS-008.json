@@ -1,25 +1,25 @@
 {
   "components": [
-    "allowlist",
-    "byte-parity"
+    "allowlist"
   ],
   "createdBy": "code review R6 (agent, parity/semantics lens)",
   "dedupeKey": "allowlist-9-success-path-counterexamples",
   "discoveredDate": "2026-07-31",
+  "displayId": "ISS-008",
   "id": "ISS-008",
   "impact": "Entry 9 states the int/float distinction is reachable \"ONLY where a diagnostic embeds f-string repr for a value that has ALREADY FAILED validation ... so it never affects a computed figure or a success-path byte.\" Two measured counterexamples, both on the success path:\n\n1. NEGATIVE ZERO. The JSON token `-0`:\n     PY: json.loads(\"-0\") -> int 0  -> f\"${0:,.2f}\"  = \"$0.00\"\n     JS: JSON.parse(\"-0\") -> -0     -> money(-0)     = \"$-0.00\"\n   `cnum(-0)` accepts it (`-0 < 0` is false) and `codex daily totals.costUSD` is printed unconditionally by cross_check, so this is a visible output byte with both sides exiting 0. Realism is low: a Rust f64 serializer emits `-0.0`, which agrees on both sides — only the bare integer token `-0` diverges.\n\n2. COSTS ARE NOT SAFE-INTEGER CHECKED. Entry 7 covers token counters; `costUSD`/`totalCost` are not checked. An integral cost above 2^53 silently rounds in the port while Python keeps it exact (measured: 9007199254740993 -> port prints ...992, Python ...993, both exit 0). Realism is essentially nil at real dollar values, but it is the same class entry 7 exists to close, and the asymmetry is currently undocumented.\n\nNeither is worth changing behaviour for on its own. The actionable part is that entry 9's scope sentence is stated more absolutely than the code supports, and this ALLOWLIST has now had a false or overstated claim found in it in four consecutive review rounds (R3, R4, R5, R6) — so the prose accuracy is itself the recurring defect.\n\nSUGGESTED RESOLUTION: soften entry 9's scope sentence to name these two exceptions explicitly, and either extend the safe-integer bound to cost fields or record deliberately why it stops at token counters.\n\nPRE-EXISTING (entry 9 dates from T-003) and not caused by T-006, so filed rather than edited inline — T-006 only owns entries 13-15. Found by code review R6 (agent, parity lens).",
   "location": [
-    "tests/golden/ALLOWLIST.md (entry 9)",
-    "src/json.ts (checkSafeInteger coverage)",
-    "src/format.ts (money)"
+    "tests/golden/ALLOWLIST.md:48",
+    "src/aggregate.ts:48",
+    "src/format.ts:50"
   ],
   "phase": null,
   "relatedTickets": [
     "T-005"
   ],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Both counterexamples were reproduced before acting, because the issue's own theme is that this entry's prose keeps being stated more absolutely than the code supports. One held, one did not.\n\nCOUNTEREXAMPLE 1 (negative zero) — CONFIRMED, and reachable through the shipped CLI. Driven end-to-end with `codex daily` totals of `-0`: the oracle prints `codex daily $0.00`, the port prints `codex daily $-0.00`, both exit 0. Python parses the bare token to `int` 0, which has no sign; `JSON.parse` gives float `-0`. Entry 9's claim that the distinction \"never affects a computed figure or a success-path byte\" was false, and is now corrected.\n\nNEW FINDING, from mutation testing: the divergence is UNFIXABLE in JS, not merely unfixed. `JSON.parse` maps both `-0` and `-0.0` to the single value `-0`, while CPython maps them to two values that format differently (`0.00` vs `-0.00`), so no function of the parsed number can agree on both — only the raw token could, and it is gone. Measured: normalising `-0` to `0` inside money() makes `-0` agree and immediately breaks `-0.0`. That is a much stronger justification for sanctioning it than \"rare\", and it is now the stated reason in the entry.\n\nCOUNTEREXAMPLE 2 (unchecked cost fields) — REFUTED. The issue reported \"port prints ...992, Python ...993, both exit 0\". Python prints ...992 as well: `f\"{v:,.2f}\"` converts to binary64 on the Python side too, so a single huge cost formats identically. The remaining route, Python's exact-int summation, is also closed — every cost accumulator in usage.py is seeded `0.0` (:176, :338, :341, :476), so summation is float arithmetic in both languages. Driven end-to-end with session costs of 9007199254740993 and 1: both implementations print $9,007,199,254,740,992.00 and the reconcile line is byte-identical. Softening entry 9 to name this as an exception would have introduced a fresh false claim into the very entry the issue was filed about.\n\nThe underlying observation is still true and was undocumented — cost fields genuinely are exempt from the safe-integer bound — so it is recorded in entry 7 as a deliberate decision WITH its measured reason: costs never reach output as integers, and the rule generalises to \"extend the bound to a field when that field can reach output as an integer\".\n\nCHANGES:\n- tests/golden/ALLOWLIST.md entry 9: names the `-0` success-path exception, its measured CLI evidence, the unfixability argument, and the `-0.0` near-miss that makes the wording precise. Explicitly notes cost fields are NOT a second exception.\n- tests/golden/ALLOWLIST.md entry 7: records why the bound stops at token counters, with the end-to-end measurement and the generalised rule.\n- tests-ts/pyrepr.test.mjs: two differential tests. The first asserts the money divergence SET against CPython is exactly {-0} — an assertion on the set, not just the known case, so a new divergence fails rather than blending into a sanctioned one. The second pins the refutation (single huge cost and float-accumulator summation both agree), so entry 7's stated reason cannot silently rot.\n\nMUTATION-VERIFIED both directions: \"fixing\" -0 fails the test (reporting -0.0 as newly divergent), and introducing an unrelated divergence fails it too.\n\nSuite: 329 unit tests (was 327), contract 20/20, parity --final 266 passed / 0 failed / 0 skipped, 45/45 goldens byte-match.",
+  "resolvedDate": "2026-08-01",
   "severity": "low",
-  "status": "open",
+  "status": "resolved",
   "title": "ALLOWLIST entry 9's \"never affects a success-path byte\" claim has two counterexamples"
 }

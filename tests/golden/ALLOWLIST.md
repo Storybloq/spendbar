@@ -40,21 +40,63 @@ or crash. This scoping exists because the TS runtime has semantics Python does n
    Claude `totalTokens`, `inputTokens`, `outputTokens`, `cacheCreationTokens`,
    `cacheReadTokens`; Codex `totalTokens` and per-model `totalTokens`. (Claude's token fields
    never pass through `cnum`, so a cnum-only guard would miss them.)
+
+   **The bound stops at token counters deliberately; cost fields are NOT checked.** ISS-008
+   proposed that this asymmetry was a latent success-path divergence. Measured, it is not,
+   and the reason is that costs never reach output as integers: every printed cost goes
+   through `f"{v:,.2f}"` / `money()`, which converts to binary64 on the Python side too, and
+   every cost accumulator in `usage.py` is seeded as a float (`0.0` at usage.py:176, :338,
+   :341, :476), so summation is float arithmetic on both sides. Driven end-to-end through
+   the shipped CLI with two session costs of `9007199254740993` and `1` — the exact-int sum
+   Python would produce differs from the float sum — both implementations print
+   `$9,007,199,254,740,992.00` and the reconcile line is byte-identical. Token counters get
+   the bound because they ARE printed and summed as integers; costs cannot be. The only
+   int/float-sensitive cost path is `repr()` in a diagnostic, which entry 9 covers.
+
+   Restated as the rule: extend this bound to a field when the field can reach output as an
+   integer. That is the property being protected, not "it is a number".
 8. **Resource bounds on subprocess and file reads.** ccusage subprocess timeout + stdout/stderr
    byte caps, and a per-line + total byte cap on the Codex rollout head scan (a single JSONL
    line is otherwise unbounded and can exhaust memory before the 5-line limit applies). These
    fire only where Python would hang or OOM; an over-cap rollout file returns unresolved, which
    is the same bucket Python reaches for unparseable files.
-9. **`repr()` of an integral JSON float, inside diagnostics only.** Python's `json.loads`
-   keeps the int/float distinction from the source token, so `-1.0` reprs as `-1.0`;
-   `JSON.parse` yields the number `-1`, and JS cannot recover the token after parsing, so
-   it reprs as `-1`. Reachable **only** where a diagnostic embeds `f"{v!r}"` for a value
-   that has *already failed* validation (`cnum`'s negative/non-finite branch), so it never
-   affects a computed figure or a success-path byte. Everything else about float repr IS
-   frozen and implemented: shortest round-trip digits, the scientific-notation threshold
-   (`exp < -4 or exp >= 16`, not JS's `-6`/`21`), and two-digit exponents (`1e-07`).
-   Non-integral floats, `nan`/`inf`/`-inf`, `True`/`False`/`None`, and string repr are all
-   byte-exact and differentially tested against CPython.
+9. **`repr()` of an integral JSON float, inside diagnostics; plus the `-0` token.** Python's
+   `json.loads` keeps the int/float distinction from the source token, so `-1.0` reprs as
+   `-1.0`; `JSON.parse` yields the number `-1`, and JS cannot recover the token after
+   parsing, so it reprs as `-1`. The `repr` half is reachable only where a diagnostic embeds
+   `f"{v!r}"` for a value that has *already failed* validation (`cnum`'s negative/non-finite
+   branch). Everything else about float repr IS frozen and implemented: shortest round-trip
+   digits, the scientific-notation threshold (`exp < -4 or exp >= 16`, not JS's `-6`/`21`),
+   and two-digit exponents (`1e-07`). Non-integral floats, `nan`/`inf`/`-inf`,
+   `True`/`False`/`None`, and string repr are all byte-exact and differentially tested
+   against CPython.
+
+   **One SUCCESS-PATH exception, added after ISS-008: the bare JSON token `-0`.** Python
+   parses it to `int` `0`, which has no sign, so `f"{v:,.2f}"` gives `0.00`; `JSON.parse`
+   gives the float `-0`, which formats as `-0.00`. `cnum` accepts it (`-0 < 0` is false),
+   so both sides exit 0 and print different bytes. Measured through the shipped CLI: with
+   `codex daily` totals of `-0`, the oracle prints `codex daily $0.00` and the port prints
+   `codex daily $-0.00`. It is specifically the *integer* token — `-0.0` stays a float in
+   Python, keeps its sign, and agrees.
+
+   **It is sanctioned because it is unfixable in JS, not merely because it is rare.**
+   `JSON.parse` maps BOTH `-0` and `-0.0` to the single value `-0`, while CPython maps them
+   to two values that format differently (`0.00` and `-0.00`). No function of the parsed
+   number can therefore agree with Python on both tokens; only the raw text could
+   distinguish them, and it is gone by then. Measured, not argued: normalising `-0` to `0`
+   inside `money()` makes the `-0` case agree and immediately breaks `-0.0`, which the
+   differential test reports as a new divergence. This is the same "JS cannot recover the
+   token after parsing" mechanism the `repr` half of this entry describes, surfacing on the
+   success path instead of in a diagnostic.
+
+   Reachability is low regardless (a Rust `f64` serializer emits `-0.0`). But the previous
+   wording claimed the distinction "never affects a computed figure or a success-path byte",
+   and that was false. Pinned by a differential test in `tests-ts/pyrepr.test.mjs` which
+   asserts the divergence SET is exactly `{-0}`, so a newly introduced divergence fails
+   rather than blending into an already-sanctioned one.
+
+   For the avoidance of a *second* overstatement: ISS-008 also proposed unchecked cost
+   fields as a counterexample here. Measured, they are not one — see entry 7.
 
 ### Uncatchable-Python-crash scope (added 2026-07-31, T-003 code review round 2)
 
