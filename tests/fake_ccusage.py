@@ -239,36 +239,62 @@ BLOCKS = {"blocks_empty": blocks_empty, "blocks_malformed": blocks_malformed,
           "blocks_nokey": blocks_nokey, "blocks_truthiness": blocks_truthiness,
           "blocks_array": blocks_array, "blocks_str": blocks_str}
 
-# The complete mode vocabulary, DERIVED from the dispatch tables rather than restated beside
-# them, so a fixture added above cannot be missing here.
+# Every dispatch used to be a `.get(MODE, <default>)`, so an unknown mode silently produced
+# the DEFAULT fixture. A case naming `blocks_truthinesss` ran `blocks_normal`, both
+# implementations agreed on it perfectly, and the case read as covered while asserting nothing
+# about the fixture it named — measured end to end in code review R2 with the whole suite
+# green. Fixtures are chosen by name; a name that matches nothing is a typo, not a request for
+# the default.
 #
-# Every dispatch below is a `.get(MODE, <default>)`, which means an unknown mode silently
-# produced the DEFAULT fixture. A case naming `blocks_truthinesss` therefore ran
-# `blocks_normal`, both implementations agreed on it perfectly, and the case read as covered
-# while asserting nothing about the fixture it named — measured end to end in code review R2,
-# with the whole suite still green. Fixtures are chosen by name; a name that matches nothing
-# is a typo, not a request for the default.
-KNOWN_MODES = frozenset({"normal", "daily_empty"} | set(CODEX) | set(BLOCKS) | set(INST))
+# Validating against one GLOBAL vocabulary was the first fix and it was not enough (code
+# review R3): it proved a mode existed somewhere, not that THIS branch understood it, so
+# `blocks_empty` on the --instances branch still fell back to `instances_normal`. The tables
+# are per-branch and indexed directly, so every branch refuses a mode it does not implement.
+#
+# The exception is real and has to be declared rather than papered over. `combined` queries
+# BOTH providers under a single FAKE_MODE, so a codex-side mode legitimately reaches the
+# Claude branch and must yield the ordinary Claude fixture. That is a deliberate widening with
+# a name, not a fallback: a mode outside both the branch's table and its tolerance list is an
+# error, and the message tells the next author to widen it on purpose.
+CODEX_DAILY = {"normal": codex_daily_normal, "codex_empty": codex_daily_empty}
+CODEX = {"normal": codex_normal, **CODEX}
+BLOCKS = {"normal": blocks_normal, **BLOCKS}
+DAILY = {"normal": daily_normal, "daily_empty": daily_empty}
+CLAUDE_ONLY = frozenset(INST)                     # normal, empty, mismatch, float, tied
+CODEX_ONLY = frozenset(CODEX) - {"normal"}        # codex_empty, codex_bad
+
+
+def dispatch(branch, table, tolerated=frozenset(), fallback=None):
+    if MODE in table:
+        return table[MODE]()
+    if MODE in tolerated:
+        # The other provider's mode, under `combined`. This branch has nothing special to say
+        # about it, so it serves its ordinary fixture — deliberately, and only for the modes
+        # named above.
+        return fallback()
+    sys.stderr.write(
+        f"fake_ccusage: FAKE_MODE {MODE!r} is not a '{branch}' mode\n"
+        f"  {branch} implements: {', '.join(sorted(table))}\n"
+        f"  and tolerates from the other provider: {', '.join(sorted(tolerated)) or '(none)'}\n"
+        f"  A mode that matches nothing is a typo. If this combination is intended, add it to\n"
+        f"  the table or the tolerance list in tests/fake_ccusage.py, on purpose.\n")
+    sys.exit(2)
+
 
 if __name__ == "__main__":
-    if MODE not in KNOWN_MODES:
-        sys.stderr.write(
-            f"fake_ccusage: unknown FAKE_MODE {MODE!r}\n"
-            f"  known modes: {', '.join(sorted(KNOWN_MODES))}\n")
-        sys.exit(2)
-
     if "codex" in args:
         if "daily" in args:
-            out = codex_daily_empty() if MODE == "codex_empty" else codex_daily_normal()
+            out = dispatch("codex daily", CODEX_DAILY, CLAUDE_ONLY - {"normal"}, codex_daily_normal)
         else:
-            out = CODEX.get(MODE, codex_normal)()
+            out = dispatch("codex", CODEX, CLAUDE_ONLY - {"normal"}, codex_normal)
     elif "blocks" in args:
-        out = BLOCKS.get(MODE, blocks_normal)()
+        out = dispatch("blocks", BLOCKS)
     elif "--instances" in args:
-        out = INST.get(MODE, instances_normal)()
+        out = dispatch("instances", INST, CODEX_ONLY, instances_normal)
     elif "daily" in args:
-        out = daily_empty() if MODE == "daily_empty" else daily_normal()
+        out = dispatch("daily", DAILY, CODEX_ONLY, daily_normal)
     else:
+        # No subcommand this fixture models; the payload does not depend on MODE at all.
         out = {"totals": {"totalCost": 0, "totalTokens": 0}}
 
     print(json.dumps(out))

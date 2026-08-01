@@ -69,8 +69,28 @@ test("an unknown FAKE_MODE is REFUSED, not silently served the default payload",
     env: { ...process.env, FAKE_MODE: "__no_such_fake_mode__" },
   });
   assert.notEqual(out.status, 0, "an unknown FAKE_MODE produced a payload instead of failing");
-  assert.match(out.stderr, /unknown FAKE_MODE/);
+  assert.match(out.stderr, /is not a 'daily' mode/);
   assert.equal(out.stdout.trim(), "", "a refused mode must not also emit a payload");
+});
+
+test("a mode belonging to ANOTHER branch is refused too, not quietly defaulted", () => {
+  // A global vocabulary was the first fix and it was not enough (code review R3): it proved a
+  // mode existed somewhere, not that this branch implemented it, so `blocks_empty` on the
+  // --instances branch still fell back to `instances_normal` and the case exercised a fixture
+  // it never named.
+  const out = spawnSync("python3", [FAKE, "claude", "daily", "--instances"], {
+    encoding: "utf8",
+    env: { ...process.env, FAKE_MODE: "blocks_empty" },
+  });
+  assert.notEqual(out.status, 0, "a blocks mode was accepted on the instances branch");
+  assert.match(out.stderr, /is not a 'instances' mode/);
+});
+
+test("the DELIBERATE cross-provider tolerance still works, so `combined` is not broken", () => {
+  // `combined` queries both providers under one FAKE_MODE, so a codex-side mode reaches the
+  // Claude branch on purpose and must yield the ordinary Claude fixture. This is the case
+  // that stops the rule above from being tightened into something that breaks combined_empty.
+  assert.doesNotThrow(() => fixture(["claude", "daily", "--instances"], "codex_empty"));
 });
 
 test("every FAKE_MODE named above is accepted by fake_ccusage.py", () => {

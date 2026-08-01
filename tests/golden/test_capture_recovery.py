@@ -271,6 +271,23 @@ with scenario("install_staged survives the state recover_interrupted_swap leaves
     check("install_staged survives the state recover_interrupted_swap leaves behind",
           s.names() == {"a", "b"} and s.marker_of("a") == "fresh" and not s.backup_exists())
 
+with scenario("the good backup survives a failed install from the ambiguous state"), \
+        Sandbox(["a", "b"]) as s:
+    # The ordering the R3 fix corrects. Entering from the ambiguous state, an earlier version
+    # deleted the GOOD backup first so the rename would succeed — leaving one instant with no
+    # complete copy anywhere, and if the install then failed, main's finally removed the
+    # staging directory too and only the suspect survived. The suspect is what must go.
+    s.goldens(["a"], marker="suspect")
+    s.backup(["a", "b"], marker="good")
+    try:
+        capture.install_staged(os.path.join(s.root, "never-created"))
+    except BaseException:
+        pass
+    check("a failed install from the ambiguous state restores the GOOD copy",
+          s.names() == {"a", "b"} and s.marker_of("a") == "good",
+          f"on disk: {sorted(s.names())}")
+    check("and leaves no backup directory behind", not s.backup_exists())
+
 with scenario("a failed install rolls back when nothing was installed"), Sandbox(["a"]) as s:
     # The FIRST rename succeeded, the second failed. GOLDENS does not exist at that instant,
     # so the rollback must restore rather than assume something is installed.

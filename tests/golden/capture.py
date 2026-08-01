@@ -111,11 +111,22 @@ def run_case(case, codex_home, fixture_home):
     # then went on to record the intent anyway, which is the value a comparison would have
     # been defending against.
     #
-    # So there is no comparison. The golden simply records what ran. If the two ever diverge
-    # the artifact reports the truth, and `--check` and the parity harness both compare that
-    # recorded value against cases.json, where a disagreement is caught by something that
-    # reads the two independently rather than by an assertion standing next to the argv.
+    # The golden records what ran, so if the two ever diverge the artifact reports the truth,
+    # and `--check` and the parity harness both compare that recorded value against cases.json
+    # — two readers that reach it independently rather than one assertion standing next to the
+    # argv it is checking.
+    #
+    # The comparison stays anyway. R2 was right that it is weak; R3 was right that removing it
+    # entirely was an over-correction, because this is the WRITE path: a construction
+    # regression would capture at the wrong date, install 45 goldens successfully, and only be
+    # caught by a later run of a different tool — after the committed artifacts had already
+    # been replaced. A weak check on the generator is worth more than a strong check that
+    # arrives once the damage is on disk. Raised, not asserted: `python3 -O` strips `assert`.
     spawned_anchor = argv[argv.index("--anchor") + 1]
+    if spawned_anchor != case["captureAnchor"]:
+        raise RuntimeError(
+            f"{case['name']}: spawned with anchor {spawned_anchor!r}, "
+            f"case declares {case['captureAnchor']!r}; refusing to record either")
     return {"name": case["name"], "argv": case["argv"], "mode": case["mode"],
             "codex_fixture": case["codexFixture"], "extra_env": case["extraEnv"],
             "capture_anchor": spawned_anchor,
@@ -259,20 +270,33 @@ def install_staged(staging):
     reasoned about rather than tested — and the reasoning is what was wrong.
     """
     backup = GOLDENS + ".previous"
-    # A pre-existing backup has to go FIRST, or `os.rename` onto a non-empty directory raises
-    # OSError(ENOTEMPTY). That is not hypothetical: `recover_interrupted_swap`'s ambiguous
-    # branch deliberately leaves both directories on disk and tells the operator to "re-run
-    # without --check to regenerate" — and before this, the very next run crashed on that
-    # advice, after all 45 captures, with `main`'s finally then discarding the fresh staging
-    # directory (code review R2, reproduced).
+    # Two entry states, and the prologue below makes them one. The invariant it protects: at
+    # every instant, at least one COMPLETE copy exists on disk.
     #
-    # Deleting it is safe HERE and nowhere else: a complete staged replacement is already
-    # built and about to be installed, so the old copy has a successor. That is the same
-    # condition the `else` branch below relies on.
+    #   (a) GOLDENS good, no backup — the ordinary case. Rename it aside; it becomes the
+    #       rollback target.
+    #
+    #   (b) GOLDENS suspect, backup good — the state `recover_interrupted_swap` deliberately
+    #       leaves when it cannot tell an interrupted install from a legitimate registry
+    #       change. Here `backup` is already the last known-good copy and GOLDENS is the one
+    #       it declined to trust, so the SUSPECT is what gets discarded.
+    #
+    # An earlier fix deleted the backup first and then renamed (code review R3): that made the
+    # rename succeed, but for one instant the only good copy was gone, and if the rename then
+    # failed, `main`'s finally would remove the staging directory too and leave nothing but
+    # the suspect. Having a staged successor is not enough when the failure path discards it.
+    #
+    # Before either fix, state (b) crashed outright on OSError(ENOTEMPTY) — after all 45
+    # captures, on the exact "re-run without --check to regenerate" advice that recovery
+    # prints (code review R2).
     if os.path.isdir(backup):
-        print(f"  discarding a stale {os.path.relpath(backup)} left by an earlier interrupted run")
-        shutil.rmtree(backup)
-    os.rename(GOLDENS, backup)
+        print(f"  discarding the unvalidated {os.path.relpath(GOLDENS)}; "
+              f"{os.path.relpath(backup)} is the copy being kept")
+        shutil.rmtree(GOLDENS, ignore_errors=True)
+    else:
+        os.rename(GOLDENS, backup)
+    # Both states are now identical: `backup` holds the only copy worth keeping, and GOLDENS
+    # does not exist.
     installed = False
     try:
         os.rename(staging, GOLDENS)
