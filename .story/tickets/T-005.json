@@ -3,20 +3,14 @@
     "T-002",
     "T-004"
   ],
-  "claim": {
-    "branch": "v0.1-ts-port",
-    "since": "2026-07-31T22:37:41.135Z",
-    "user": "user@example.invalid"
-  },
-  "claimedBySession": "00000000-0000-4000-8000-000000000000",
-  "completedDate": null,
+  "completedDate": "2026-07-31",
   "createdDate": "2026-07-31",
   "description": "Was \"Port fixtures + wire goldens into TS test suite\". Narrowed during plan review (7 rounds, codex 019fba56): one ticket carrying the registry migration AND the artifact pipeline was unreviewable, because a defect in the migration would be indistinguishable from an artifact-pipeline defect in a single review. The artifact/replayer work is deferred to ISS-018 (T-005a) and ISS-019 (T-005b), with their designs preserved in the session plan section 5.\n\nDELIVERED:\n\n1. cases.json is the sole definition of all 118 cases (45 stored + 73 differential-only), replacing three parallel tables: capture.py's CASES, cases.mjs's EXTRA_CASES and cases.mjs's GOLDEN_CAPABILITY. Each was internally consistent, so their disagreements were invisible. Migration losslessness was PROVED by an equivalence test asserting field-for-field and behaviour-for-behaviour identity against the old tables — including the RegExp patterns JSON cannot hold — mutation-verified, then deleted with the source it validated.\n\n2. Comparison behaviour moved to a code-side policy registry (tests-ts/harness/policies.mjs). Predicates are transcribed from the branches they replace rather than paraphrased; an earlier plan revision described partial-python-stdout as \"compares the common stdout prefix\", which would have been VACUOUS since the port emits nothing on that path. Each policy declares the allowlist ID it consumes, and a case's waiver must equal it exactly (null on both sides included), so a comparison can no longer grant itself an unauthorised licence.\n\n3. Anchors split: stored replay at each case's captureAnchor, differential at a live anchor, asserted distinct. The routing is traced from the argv runProcess ACTUALLY RECEIVED, via a spy wrapping the spawn boundary — reading the array the caller built proves intent, not execution. Measured: with the differential silently running at the capture anchor, byte comparison across all 118 cases produces ZERO failures, because both implementations receive the same wrong anchor and agree perfectly. Only the routing assertion sees it.\n\n4. dual_run_only removed at the source, not relabelled. Its two cases are recaptured at a fixed anchor (2026-01-03, chosen so relative windows CONTAIN the fixture corpus instead of resolving empty) and are now ordinary comparable goldens. Field gone from records, goldens, manifest, notes and ALLOWLIST prose, with an absence assertion so it cannot return.\n\n5. capture.py reads the registry, processes stored cases only, routes every one through the mandatory-anchor wrapper, refuses to write when an observed exit disagrees with the authored expectExit, and installs via a recoverable rename sequence with startup recovery for an interrupted swap.\n\n6. ALLOWLIST entry 22 split into 22a (product name, snapshot-asserted) and 22b (config-path sentence, policy-enforced), so the half with weaker evidence cannot shelter under the half with stronger evidence. Coverage for non-case-asserted IDs is explicitly deferred to ISS-020 rather than claimed.\n\nVERIFIED: npm test 277/277 (was 252), contract 16/16, parity --final 265 passed / 0 failed / ZERO skipped (was 255 / 2 skipped), capture.py --check green at each captureAnchor, usage.py unchanged. Every mutation-table row kills via its named mechanism; mutation testing also caught two policy tests passing for the wrong reason, whose inputs were replaced with discriminating ones.",
   "displayId": "T-005",
   "id": "T-005",
   "order": 50,
   "phase": "v0-1",
-  "status": "inprogress",
+  "status": "complete",
   "title": "Make the case registry canonical and split the anchors",
   "type": "task"
 }
