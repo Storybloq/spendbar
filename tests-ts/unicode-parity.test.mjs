@@ -19,6 +19,8 @@ import { aggProjects, cnum } from "../dist/aggregate.js";
 import { createDeps, DEFAULT_CONFIG, splitCommand } from "../dist/context.js";
 import { runCcusage } from "../dist/ccusage.js";
 import { UsageError } from "../dist/errors.js";
+import { ROLLOUT_RE, DATE_DIR_RE, SCRATCHPAD_RE, codexStartDate } from "../dist/codex.js";
+import { isDecimalDigit } from "../dist/unicode-tables.js";
 
 /**
  * Strings chosen so the astral/BMP boundary lands in every position that matters: alone,
@@ -513,7 +515,7 @@ describe("Python slice parity (ISS-001)", {
   skip: sliceOracle === null ? "python3 is unavailable" : false,
 }, () => {
   test("pySlice matches s[:n] on code points, not code units", () => {
-    assert.deepEqual(SLICE_CASES.map(([s, n]) => pySlice(s, n)), sliceOracle);
+    assert.deepEqual(SLICE_CASES.map(([s, n]) => pySlice(s, 0, n)), sliceOracle);
   });
 
   test("pySlice never manufactures a lone surrogate", () => {
@@ -522,8 +524,8 @@ describe("Python slice parity (ISS-001)", {
     // exactly the requested number of code points while any remain.
     const s = "a".repeat(5) + EMOJI + "b" + EMOJI;
     for (let n = 0; n <= pyLen(s) + 2; n++) {
-      const got = pySlice(s, n);
-      assert.ok(!endsUnpaired(got), `pySlice(s, ${n}) ends in an unpaired high surrogate`);
+      const got = pySlice(s, 0, n);
+      assert.ok(!endsUnpaired(got), `pySlice(s, 0, ${n}) ends in an unpaired high surrogate`);
       assert.equal(pyLen(got), Math.min(n, pyLen(s)), `wrong code-point count at n=${n}`);
     }
   });
@@ -566,4 +568,203 @@ print(json.dumps([s[:400] for s in json.loads(sys.stdin.read())], ensure_ascii=T
       },
     );
   });
+});
+
+/**
+ * ISS-016: the three codex regexes are transcribed from usage.py:200-202 and :320, where
+ * `\d` is compiled from a Python string and therefore means category Nd. JS `\d` is
+ * ASCII-only in every mode, which made the port STRICTER than the oracle — and the
+ * consequences land on the success path, not a diagnostic: a rollout filename or date
+ * directory that Python accepts drops into the excluded/undated bucket here, moving totals
+ * and the frozen coverage line, and a scratchpad cwd Python collapses renders instead as a
+ * full encoded-path row.
+ *
+ * The digits below are all long-assigned (Unicode 4.0 and earlier), so their Nd status does
+ * not depend on which Unicode version the local python3 carries. That is deliberate: it lets
+ * this run unconditionally instead of skipping on a version mismatch the way the table drift
+ * test in unicode-tables.test.mjs must.
+ */
+const DIGIT_SETS = {
+  ascii: "0123456789",
+  arabicIndic: "٠١٢٣٤٥٦٧٨٩",
+  devanagari: "०१२३४५६७८९",
+  fullwidth: "０１２３４５６７８９",
+  // Astral: Mathematical Bold Digit Zero, U+1D7CE. Also proves the `u` flag is doing its job.
+  mathBold: [...Array(10)].map((_, i) => String.fromCodePoint(0x1d7ce + i)).join(""),
+};
+
+/** `n` digits drawn from a set, e.g. rep("arabicIndic", 4) -> "٠١٢٣". */
+const rep = (set, n) => [...DIGIT_SETS[set]].slice(0, n).join("");
+
+const REGEX_CASES = [];
+for (const set of Object.keys(DIGIT_SETS)) {
+  const d4 = rep(set, 4);
+  const d2 = rep(set, 2);
+  REGEX_CASES.push(
+    ["DATE_DIR", `${d4}/${d2}/${d2}`],
+    ["SCRATCHPAD", `/tmp/claude-${d2}/x`],
+    ["SCRATCHPAD", `/private/tmp/claude-${d2}/x`],
+    [
+      "ROLLOUT",
+      `rollout-${d4}-${d2}-${d2}T${d2}-${d2}-${d2}-019c0000-0000-7000-8000-000000000001`,
+    ],
+  );
+}
+// Negatives, so the comparison cannot pass by matching everything.
+REGEX_CASES.push(
+  ["DATE_DIR", "20x6/07/09"],
+  ["DATE_DIR", "2026/07/09/"],
+  ["DATE_DIR", ""],
+  ["SCRATCHPAD", "/tmp/claude-/x"],
+  ["SCRATCHPAD", "/tmp/claude-abc/x"],
+  ["SCRATCHPAD", "/var/tmp/claude-501/x"],
+  ["SCRATCHPAD", "/Users/testuser/Developer/proj"],
+  ["ROLLOUT", "rollout-nope"],
+  ["ROLLOUT", "rollout-2026-01-01T10-00-00-019c0000-0000-7000-8000-00000000000"],
+);
+
+/** usage.py:200-202 and :320, transcribed verbatim — the oracle states its own patterns. */
+const regexOracle = pyStrings(
+  `
+import json, re, sys
+PATTERNS = {
+    "ROLLOUT": re.compile(r"^rollout-\\d{4}-\\d{2}-\\d{2}T[\\d-]+"
+                          r"-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"),
+    "DATE_DIR": re.compile(r"^\\d{4}/\\d{2}/\\d{2}$"),
+    "SCRATCHPAD": re.compile(r"^(/private)?/tmp/claude-\\d+/"),
+}
+cases = json.loads(sys.stdin.read())
+print(json.dumps([bool(PATTERNS[name].match(s)) for name, s in cases], ensure_ascii=True))
+`,
+  REGEX_CASES,
+);
+
+describe("codex regex digit parity (ISS-016)", {
+  skip: regexOracle === null ? "python3 is unavailable" : false,
+}, () => {
+  const RES = { ROLLOUT: ROLLOUT_RE, DATE_DIR: DATE_DIR_RE, SCRATCHPAD: SCRATCHPAD_RE };
+
+  test("all three regexes agree with CPython on Unicode Nd digits", () => {
+    const got = REGEX_CASES.map(([name, s]) => RES[name].test(s));
+    assert.deepEqual(got, regexOracle);
+  });
+
+  test("the corpus can actually detect an ASCII-only \\d", () => {
+    // Without this, the comparison above would pass on an ASCII corpus and prove nothing —
+    // the premise check the ISS-007 and ISS-006 tests above use for the same reason.
+    const asciiOnly = {
+      ROLLOUT:
+        /^rollout-\d{4}-\d{2}-\d{2}T[\d-]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      DATE_DIR: /^\d{4}\/\d{2}\/\d{2}$/,
+      SCRATCHPAD: /^(\/private)?\/tmp\/claude-\d+\//,
+    };
+    const naive = REGEX_CASES.map(([name, s]) => asciiOnly[name].test(s));
+    assert.notDeepEqual(naive, regexOracle, "corpus cannot distinguish ASCII \\d from Nd");
+  });
+});
+
+test("the codex regexes use the PINNED digit table, not V8's newer one (ISS-016)", () => {
+  // V8 ships a newer Unicode database than the reference CPython, so `\p{Nd}` accepts code
+  // points Python rejects as unassigned. Found by search rather than hardcoded, so this
+  // keeps testing the right thing as either database moves.
+  let v8Only = null;
+  for (let cp = 0; cp <= 0x10ffff && v8Only === null; cp++) {
+    if (cp >= 0xd800 && cp <= 0xdfff) continue;
+    const c = String.fromCodePoint(cp);
+    if (/^\p{Nd}$/u.test(c) && !isDecimalDigit(cp)) v8Only = c;
+  }
+  assert.ok(v8Only, "V8 and the pinned table no longer differ; this test needs revisiting");
+
+  // The port must follow the pinned table and REJECT it, exactly as the reference CPython
+  // does. A `\p{Nd}`-based implementation would accept it and pass the parity test above,
+  // because that test's corpus is deliberately limited to digits both databases agree on.
+  assert.equal(
+    DATE_DIR_RE.test(`${v8Only.repeat(4)}/${v8Only.repeat(2)}/${v8Only.repeat(2)}`),
+    false,
+    `U+${v8Only.codePointAt(0).toString(16).toUpperCase()} is Nd only in V8's database`,
+  );
+  assert.equal(SCRATCHPAD_RE.test(`/tmp/claude-${v8Only}/x`), false);
+});
+
+/**
+ * The interaction ISS-016 created, and the reason the two fixes ship together.
+ *
+ * Widening the regexes to Unicode Nd made a latent UTF-16 slice REACHABLE: usage.py:209 and
+ * :289 carve the date fields out of a rollout filename by position, and before ISS-016 the
+ * regex guaranteed those positions held ASCII. With astral digits admitted, `slice(8, 18)`
+ * cut a surrogate pair in half and produced a window key ending in a lone surrogate —
+ * measured, before the fix: "𝟎𝟏𝟐𝟑\ud835" where CPython yields eight digits.
+ *
+ * That key decides which window a session lands in, so it moves totals. A regex fix without
+ * this one would have traded a strictness divergence for a corruption one.
+ */
+const MATH_BOLD = [...Array(10)].map((_, i) => String.fromCodePoint(0x1d7ce + i)).join("");
+const mb = (n) => [...MATH_BOLD].slice(0, n).join("");
+
+const ROLLOUT_NAMES = [
+  "rollout-2026-01-01T10-00-00-019c0000-0000-7000-8000-000000000001",
+  `rollout-${mb(4)}-${mb(2)}-${mb(2)}T${mb(2)}-${mb(2)}-${mb(2)}-019c0000-0000-7000-8000-000000000001`,
+  `rollout-٢٠٢٦-٠١-٠١T١٠-٠٠-٠٠-019c0000-0000-7000-8000-000000000001`,
+];
+
+test("codexStartDate slices by code point, as usage.py:209 does (ISS-016)", {
+  skip: sliceOracle === null ? "python3 is unavailable" : false,
+}, () => {
+  const want = pyStrings(
+    `
+import json, re, sys
+RE = re.compile(r"^rollout-\\d{4}-\\d{2}-\\d{2}T[\\d-]+"
+                r"-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+out = []
+for name in json.loads(sys.stdin.read()):
+    out.append(name[8:18].replace("-", "") if RE.match(name) else None)
+print(json.dumps(out, ensure_ascii=True))
+`,
+    ROLLOUT_NAMES,
+  );
+  assert.deepEqual(ROLLOUT_NAMES.map(codexStartDate), want);
+
+  // Every one of these is a real match, so the comparison is not passing on three nulls.
+  assert.ok(want.every((v) => typeof v === "string"), `oracle rejected a name: ${JSON.stringify(want)}`);
+
+  // And the specific corruption: no key may end in an unpaired surrogate.
+  for (const name of ROLLOUT_NAMES) {
+    const key = codexStartDate(name);
+    const last = key.charCodeAt(key.length - 1);
+    assert.ok(!(last >= 0xd800 && last <= 0xdbff), `${key} ends in an unpaired surrogate`);
+  }
+});
+
+/**
+ * pySlice's widened contract. It delegates to Array.prototype.slice, which is only sound
+ * because JS and Python agree on integer bounds, negatives, and out-of-range clamping —
+ * a claim worth checking rather than asserting.
+ */
+const SLICE_RANGE_CASES = [];
+for (const s of ["", "abcdef", "a" + MATH_BOLD + "z", MATH_BOLD]) {
+  for (const [a, b] of [
+    [0, 3], [2, 5], [8, 18], [0, 100], [5, 2], [3, 3],
+    [-2, undefined], [-100, 2], [0, -1], [-3, -1], [2, undefined],
+  ]) {
+    SLICE_RANGE_CASES.push([s, a, b === undefined ? null : b]);
+  }
+}
+
+test("pySlice matches CPython slicing on negatives and out-of-range bounds (ISS-001/016)", {
+  skip: sliceOracle === null ? "python3 is unavailable" : false,
+}, () => {
+  const want = pyStrings(
+    `
+import json, sys
+out = []
+for s, a, b in json.loads(sys.stdin.read()):
+    out.append(s[a:] if b is None else s[a:b])
+print(json.dumps(out, ensure_ascii=True))
+`,
+    SLICE_RANGE_CASES,
+  );
+  const got = SLICE_RANGE_CASES.map(([s, a, b]) =>
+    b === null ? pySlice(s, a) : pySlice(s, a, b),
+  );
+  assert.deepEqual(got, want);
 });

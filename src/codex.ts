@@ -24,6 +24,28 @@ import { codexDailyRaw, codexSessionRaw } from "./ccusage.js";
 import { inWindow } from "./dates.js";
 import { UsageError } from "./errors.js";
 import { pyRepr } from "./pyrepr.js";
+import { ND_RANGES } from "./unicode-tables.js";
+import { pySlice } from "./format.js";
+
+/**
+ * `\d` as CPython's `re` sees it (ISS-016).
+ *
+ * These three patterns are transcribed from usage.py:200-202 and :320, which compile
+ * `\d` from a Python string — so it is category Nd, not ASCII. JS `\d` is ASCII-only in
+ * every mode, which makes the port STRICTER than the oracle: a path or filename carrying
+ * e.g. Arabic-Indic digits matches in Python and not here, and the consequences are on the
+ * success path — a session drops into the excluded/undated bucket, changing totals and the
+ * frozen coverage line, or a scratchpad cwd renders as a full encoded-path row.
+ *
+ * Built from ND_RANGES rather than JS's `\p{Nd}`, for the reason src/dates.ts:37-40 records:
+ * V8 ships a newer Unicode database than the reference CPython (measured 760 Nd code points
+ * vs 660), so `\p{Nd}` would accept 100 code points Python rejects as unassigned. Derived
+ * from the table at load rather than written out, so it cannot drift from the table it
+ * claims to mirror. The `u` flag is required for the `\u{...}` escapes.
+ */
+const ND = ND_RANGES.map(([lo, hi]) =>
+  lo === hi ? `\\u{${lo.toString(16)}}` : `\\u{${lo.toString(16)}}-\\u{${hi.toString(16)}}`,
+).join("");
 
 /**
  * Rollout filenames embed the session's start timestamp + a UUID:
@@ -34,15 +56,21 @@ import { pyRepr } from "./pyrepr.js";
  * does not belong in source that ships — see the tarball content scan in
  * tests-ts/contract/packaging.contract.mjs.
  */
-export const ROLLOUT_RE =
-  /^rollout-\d{4}-\d{2}-\d{2}T[\d-]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-export const DATE_DIR_RE = /^\d{4}\/\d{2}\/\d{2}$/;
+export const ROLLOUT_RE = new RegExp(
+  `^rollout-[${ND}]{4}-[${ND}]{2}-[${ND}]{2}T[${ND}-]+` +
+    `-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
+  "u",
+);
+export const DATE_DIR_RE = new RegExp(`^[${ND}]{4}/[${ND}]{2}/[${ND}]{2}$`, "u");
 /**
  * Claude Code agent scratchpads live under /tmp/claude-<uid>/…; each unique scratchpad
  * would render as a giant encoded-path row, so collapse just that pattern. Other
  * tmp-rooted cwds keep full attribution — a repo can legitimately live there.
+ *
+ * The only one of the three reachable in practice: a cwd read from a rollout log is real
+ * user input, where the other two are codex-generated and ASCII by construction.
  */
-export const SCRATCHPAD_RE = /^(\/private)?\/tmp\/claude-\d+\//;
+export const SCRATCHPAD_RE = new RegExp(`^(/private)?/tmp/claude-[${ND}]+/`, "u");
 
 export const CODEX_UNKNOWN = "unknown (no session log)";
 
@@ -90,7 +118,10 @@ export interface CodexMeta {
  */
 export function codexStartDate(sessionFile: unknown): string | null {
   if (typeof sessionFile === "string" && ROLLOUT_RE.test(sessionFile)) {
-    return sessionFile.slice(8, 18).replace(/-/g, "");
+    // usage.py:209 is `session_file[8:18]` — code points. Positional, and ROLLOUT_RE now
+    // admits any Unicode Nd (ISS-016), so a UTF-16 slice here cuts an astral digit in half
+    // and yields a key with a lone surrogate in it. That key decides the session's window.
+    return pySlice(sessionFile, 8, 18).replace(/-/g, "");
   }
   return null;
 }
@@ -356,9 +387,10 @@ export function codexCwd(ctx: Ctx, sessionFile: string, dateDir: string | null):
   if (dateDir && DATE_DIR_RE.test(dateDir)) {
     cands.push(join(roots[0], dateDir, sessionFile + ".jsonl"));
   }
-  const y = sessionFile.slice(8, 12);
-  const m = sessionFile.slice(13, 15);
-  const dd = sessionFile.slice(16, 18);
+  // usage.py:289 slices the same three fields by code point; see codexStartDate.
+  const y = pySlice(sessionFile, 8, 12);
+  const m = pySlice(sessionFile, 13, 15);
+  const dd = pySlice(sessionFile, 16, 18);
   cands.push(join(roots[0], y, m, dd, sessionFile + ".jsonl"));
   cands.push(join(roots[1], sessionFile + ".jsonl"));
 

@@ -141,31 +141,27 @@ export function pyLen(s: string): number {
 }
 
 /**
- * CPython `s[:n]`: the first `n` CODE POINTS (ISS-001).
+ * CPython `s[start:end]`: slicing by CODE POINTS (ISS-001, widened for ISS-016).
  *
- * `s.slice(0, n)` counts UTF-16 code units, so it takes fewer characters than Python
- * whenever the prefix holds astral text, and — worse — can cut between a surrogate pair,
- * leaving a lone surrogate that becomes U+FFFD on the way out. The one call site is the
- * `stderr:` tail of a frozen diagnostic, so both the short read and the mojibake are
- * visible divergences in a message that is compared byte-for-byte.
+ * `s.slice()` counts UTF-16 code units, so on astral text it takes fewer characters than
+ * Python and — worse — can cut between a surrogate pair, leaving a lone surrogate that
+ * surfaces as U+FFFD. Both symptoms are live: the `stderr:` tail of a frozen diagnostic
+ * (ISS-001), and the positional date fields carved out of a rollout filename (ISS-016),
+ * where a mangled key silently changes which window a session lands in.
  *
- * Scans rather than `[...s].slice(0, n).join("")` for the same reasons as `pyLen` above:
- * it never materialises an array, and an unpaired surrogate counts as one code point here
- * exactly as it does in CPython. Advancing past a complete pair is what makes splitting one
- * unrepresentable rather than merely unlikely.
+ * Deliberately `Array.from` rather than the allocation-free scan this had while it was a
+ * `[:n]`-only helper. Supporting the full slice contract — negative indices included —
+ * needs the code-point count anyway, and being obviously correct is worth more here than
+ * the allocation: these sites run once per process or once per session file, not per cell
+ * per row the way `pyLen` above does. `Array.from` splits on code points and yields a lone
+ * surrogate as one element, which is exactly how CPython counts one.
+ *
+ * JS `Array.prototype.slice` and Python slicing agree on integer bounds, negatives, and
+ * out-of-range clamping, so the delegation is the whole implementation — verified against
+ * CPython over a corpus that includes all three.
  */
-export function pySlice(s: string, n: number): string {
-  if (n <= 0) return "";
-  let i = 0;
-  for (let count = 0; i < s.length && count < n; count++) {
-    const c = s.charCodeAt(i);
-    i++;
-    if (c >= 0xd800 && c <= 0xdbff && i < s.length) {
-      const d = s.charCodeAt(i);
-      if (d >= 0xdc00 && d <= 0xdfff) i++;
-    }
-  }
-  return s.slice(0, i);
+export function pySlice(s: string, start = 0, end?: number): string {
+  return Array.from(s).slice(start, end).join("");
 }
 
 /** CPython `f"{s:<width>}"` for a string: left-aligned, never truncates. */

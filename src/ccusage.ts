@@ -51,7 +51,7 @@ export function runCcusage(ctx: Ctx, args: string[]): unknown {
   } catch {
     throw new UsageError(
       // `pySlice`, not `.slice()`: usage.py:124 cuts 400 code points, not 400 UTF-16 units.
-      `could not parse ccusage output.\ncmd: ${cmdStr}\nstderr: ${pySlice(res.stderr, 400)}`,
+      `could not parse ccusage output.\ncmd: ${cmdStr}\nstderr: ${pySlice(res.stderr, 0, 400)}`,
     );
   }
 }
