@@ -11,6 +11,10 @@
  *   - `claude daily --instances` rows use `date`; generic `daily` rows use `period`
  *   - codex uses `costUSD` where claude uses `totalCost`
  *   - `codex session.directory` is a DATE directory, not a cwd — the whole reason codexCwd exists
+ *   - `blocks` rows use `costUSD`, and the `blocks` key itself is always present
+ *
+ * For `blocks` this file is not merely the first line of defence but the ONLY one: it is the
+ * single payload with no runtime validator, by a deliberate parity decision (ISS-002).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -142,6 +146,40 @@ test("codex daily: 'date' + 'costUSD'", () => {
   validateCodexDaily(d);
 });
 
+/**
+ * `blocks --json` (ISS-002). This is the payload with no runtime validator, which makes the
+ * contract gate the ONLY thing standing between a ccusage rename and a clean-looking table
+ * of $0.00 at exit 0 — `cost` is read through a `costUSD` -> `totalCost` -> `0` fallback
+ * (renderers.ts, usage.py:590), so a rename degrades silently in BOTH languages rather than
+ * failing anywhere.
+ *
+ * A runtime validator is deliberately NOT the fix here; see the resolution on ISS-002. In
+ * short: the port reproduces Python's permissive handling of malformed `blocks` payloads on
+ * purpose, measured across all four shapes and pinned by eight `blocks_*` parity cases —
+ * `tests/fake_ccusage.py:blocks_malformed` exists specifically to freeze that behaviour. And
+ * ccusage is pinned EXACTLY (20.0.19, asserted above), so a rename can only arrive through a
+ * deliberate version bump. This test is where that bump gets stopped.
+ */
+test("blocks: cost by 'costUSD', and the key the fallback depends on", () => {
+  const d = ccusage("blocks", "--json");
+  assert.ok(Array.isArray(d.blocks) && d.blocks.length >= 1, "fixture must produce a block");
+
+  // `d.get("blocks", d)` falls back to iterating the PAYLOAD if the key vanishes, which is a
+  // silent change of subject rather than an error — so the key's presence is load-bearing.
+  assert.ok("blocks" in d, "payload must carry 'blocks'; the fallback iterates the payload itself");
+
+  const b = d.blocks[0];
+  assert.equal(typeof b.costUSD, "number", "blocks use costUSD, not totalCost");
+  assert.ok(!("totalCost" in b), "a totalCost here would mean the fallback order now matters");
+
+  // The remaining fields the renderer reads. Each is consumed positionally into the row, and
+  // an absent one degrades to a blank cell or a zero duration rather than failing.
+  assert.equal(typeof b.startTime, "string");
+  assert.equal(typeof b.endTime, "string");
+  assert.equal(typeof b.isGap, "boolean");
+  assert.equal(typeof b.isActive, "boolean");
+});
+
 test("an empty history still yields the shapes the validators expect", () => {
   // The directories must EXIST but be empty: ccusage exits non-zero with a CliError when
   // CLAUDE_CONFIG_DIR has no 'projects/' at all, which is a different case from "no data".
@@ -167,6 +205,10 @@ test("an empty history still yields the shapes the validators expect", () => {
   const inst = run("claude", "daily", "--instances", "--json");
   assert.equal(inst.projects, undefined, "instances omits 'projects' entirely when empty");
   validateInstances(inst);
+  // `blocks` is always emitted, unlike `projects` — so the `d.get("blocks", d)` fallback is
+  // not reached on an empty read, and cmdBlocks prints its "(no billing blocks)" line rather
+  // than iterating the payload's own keys (ISS-002).
+  assert.deepEqual(run("blocks", "--json").blocks, []);
   // Cleanup is the module-level exit hook — these homes are tracked by the fixture module.
 });
 

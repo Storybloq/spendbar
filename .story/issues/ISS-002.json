@@ -1,26 +1,26 @@
 {
   "components": [
-    "ts-port",
     "schema-validation"
   ],
   "createdBy": "code-review-r4 (agent) via T-006 autonomous session",
   "dedupeKey": "blocks-payload-unvalidated-uncontracted",
   "discoveredDate": "2026-07-31",
+  "displayId": "ISS-002",
   "id": "ISS-002",
-  "impact": "T-006 made every ccusage payload fail loud on a producer schema change — except `blocks`.\n\n`src/ccusage.ts:88-92` returns `runCcusage(ctx, args)` for `blocks --json` with no validator, and `tests-ts/contract/schema.contract.mjs` never invokes `blocks`, so the real-binary contract test — described in its own header as \"the gate that makes a ccusage version bump safe\" — does not cover it. A `blocks` schema change would pass that gate undetected.\n\nHarmless TODAY: no TS consumer reads the payload yet (`cmd_blocks` is not ported), so there is nothing to mis-aggregate. The exposure arrives with T-004, which ports the renderers. Note `usage.py:590` reads `b.get(\"costUSD\", b.get(\"totalCost\", 0))`, i.e. it silently zeroes in BOTH languages — so porting `cmd_blocks` without a validator would reopen exactly the hole T-006 closed everywhere else, and the `costUSD`/`totalCost` fallback means a rename of EITHER key is invisible.\n\nRecommended when T-004 ports `cmd_blocks`: add `validateBlocks` following the same rule the other validators follow (validate only what the downstream would otherwise accept silently — see the header of src/json.ts), and add a `blocks` case to the real-binary contract test.\n\nFound by code review round 4.",
+  "impact": "cmd_blocks has now been ported (src/renderers.ts:361, wired at src/main.ts:146), so the original 'harmless today: no TS consumer' framing no longer applies: blocks is a shipped success path consuming the one ccusage payload with no validator (src/ccusage.ts:88-92) and no real-binary contract coverage (tests-ts/contract/schema.contract.mjs never invokes blocks). A ccusage version bump that renames costUSD/totalCost would pass the contract gate undetected and render a clean-looking blocks table with silently zeroed costs at exit 0 — in both languages, per usage.py:590's costUSD/totalCost double-fallback.",
   "location": [
     "src/ccusage.ts:88",
-    "tests-ts/contract/schema.contract.mjs",
-    "usage.py:590"
+    "src/renderers.ts:361",
+    "usage.py:590",
+    "tests-ts/contract/schema.contract.mjs:1"
   ],
   "phase": null,
   "relatedTickets": [
-    "T-006",
-    "T-004"
+    "T-013"
   ],
-  "resolution": null,
-  "resolvedDate": null,
-  "severity": "low",
-  "status": "open",
+  "resolution": "Closed the contract-gate half, which is the failure path the issue names. Deliberately did NOT add a runtime validator; the reasoning is below and the residual risk is tracked as ISS-023.\n\nWHAT SHIPPED — tests-ts/contract/schema.contract.mjs now covers `blocks --json` against the real pinned binary, matching the file's existing conventions (nonempty assertion before any schema check):\n- `costUSD` is a number and `totalCost` is ABSENT — the rename gate, mirroring the codex tests.\n- The `blocks` KEY itself must be present. This one is easy to miss: `d.get(\"blocks\", d)` falls back to iterating the payload, so losing the key is a silent change of subject rather than an error.\n- The remaining fields the renderer consumes positionally: startTime, endTime, isGap, isActive.\n- The empty-history test now pins `blocks: []`. Measured: unlike `projects`, `blocks` is always emitted, so the fallback is not reached on an empty read.\n- File header updated: for blocks this suite is not the first line of defence but the only one.\n\nMUTATION-VERIFIED by patching the harness to simulate a producer change: renaming costUSD -> cost fails the test, and renaming the `blocks` key fails it. The gate stops exactly what the issue describes.\n\nWHY NO RUNTIME VALIDATOR. This is a parity decision, not an oversight, and the repo had already recorded it twice — src/renderers.ts cmdBlocks (\"ISS-002 leaves this unvalidated; the port reproduces the fallback rather than tightening it\") and tests/fake_ccusage.py:blocks_malformed, which exists to \"freeze the current behaviour rather than asserting a desired one\". Eight blocks_* parity cases pin Python's permissive handling across all four payload shapes; usage.py has no validator, so any validator the port adds is a divergence from the frozen oracle requiring its own ALLOWLIST entry. Overturning a decision recorded that deliberately is an owner call, not an autonomous one.\n\nThe gate is also sufficient under normal use: ccusage is pinned EXACTLY (20.0.19, no range, bundled, and the suite asserts the pinned version is what runs), so a rename can only arrive through a deliberate version bump — which is precisely what this test now blocks.\n\nRESIDUAL RISK, FILED AS ISS-023. `CCUSAGE_CMD` overrides the bundled binary (src/main-deps.ts:48 — verified), so a user pointing at a different ccusage runs a payload the contract gate never saw, and blocks is the only payload with no runtime validator to notice. ISS-023 states the two options and notes the fixtures would likely survive a narrow presence check, so the cost is an ALLOWLIST entry plus a golden re-run rather than a redesign.\n\nSuite: 327 unit tests, contract 20/20 (was 19), parity --final 266 passed / 0 failed / 0 skipped, 45/45 goldens byte-match.",
+  "resolvedDate": "2026-07-31",
+  "severity": "medium",
+  "status": "resolved",
   "title": "`blocks --json` is the one ccusage payload with no schema validation or contract coverage"
 }
