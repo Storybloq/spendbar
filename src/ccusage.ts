@@ -12,6 +12,7 @@
  */
 import { UsageError } from "./errors.js";
 import type { Ctx } from "./context.js";
+import { pyStrip } from "./pystr.js";
 import { normDate } from "./dates.js";
 import {
   validateCodexDaily,
@@ -37,8 +38,10 @@ export function runCcusage(ctx: Ctx, args: string[]): unknown {
   }
 
   // Python: `if out.returncode != 0 and not out.stdout.strip()`. Both conditions required.
-  if (res.status !== 0 && res.stdout.trim() === "") {
-    const detail = res.stderr.trim() || String(res.status);
+  // `pyStrip`, not `.trim()`: a BOM-only stream is blank to JS and non-blank to Python, and
+  // this branch decides both whether the tool reports failure and what the message says.
+  if (res.status !== 0 && pyStrip(res.stdout) === "") {
+    const detail = pyStrip(res.stderr) || String(res.status);
     throw new UsageError(`ccusage failed: ${detail}\ncmd: ${cmdStr}`);
   }
 

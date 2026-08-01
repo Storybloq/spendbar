@@ -14,8 +14,11 @@ import { spawnSync } from "node:child_process";
 import { encodePath } from "../dist/config.js";
 import { padLeft, padRight, pyLen } from "../dist/format.js";
 import { pyCompareStr, pyMaxStr, pyMinStr, pySorted } from "../dist/pysort.js";
+import { pyStrip } from "../dist/pystr.js";
 import { aggProjects, cnum } from "../dist/aggregate.js";
-import { createDeps, DEFAULT_CONFIG } from "../dist/context.js";
+import { createDeps, DEFAULT_CONFIG, splitCommand } from "../dist/context.js";
+import { runCcusage } from "../dist/ccusage.js";
+import { UsageError } from "../dist/errors.js";
 
 /**
  * Strings chosen so the astral/BMP boundary lands in every position that matters: alone,
@@ -284,5 +287,172 @@ describe("tuple sort keys containing NaN (code review R1)", () => {
     for (const bad of [NaN, Infinity, -Infinity]) {
       assert.throws(() => cnum(bad, "probe"), /expected a fin/, `cnum accepted ${bad}`);
     }
+  });
+});
+
+/**
+ * ISS-015: JS `.trim()` is not Python `str.strip()`. Same family as the divergences above —
+ * a JS string primitive silently standing in for a CPython one — but a different root cause,
+ * so it gets its own oracle rather than being folded into the corpus above.
+ *
+ * The sets differ in BOTH directions, and the reachable case is U+FEFF: a byte-order mark is
+ * whitespace to JS and not to Python, and ALLOWLIST 12 deliberately preserves a leading BOM,
+ * so a BOM-only stream reaches the blankness tests intact.
+ *
+ * Defined by CODE POINT, not by literal: most of these characters are invisible, and a
+ * corpus you cannot read in a diff is a corpus nobody can review.
+ */
+const WS_UNION = [
+  0x09, 0x0a, 0x0b, 0x0c, 0x0d,                        // ASCII — both
+  0x1c, 0x1d, 0x1e, 0x1f, 0x85,                        // Python only
+  0x20, 0xa0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003,
+  0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009,
+  0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000,      // both
+  0xfeff,                                              // JS only
+].map((cp) => String.fromCodePoint(cp));
+
+const BOM = String.fromCodePoint(0xfeff);
+
+/** Each whitespace character in every position it can occupy relative to real content. */
+const WS_CORPUS = [
+  "", "x", "x y", "  x  ",
+  ...WS_UNION.flatMap((c) => [c, c + c, c + "x", "x" + c, c + "x" + c, "a" + c + "b"]),
+  BOM + " ", " " + BOM, BOM + BOM, "npx ccusage@1", BOM + "npx  ccusage",
+];
+
+/** Same skip discipline as askPython: ENOENT skips, a script that ran and failed is fatal. */
+function pyStrings(script, input) {
+  const r = spawnSync("python3", ["-c", script], { input: JSON.stringify(input), encoding: "utf8" });
+  if (r.error?.code === "ENOENT") return null;
+  if (r.error) throw r.error;
+  if (r.status !== 0) {
+    throw new Error(`the CPython oracle failed (exit ${r.status}); refusing to skip:\n${r.stderr}`);
+  }
+  return JSON.parse(r.stdout);
+}
+
+const strOracle = pyStrings(
+  `
+import json, sys
+corpus = json.loads(sys.stdin.read())
+print(json.dumps({
+    "strip": [s.strip() for s in corpus],
+    "split": [s.split() for s in corpus],
+}, ensure_ascii=True))
+`,
+  WS_CORPUS,
+);
+
+describe("Python string-boundary parity (ISS-015)", {
+  skip: strOracle === null ? "python3 is unavailable" : false,
+}, () => {
+  test("pyStrip matches str.strip() across the whitespace union", () => {
+    assert.deepEqual(WS_CORPUS.map(pyStrip), strOracle.strip);
+  });
+
+  test("splitCommand matches str.split() across the whitespace union", () => {
+    // filter() drops empties, so `parts` is empty exactly when Python returns [] — which
+    // makes the reconstruction below lossless rather than a convenient approximation.
+    const got = WS_CORPUS.map((s) => {
+      const { exe, prefixArgs } = splitCommand(s);
+      return exe === "" && prefixArgs.length === 0 ? [] : [exe, ...prefixArgs];
+    });
+    assert.deepEqual(got, strOracle.split);
+  });
+
+  test("the JS/Python whitespace disagreement is exactly the six known code points", () => {
+    // Pins the divergence itself, in both directions. A reversion to `.trim()` cannot pass
+    // this, and neither can a hand-edited character class that drops or invents a member.
+    const pyOnly = [];
+    const jsOnly = [];
+    for (let i = 0; i <= 0x10ffff; i++) {
+      if (i >= 0xd800 && i <= 0xdfff) continue; // lone surrogates: not whitespace either way
+      const c = String.fromCodePoint(i);
+      const py = pyStrip(c) === "";
+      const js = c.trim() === "";
+      if (py && !js) pyOnly.push(i);
+      if (js && !py) jsOnly.push(i);
+    }
+    assert.deepEqual(pyOnly, [0x1c, 0x1d, 0x1e, 0x1f, 0x85], "Python-only whitespace changed");
+    assert.deepEqual(jsOnly, [0xfeff], "JS-only whitespace changed");
+  });
+});
+
+/**
+ * The consequence, through the shipped decision rather than the helper. usage.py:119-120 is
+ *
+ *   if out.returncode != 0 and not out.stdout.strip():
+ *       sys.exit(f"ccusage failed: {out.stderr.strip() or out.returncode}\ncmd: ...")
+ *
+ * so `strip` picks the branch AND supplies the message body. Under `.trim()` a BOM-only
+ * stdout took the failure branch Python skips, and a BOM-only stderr was replaced by the
+ * bare exit code. Both are byte-frozen, and no ALLOWLIST entry sanctions either.
+ */
+const FS = String.fromCodePoint(0x1c); // Python whitespace, NOT JS whitespace
+
+const BRANCH_CASES = [
+  // Divergence 1: a BOM-only stdout is blank to JS and not to Python, so `.trim()` took a
+  // failure branch Python skips entirely.
+  { stdout: BOM, stderr: "boom", rc: 1 },
+  { stdout: BOM + BOM, stderr: "", rc: 2 },
+  // Divergence 2: a BOM-only stderr survives Python's strip and becomes the message body;
+  // `.trim()` emptied it and fell through to the bare exit code.
+  { stdout: "", stderr: BOM, rc: 3 },
+  // Divergence 3, the other direction: U+001C is whitespace to Python only, so Python calls
+  // this stdout blank and fails where `.trim()` saw content and tried to parse.
+  { stdout: FS, stderr: "", rc: 4 },
+  // Agreement controls — these must not move, or the test is only measuring the corpus.
+  { stdout: " \t", stderr: "boom", rc: 5 },
+  { stdout: "", stderr: "boom", rc: 6 },
+  { stdout: "", stderr: "", rc: 7 },
+  { stdout: "not json", stderr: "boom", rc: 8 },
+  // rc 0 short-circuits the conjunction regardless of stdout: guards the `and`, not just
+  // the strip.
+  { stdout: BOM, stderr: "boom", rc: 0 },
+];
+
+const branchOracle = pyStrings(
+  `
+import json, sys
+out = []
+for c in json.loads(sys.stdin.read()):
+    if c["rc"] != 0 and not c["stdout"].strip():
+        out.append({"branch": "failed", "detail": str(c["stderr"].strip() or c["rc"])})
+    else:
+        out.append({"branch": "parse"})
+print(json.dumps(out, ensure_ascii=True))
+`,
+  BRANCH_CASES,
+);
+
+test("the ccusage failure branch and its message body follow str.strip() (ISS-015)", {
+  skip: branchOracle === null ? "python3 is unavailable" : false,
+}, () => {
+  // No stdout value here parses as JSON, so the non-failure branch always lands on the parse
+  // error — which is precisely what keeps the two branches distinguishable by message.
+  BRANCH_CASES.forEach((c, i) => {
+    const want = branchOracle[i];
+    const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/h", () => ({
+      status: c.rc,
+      stdout: c.stdout,
+      stderr: c.stderr,
+    }));
+    const label = `case ${i} ${JSON.stringify(c)}`;
+    assert.throws(
+      () => runCcusage({ deps, config: DEFAULT_CONFIG }, ["daily", "--json"]),
+      (e) => {
+        assert.ok(e instanceof UsageError, `${label}: ${e}`);
+        if (want.branch === "failed") {
+          assert.equal(
+            e.message.split("\n")[0],
+            `ccusage failed: ${want.detail}`,
+            `${label}: wrong failure detail`,
+          );
+        } else {
+          assert.match(e.message, /^could not parse ccusage output\./, `${label}: wrong branch`);
+        }
+        return true;
+      },
+    );
   });
 });

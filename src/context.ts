@@ -13,6 +13,7 @@
 import { encodePath } from "./config.js";
 import { UsageError } from "./errors.js";
 import { pyRepr } from "./pyrepr.js";
+import { PY_WHITESPACE } from "./pystr.js";
 
 /** Result of one ccusage invocation. Injected so tests never spawn a process. */
 export interface RunResult {
@@ -68,16 +69,10 @@ export const DEFAULT_CONFIG: Config = {
  * error diagnostics. The result is used as executable + prefix argv with `shell:false`,
  * so the string is never handed to a shell.
  *
- * The character class is spelled out rather than left as `\s`, because the two sets differ
- * in both directions (code review R6 — the old `\s+` did not honour the equivalence this
- * comment claims). Python's `str.split()` treats the C1 separators `\x1c`-`\x1f` and `\x85`
- * as whitespace and JS's `\s` does not; conversely `\s` includes `﻿`, which Python does
- * not split on. Below is Python's set: ASCII whitespace, the C1 separators, and the Unicode
- * space separators — with `﻿` deliberately absent.
+ * The whitespace set is Python's, not `\s` — the two differ in both directions (code review
+ * R6: the old `\s+` did not honour the equivalence this comment claims). It lives in
+ * pystr.ts now, shared with `pyStrip`, because CPython gives split and strip one predicate.
  */
-const PY_WHITESPACE =
-  /[\u0009\u000a\u000b\u000c\u000d\u001c-\u001f\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/;
-
 export function splitCommand(cmd: string): { exe: string; prefixArgs: string[] } {
   const parts = cmd.split(PY_WHITESPACE).filter((s) => s.length > 0);
   if (parts.length === 0) return { exe: "", prefixArgs: [] };

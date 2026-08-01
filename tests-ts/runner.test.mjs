@@ -168,6 +168,37 @@ test("a missing exit status is fatal only when stdout is blank, as in Python", (
   assert.equal(ok.stdout, "{}");
 });
 
+// "Blank" here means blank to PYTHON (ISS-015). The guard above and the one at ccusage.ts
+// must agree with each other AND with the oracle, and the two whitespace sets disagree in
+// both directions — so the sets are what this pins.
+//
+// This test exists because mutation testing found the gap: with only the cases above, the
+// whole suite stayed green when this site was reverted to `.trim()`. Every case below flips
+// under that reversion.
+test("the blank-stdout guard uses Python's whitespace set, not JS's (ISS-015)", () => {
+  const noStatus = (stdout) => () => ({ status: null, signal: "SIGKILL", stdout, stderr: B("") });
+  const BOM = String.fromCodePoint(0xfeff);
+  const FS = String.fromCodePoint(0x1c);
+
+  // U+FEFF is whitespace to JS and NOT to Python, so a BOM-only stdout is content. Python
+  // hands it to json.loads and reports a parse failure; `.trim()` reported a signal death.
+  for (const stdout of [BOM, BOM + BOM, BOM + " "]) {
+    const r = createRunner({ spawn: noStatus(B(stdout)) })("x", []);
+    assert.equal(r.stdout, stdout, `${JSON.stringify(stdout)} is content to Python, not blank`);
+  }
+
+  // U+001C-U+001F and U+0085 run the other way: whitespace to Python, not to JS. Python
+  // calls this blank, so the signal IS fatal — `.trim()` would have handed it back instead.
+  for (const cp of [0x1c, 0x1d, 0x1e, 0x1f, 0x85]) {
+    const stdout = String.fromCodePoint(cp);
+    assert.throws(
+      () => createRunner({ spawn: noStatus(B(stdout)) })("x", []),
+      (e) => e instanceof UsageError && /terminated by signal SIGKILL/.test(e.message),
+      `U+${cp.toString(16).toUpperCase().padStart(4, "0")} is whitespace to Python, so this is blank`,
+    );
+  }
+});
+
 // The end-to-end consequence of the rule above, through the real state machine: usage.py
 // prints the table and exits 0 for a signalled child that produced a complete payload.
 test("a signalled child that produced a full payload is parsed, not turned into exit 1", () => {

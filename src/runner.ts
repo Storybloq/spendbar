@@ -13,6 +13,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { UsageError } from "./errors.js";
+import { pyStrip } from "./pystr.js";
 import type { CcusageRunner, RunResult } from "./context.js";
 
 /**
@@ -270,10 +271,11 @@ export function createRunner(opts: RunnerOptions = {}): CcusageRunner {
     // result "would be accepted as a successful run"; that is what Python does, so the guard
     // was right to exist and wrong to be unconditional.
     //
-    // `.trim()` rather than a Python-faithful strip is deliberate: it matches the blankness
-    // test ccusage.ts:40 already applies, so both sites agree. That the two whitespace sets
-    // differ is a separate, filed defect — fixing it here alone would split the decision.
-    if (res.status === null && stdout.trim() === "") {
+    // `pyStrip` rather than `.trim()`, matching the blankness test ccusage.ts applies: both
+    // sites ask Python's question, so both must use Python's whitespace set. They were moved
+    // together (ISS-015) precisely because agreeing with each other is half the requirement —
+    // agreeing with the oracle is the other half.
+    if (res.status === null && pyStrip(stdout) === "") {
       throw new UsageError(
         res.signal
           ? `ccusage was terminated by signal ${res.signal}.\ncmd: ${cmd()}`
