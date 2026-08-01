@@ -48,12 +48,30 @@ function fail(msg) {
   throw new PolicyError(msg);
 }
 
-/** Predicates every policy shares: python terminated normally, with the transcribed status. */
+/**
+ * Predicates every policy shares: python terminated normally, with the transcribed status.
+ *
+ * The `kind` check is kept even though `assertRegistry` now proves it cannot change the
+ * VERDICT — a signalled python has `status: null`, and an integer `expectExit` can never
+ * equal null, so the comparison below rejects it either way. It is kept because it changes
+ * the MESSAGE, and the two messages are not equally useful: "killed by SIGSEGV" names the
+ * actual event, where "python now exits null" describes a crashed oracle as if it had chosen
+ * a strange exit code. `policies.test.mjs` asserts that wording, so deleting this branch
+ * fails a test rather than silently degrading a diagnostic.
+ *
+ * Contrast `partial-python-stdout`, whose kind check was REMOVED: there both branches
+ * funnelled into one `describeTermination` message, so it changed nothing observable at all.
+ *
+ * The old `c.expectExit !== undefined &&` guard is gone with it. It implied a case might not
+ * transcribe an exit status; `assertRegistry` now requires an integer, so the guard stood for
+ * a hazard that does not exist — and it made the status comparison unkillable for any case
+ * that omitted the field.
+ */
 function pythonTerminatedAsTranscribed(py, c) {
   if (py.termination.kind !== "exit") {
     fail(`python did not terminate normally: ${describeTermination(py.termination)}`);
   }
-  if (c.expectExit !== undefined && py.termination.status !== c.expectExit) {
+  if (py.termination.status !== c.expectExit) {
     fail(
       `transcribed exit ${c.expectExit}, python now exits ${py.termination.status}\n` +
         `  argv: ${JSON.stringify(c.argv)}`,
@@ -104,8 +122,13 @@ function tsDiag(id, pattern) {
     },
     differential(py, ts, c) {
       pythonTerminatedAsTranscribed(py, c);
+      // Python's stderr is checked here; TypeScript's is NOT, deliberately. An empty TS
+      // stderr already fails `tsDiagnosticShape` twice over — "" is neither
+      // newline-terminated nor a pattern match — so a symmetric loop would contain a branch
+      // no test could kill, which reads as a hazard that does not exist. The stdout check
+      // stays symmetric because neither side's emptiness implies the other's.
+      if (py.stderr.length === 0) fail("python produced no stderr, but this case must diagnose");
       for (const [who, r] of [["python", py], ["typescript", ts]]) {
-        if (r.stderr.length === 0) fail(`${who} produced no stderr, but this case must diagnose`);
         if (r.stdout.length !== 0) fail(`${who} wrote to stdout on a failure path`);
       }
       tsDiagnosticShape(ts, pattern, `ts-diag:${id}`);
@@ -187,7 +210,12 @@ export const POLICIES = {
       for (const [who, r] of [["python", py], ["typescript", ts]]) {
         if (r.stderr.length === 0) fail(`${who} produced no stderr, but this case must diagnose`);
       }
-      if (ts.termination.kind !== "exit" || ts.termination.status !== c.expectExit) {
+      // No `kind !== "exit"` disjunct. It would be pure decoration: a signalled or
+      // failed-to-spawn port has `status: null`, `expectExit` is an integer by registry rule,
+      // and both disjuncts funnelled into this one `describeTermination` message anyway — so
+      // it could change neither the verdict nor the wording. A crash is still caught here,
+      // and still reported as "killed by SIGSEGV" rather than as a status number.
+      if (ts.termination.status !== c.expectExit) {
         fail(`typescript ${describeTermination(ts.termination)}, case requires exit ${c.expectExit}`);
       }
     },

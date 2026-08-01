@@ -21,15 +21,27 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import { POLICIES, NON_EXACT_POLICIES, SANCTIONED_STDOUT_REWRITE } from "./harness/policies.mjs";
+import { rawCaseProblems } from "./harness/cases.mjs";
 
 const exit = (status) => ({ kind: "exit", status, signal: null, code: null });
-const run = (stdout, stderr, status = 1) => ({
+
+/**
+ * A non-exit termination, in the shape `run.mjs`'s `classify` actually produces.
+ *
+ * `status` is null and cannot be anything else — that is the whole reason the policies need
+ * no separate "did it crash" predicate. Writing `{kind: "signal", status: 1}` here would be
+ * more convenient for isolating a branch, and would test an input no subject can ever
+ * produce; a test whose fixture is unreachable proves nothing about the code that runs.
+ */
+const signalled = (signal = "SIGSEGV") => ({ kind: "signal", status: null, signal, code: null });
+
+const run = (stdout, stderr, termination = exit(1)) => ({
   stdout: Buffer.from(stdout, "utf8"),
   stderr: Buffer.from(stderr, "utf8"),
-  termination: exit(status),
+  termination: typeof termination === "number" ? exit(termination) : termination,
 });
 
-/** Deep-clone a run pair so a mutation cannot leak into the next case. */
+/** Shallow copies, which is all that is needed: `run` mints fresh Buffers and no policy mutates. */
 const pair = (py, ts) => ({ py: { ...py }, ts: { ...ts } });
 
 function rejects(policy, py, ts, c, why) {
@@ -106,8 +118,10 @@ describe("ts-diag: a waived stderr must still be the port's one-line diagnostic"
   });
 
   test("rejects stdout on a failure path, from either side", () => {
-    rejects(policy, ...Object.values(pair(run("partial table\n", pyErr), run("", goodTsErr))), c, "python stdout");
-    rejects(policy, ...Object.values(pair(run("", pyErr), run("half a table\n", goodTsErr))), c, "ts stdout");
+    const pyWrote = pair(run("partial table\n", pyErr), run("", goodTsErr));
+    rejects(policy, pyWrote.py, pyWrote.ts, c, "python stdout");
+    const tsWrote = pair(run("", pyErr), run("half a table\n", goodTsErr));
+    rejects(policy, tsWrote.py, tsWrote.ts, c, "ts stdout");
   });
 
   test("rejects a disagreeing exit status even though stderr is waived", () => {
@@ -121,11 +135,37 @@ describe("ts-diag: a waived stderr must still be the port's one-line diagnostic"
     rejects(policy, py, ts, c, "python exited 3, case declares 1");
   });
 
+  test("a crashed oracle is rejected, and reported as a crash rather than as an exit code", () => {
+    // Two things are asserted here, and the second is the one that makes this test kill a
+    // mutation. The VERDICT is over-determined: a signalled python has `status: null`, an
+    // integer `expectExit` can never equal null, so the status comparison rejects this pair
+    // even with the `kind` branch deleted. What only the `kind` branch produces is the
+    // WORDING — and "python now exits null" would send a reader looking for an exit-code bug
+    // in a run where the oracle was killed by a signal.
+    const { py, ts } = pair(run("", pyErr, signalled("SIGSEGV")), run("", goodTsErr));
+    assert.throws(
+      () => policy.differential(py, ts, c),
+      (e) => {
+        assert.match(e.message, /killed by SIGSEGV/, "the diagnostic must name the signal");
+        assert.doesNotMatch(e.message, /exits null/, "it must not describe a crash as an exit code");
+        return true;
+      },
+    );
+  });
+
   test("the two ts-diag policies do not accept each other's diagnostics", () => {
     // Otherwise one pattern could be deleted and the other would cover for it.
     const other = POLICIES["ts-diag:blocks-array-attr"];
     const { py, ts } = pair(run("", pyErr), run("", goodTsErr));
     rejects(other, py, ts, c, "invalid-date text under the blocks-array policy");
+  });
+
+  test("blocks-array-attr accepts its OWN diagnostic", () => {
+    // Without this the policy is only ever asked to reject, so an unsatisfiable pattern —
+    // or a handler that refused everything — would pass every test that names it.
+    const other = POLICIES["ts-diag:blocks-array-attr"];
+    const { py, ts } = pair(run("", pyErr), run("", "'list' object has no attribute 'get'\n"));
+    accepts(other, py, ts, c, "its own pattern must be reachable");
   });
 });
 
@@ -152,8 +192,25 @@ describe("partial-python-stdout: both streams waived, so the SHAPE carries the c
   });
 
   test("rejects either side failing without diagnosing", () => {
-    rejects(policy, ...Object.values(pair(run("h\n", "", 1), run("", "msg\n", 1))), c, "python silent");
-    rejects(policy, ...Object.values(pair(run("h\n", "err\n", 1), run("", "", 1))), c, "port silent");
+    const pySilent = pair(run("h\n", "", 1), run("", "msg\n", 1));
+    rejects(policy, pySilent.py, pySilent.ts, c, "python silent");
+    const tsSilent = pair(run("h\n", "err\n", 1), run("", "", 1));
+    rejects(policy, tsSilent.py, tsSilent.ts, c, "port silent");
+  });
+
+  test("rejects a port killed by a signal, even though its stdout is correctly empty", () => {
+    // A crashed port satisfies every other predicate this policy asserts — it wrote no
+    // stdout, python wrote partial output, both produced stderr. Only the termination
+    // comparison stands between "the port declined to half-write a table" and "the port
+    // segfaulted", and those must not be recorded as the same result.
+    const { py, ts } = pair(run("header\n", "TypeError\n", 1), run("", "boom\n", signalled("SIGKILL")));
+    assert.throws(
+      () => policy.differential(py, ts, c),
+      (e) => {
+        assert.match(e.message, /killed by SIGKILL/, "a crashed port must be named as crashed");
+        return true;
+      },
+    );
   });
 
   test("rejects the port SUCCEEDING where the oracle failed", () => {
@@ -217,6 +274,40 @@ describe("help-config-path: one sanctioned span, everything else byte-frozen", (
   test("rejects a stderr difference even though stdout is rewritten", () => {
     const { py, ts } = pair(run(`x ${from} y`, "", 0), run(`x ${to} y`, "unexpected\n", 0));
     rejects(policy, py, ts, c, "stderr diverged");
+  });
+});
+
+describe("the registry rule the policies now lean on", () => {
+  // `partial-python-stdout` no longer carries a `kind !== "exit"` check, and
+  // `pythonTerminatedAsTranscribed` no longer tolerates an absent `expectExit`. Both rest on
+  // one registry guarantee: the transcribed exit is an INTEGER, so it can never equal the
+  // `null` status that `classify` gives a signalled or failed-to-spawn subject. If that
+  // guarantee is not enforced, removing those checks opened a hole rather than deleting dead
+  // code — so it is tested here, beside the policies that depend on it, rather than left to
+  // be true of the current registry by luck.
+  const wellFormed = {
+    name: "synthetic", capability: "hourly", argv: ["hourly"], mode: "claude", extraEnv: {},
+    codexFixture: null, expectExit: 0, storedGolden: false, comparisonPolicy: "exact", waiver: null,
+  };
+
+  test("control: a well-formed record raises nothing", () => {
+    assert.deepEqual(rawCaseProblems([wellFormed]), []);
+  });
+
+  for (const bad of [null, "0", 1.5, undefined]) {
+    test(`rejects expectExit: ${JSON.stringify(bad)}`, () => {
+      // `null` is the dangerous one — it is what a hand-edited registry most plausibly grows,
+      // and it is exactly the value that would compare equal to a crashed subject's status.
+      const problems = rawCaseProblems([{ ...wellFormed, expectExit: bad }]);
+      assert.equal(problems.length, 1, `expected exactly one problem, got ${JSON.stringify(problems)}`);
+      assert.match(problems[0], /expectExit must be an integer/);
+    });
+  }
+
+  test("an omitted expectExit is caught as a missing field, not silently accepted", () => {
+    const { expectExit, ...withoutIt } = wellFormed;
+    const problems = rawCaseProblems([withoutIt]);
+    assert.ok(problems.some((p) => /omits required field 'expectExit'/.test(p)), JSON.stringify(problems));
   });
 });
 

@@ -58,15 +58,18 @@ export function goldenFilesOnDisk() {
 }
 
 /**
- * Structural validation of the registry itself, before anything is executed.
+ * The raw-shape pass of registry validation, split out so it can be run on synthetic records.
  *
- * Everything here is a rule that would otherwise be enforced by nobody: the old tables were
- * each internally consistent, so their disagreements were invisible. These checks are what
- * make one file being wrong detectable rather than merely unlikely.
+ * `assertRegistry` reads the real registry and the real goldens directory, so a negative test
+ * cannot reach it: feeding it one deliberately malformed case would also trip the capability
+ * and orphan-golden checks, and the rule under test would be indistinguishable from the
+ * collateral. That is how a validator ends up proven only by inputs it accepts — every rule
+ * in here is a rule about REJECTING, and none of them was ever handed something to reject.
+ *
+ * Returns problems rather than throwing, so a caller can aggregate.
  */
-export function assertRegistry(cases) {
+export function rawCaseProblems(rawCases) {
   const problems = [];
-  const seen = new Set();
 
   // Shape is checked against the RAW file, not against `cases`. `loadCases` writes every key
   // it knows about, so by the time a record reaches here an omitted field is indistinguishable
@@ -78,12 +81,23 @@ export function assertRegistry(cases) {
   // below silently accepts a case that never declared anything.
   const REQUIRED = ["name", "capability", "argv", "mode", "extraEnv", "codexFixture",
                     "expectExit", "storedGolden", "comparisonPolicy", "waiver"];
-  for (const raw of REGISTRY.cases) {
+  for (const raw of rawCases) {
     for (const key of REQUIRED) {
       if (!(key in raw)) problems.push(`case ${raw.name ?? "(unnamed)"} omits required field '${key}'`);
     }
     if ("waiver" in raw && raw.waiver !== null && typeof raw.waiver !== "string") {
       problems.push(`case ${raw.name}: waiver must be a string ID or null, got ${JSON.stringify(raw.waiver)}`);
+    }
+
+    // `expectExit` must be an INTEGER, not merely present. This is load-bearing well beyond
+    // registry tidiness: `classify` gives every non-exit termination `status: null`, so
+    // "the subject crashed" is caught by the status comparison alone precisely BECAUSE the
+    // transcribed value is a number that null can never equal. Allow `expectExit: null` and
+    // that stops being true — a signalled subject would compare null-to-null, pass, and the
+    // policies would need a separate kind check to catch a crash. This check is what lets
+    // those kind checks be removed rather than kept as branches no test could kill.
+    if ("expectExit" in raw && !Number.isInteger(raw.expectExit)) {
+      problems.push(`case ${raw.name}: expectExit must be an integer, got ${JSON.stringify(raw.expectExit)}`);
     }
 
     // "Present exactly when storedGolden" means PRESENT, not present-and-null. Testing for a
@@ -104,6 +118,20 @@ export function assertRegistry(cases) {
       problems.push(`case ${raw.name}: captureAnchor must be a string, got ${JSON.stringify(raw.captureAnchor)}`);
     }
   }
+
+  return problems;
+}
+
+/**
+ * Structural validation of the registry itself, before anything is executed.
+ *
+ * Everything here is a rule that would otherwise be enforced by nobody: the old tables were
+ * each internally consistent, so their disagreements were invisible. These checks are what
+ * make one file being wrong detectable rather than merely unlikely.
+ */
+export function assertRegistry(cases) {
+  const problems = rawCaseProblems(REGISTRY.cases);
+  const seen = new Set();
 
   for (const c of cases) {
     if (seen.has(c.name)) problems.push(`duplicate case name: ${c.name}`);

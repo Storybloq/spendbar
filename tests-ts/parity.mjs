@@ -562,7 +562,10 @@ function assertAnchorRouting() {
     const seen = [];
     const real = spawnImpl;
     spawnImpl = (file, args, opts) => {
-      seen.push(args);
+      // Snapshot, not a reference. Holding the live array would let a later mutation of it
+      // move BOTH observations together, which is the same shared-source defect this spy was
+      // rewritten to eliminate — one level further in.
+      seen.push([...args]);
       return real(file, args, opts);
     };
     try {
