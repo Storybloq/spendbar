@@ -1,0 +1,17 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-01",
+  "displayId": "ISS-022",
+  "id": "ISS-022",
+  "impact": "tests-ts/fixture-schema.test.mjs's CASES table is a fourth unverified description of part of the parity matrix, derived from nothing and already incomplete (omits all eight blocks_* modes and the combined-driven instances x codex_empty pair). Predates T-005 and is not touched by it; fixing it means deciding how the schema-validator tests relate to the case registry, which is a design question rather than a review fix. Filed as ISS-021.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": "Duplicate of ISS-021, which I filed manually for the same finding before also reporting it with disposition \"deferred\" — that auto-filed this second copy. My error, not a second defect. ISS-021 carries the fuller write-up (including why it is harmless today given ISS-002) and is the one to keep.",
+  "resolvedDate": "2026-07-31",
+  "severity": "medium",
+  "status": "resolved",
+  "title": "[duplication] tests-ts/fixture-schema.test.mjs's CASES table is a fourth unverified descriptio"
+}
