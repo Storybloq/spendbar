@@ -584,25 +584,40 @@ function assertAnchorRouting() {
     // local array, so a regression that built one array to record and a different one to
     // execute would satisfy it. Two readings of one variable are not two witnesses.
     //
-    // Probed across EVERY (implementation, phase) pair, not just one. With a single probe at
-    // python/differential, a record-versus-execute split confined to the replay phase, or to
-    // the TypeScript path, passed all four routing checks untouched — code review R2 built
-    // exactly that mutation and the only thing that objected was the two relative-date
-    // goldens, which is luck rather than mechanism. A witness that watches one of four doors
-    // is not watching the building.
-    const probes = [
-      { impl: "python", phase: PHASE.REPLAY, run: pythonRun, anchor: "2026-03-04" },
-      { impl: "python", phase: PHASE.ARGV, run: pythonRun, anchor: "2026-03-05" },
-      { impl: "python", phase: PHASE.DIFF, run: pythonRun, anchor: "2026-03-06" },
-      { impl: "typescript", phase: PHASE.REPLAY, run: tsRun, anchor: "2026-03-07" },
-      { impl: "typescript", phase: PHASE.ARGV, run: tsRun, anchor: "2026-03-08" },
-      { impl: "typescript", phase: PHASE.DIFF, run: tsRun, anchor: "2026-03-09" },
-    ];
+    // Probed across EVERY (implementation, phase) pair, and each pair twice — once with no
+    // case and once with a REAL registry case.
+    //
+    // Two rounds of review sharpened this. R2: a single probe at python/differential missed a
+    // split confined to the replay phase or the TypeScript path. R3: six probes still all
+    // passed `case: null`, so a split conditioned on `c !== null` took the unaffected branch
+    // in every one of them — and since both implementations would receive the same wrong
+    // per-case anchor, every byte comparison would stay green too.
+    //
+    // The structural fix is in `spawnTraced`, which records from the argv it forwards; these
+    // probes are the check that the boundary is the only path. The real-case probe uses an
+    // anchor distinct from that case's own captureAnchor, so a mutation substituting
+    // `c.captureAnchor` for the requested value is visible rather than coincidentally equal.
+    const realCase = cases.find((c) => c.storedGolden) ?? null;
+    assert(realCase !== null, "no stored case available to probe with; the case-bearing path is untested");
+    const probes = [];
+    let n = 0;
+    for (const [impl, run] of [["python", pythonRun], ["typescript", tsRun]]) {
+      for (const phase of [PHASE.REPLAY, PHASE.ARGV, PHASE.DIFF]) {
+        for (const c of [null, realCase]) {
+          probes.push({ impl, phase, run, case: c, anchor: `2026-03-${String(++n).padStart(2, "0")}` });
+        }
+      }
+    }
     // Distinct anchors per probe, so a wrapper that returned a cached or shared argv would
-    // show up as an equality that holds for the wrong reason.
+    // show up as an equality that holds for the wrong reason. Also distinct from the real
+    // case's captureAnchor, for the reason above.
     assert(new Set(probes.map((p) => p.anchor)).size === probes.length, "probe anchors must be distinct");
+    assert(
+      !probes.some((p) => p.anchor === realCase.captureAnchor),
+      `a probe anchor collides with ${realCase.name}'s captureAnchor; a substitution would read as agreement`,
+    );
 
-    for (const { impl, phase, run, anchor } of probes) {
+    for (const { impl, phase, run, anchor, case: probeCase } of probes) {
       const before = trace.length;
       const seen = [];
       const real = spawnImpl;
@@ -614,16 +629,20 @@ function assertAnchorRouting() {
         return real(file, args, opts);
       };
       try {
-        run(["projects"], { anchor, case: null, phase });
+        run(["projects"], { anchor, case: probeCase, phase });
       } finally {
         spawnImpl = real;
       }
-      const where = `${impl}/${phase}`;
+      const where = `${impl}/${phase}/${probeCase ? probeCase.name : "no-case"}`;
       assert(seen.length === 1, `${where}: the probe spawned ${seen.length} processes, expected 1`);
       assert(trace.length === before + 1, `${where}: the probe did not produce exactly one trace entry`);
       const entry = trace[trace.length - 1];
       assert(entry.impl === impl, `${where}: traced impl ${entry.impl}`);
       assert(entry.phase === phase, `${where}: traced phase ${entry.phase}`);
+      assert(
+        entry.caseName === (probeCase ? probeCase.name : null),
+        `${where}: traced caseName ${entry.caseName}`,
+      );
       assert(
         anchorFromArgv(seen[0]) === entry.anchor,
         `${where}: runProcess received --anchor ${anchorFromArgv(seen[0])} but the trace recorded ${entry.anchor}`,
@@ -664,15 +683,35 @@ function anchorFromArgv(args) {
  * wrapper self-tests also call these functions and must NOT enter the case trace — they pass
  * no case and exist to prove the injected clock is load-bearing at all.
  */
+/**
+ * The ONE place a subject process is created, and the only place the trace is written.
+ *
+ * The recording happens here, from the same `args` binding that is forwarded to `spawnImpl`
+ * on the next line — not in the caller that built the array. That is what makes the trace
+ * structurally truthful for all 265 real invocations rather than for a handful of probes:
+ * a caller that assembles a different array to execute must hand THAT array to this function,
+ * so the trace follows it and the ordinary routing assertions catch the divergence.
+ *
+ * Code review R3 found why this matters. The previous arrangement recorded in `spawnSubject`
+ * beside the spawn, and proved the two agreed with synthetic probes — every one of which
+ * passed `case: null`. A record-versus-execute split conditioned on a real case therefore
+ * escaped all six probes: both implementations would receive the same wrong per-case anchor,
+ * every byte comparison would stay green, and the probes would take the unaffected branch.
+ * Watching the door only when nobody is carrying anything is not watching the door.
+ */
+function spawnTraced(file, args, opts, { impl, phase, caseName }) {
+  if (phase !== null) {
+    trace.push({ phase, impl, caseName, anchor: anchorFromArgv(args) });
+  }
+  return spawnImpl(file, args, opts);
+}
+
 function spawnSubject({ impl, phase, argv, anchor, case: c }) {
   const file = impl === "python" ? python : process.execPath;
   const wrapper = impl === "python" ? PATHS.usageWrapper : PATHS.cliWrapper;
   const args = [wrapper, "--anchor", anchor, "--", ...argv];
-  const result = spawnImpl(file, args, { env: childEnv(fixtures.home, fixtureEnv(c)) });
-  if (phase !== null) {
-    trace.push({ phase, impl, caseName: c?.name ?? null, anchor: anchorFromArgv(args) });
-  }
-  return result;
+  return spawnTraced(file, args, { env: childEnv(fixtures.home, fixtureEnv(c)) },
+                     { impl, phase, caseName: c?.name ?? null });
 }
 
 function pythonRun(argv, { anchor, case: c, phase = null } = {}) {
