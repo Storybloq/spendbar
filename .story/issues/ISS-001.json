@@ -1,13 +1,13 @@
 {
   "components": [
-    "ts-port",
-    "parity"
+    "stderr-truncation"
   ],
   "createdBy": "code-review-r4 (agent) via T-006 autonomous session",
   "dedupeKey": "ccusage-stderr-slice-utf16-vs-codepoints",
   "discoveredDate": "2026-07-31",
+  "displayId": "ISS-001",
   "id": "ISS-001",
-  "impact": "Byte-parity divergence in the frozen `could not parse ccusage output.` diagnostic, and a possible U+FFFD on the wire.\n\n`src/ccusage.ts:49` does `res.stderr.slice(0, 400)`; `usage.py:124` does `out.stderr[:400]`. Python slices CODE POINTS, JS slices UTF-16 CODE UNITS, so any astral character in ccusage's stderr desynchronises them. Measured:\n\n  python3 -c \"s='😀'*300+'TAIL'; print(len(s[:400]), s[:400].endswith('TAIL'))\"\n  -> 304 True\n  node -e \"const s='😀'.repeat(300)+'TAIL'; const c=s.slice(0,400); console.log(c.length, [...c].length, c.endsWith('TAIL'))\"\n  -> 400 200 false        # the informative tail is dropped\n\nWorse, slicing at an odd offset can cut a surrogate pair in half:\n  node -e \"const c='😀'.repeat(300).slice(0,401); console.log(Buffer.from(c,'utf8').subarray(-4).toString('hex'))\"\n  -> 80efbfbd             # trailing U+FFFD\n\nThis is NOT in tests/golden/ALLOWLIST.md, so it is an unsanctioned divergence in a message the allowlist treats as frozen.\n\nPre-existing (introduced with the T-003 port of run_ccusage), NOT introduced by T-006, and outside T-006's changed files — filed rather than fixed inline per the ticket's scope rule. It is the same hazard class T-006 fixed one layer down in `truncateUtf8` (byte-based, boundary-safe), so the fix is to give this site the same treatment: slice by code point (`[...s].slice(0, 400).join(\"\")`) to match Python exactly, or reuse a boundary-safe helper.\n\nFound by code review round 4 (differential harness over usage.py).",
+  "impact": "Still present at src/ccusage.ts:49. Diagnostic-path only: it fires solely inside the JSON-parse-failure branch, and diverges from usage.py:124 only when ccusage stderr contains non-BMP characters near the 400-unit cut, where the port drops the informative tail and can emit a trailing U+FFFD from a split surrogate pair. Unsanctioned divergence in a frozen message, but with a low-probability trigger on an error path.",
   "location": [
     "src/ccusage.ts:49",
     "usage.py:124"
@@ -17,9 +17,9 @@
     "T-006",
     "T-004"
   ],
-  "resolution": null,
-  "resolvedDate": null,
-  "severity": "medium",
-  "status": "open",
+  "resolution": "src/ccusage.ts:52 now cuts code points instead of UTF-16 units, matching usage.py:124's `out.stderr[:400]`.\n\nNEW: pySlice in src/format.ts, placed directly beside pyLen because they are the same operation family — code-point-indexed string ops — and colocating them keeps one visible convention for how an unpaired surrogate is counted (as one code point, exactly as CPython does). It scans rather than materialising `[...s]`, for pyLen's stated reasons, and always advances past a complete surrogate pair, which makes splitting one unrepresentable rather than merely unlikely.\n\nMEASURED, both symptoms the issue names:\n- Short read: an all-astral stderr kept 200 code points where Python keeps 400 — half the diagnostic silently gone.\n- Split pair: `\"a\".repeat(399) + emoji` cut at 400 units ended in a lone high surrogate (U+FFFD on the way out). Verified the boundary at 398/399/400 leading characters so the cut is pinned on both sides of the pair, not sampled near it.\n\nTESTS (unicode-parity.test.mjs, differential against live CPython):\n1. pySlice vs `s[:n]` over 15 cases: empty, n=0, ASCII, astral leading/interior/trailing, the three boundary offsets, all-astral, CJK, and lone surrogates in both positions.\n2. A property test: cutting a well-formed string at every offset through an astral character never yields an unpaired surrogate, and always keeps exactly min(n, len) code points.\n3. The frozen diagnostic end-to-end through runCcusage — the message's `stderr:` tail must equal CPython's `stderr[:400]` byte-for-byte, and must not end in an unpaired surrogate. The helper being right is necessary but not sufficient; this pins that the call site uses it.\n\nMUTATION-VERIFIED:\n- Revert the call site to `.slice(0, 400)` -> the end-to-end diagnostic test fails (helper tests still pass, which is exactly why that test exists).\n- Make pySlice unit-based -> 3 tests fail.\n\nSCOPE: swept every other `.slice(` in src/. All operate on validated-ASCII data (yyyymmdd dates, regex-checked rollout filenames), on already-materialised code-point arrays, or on self-consistent indices from the same string. renderers.ts:75's `title()` slices after `s[0]`, but it is documented as applying only to hard-coded lowercase-ASCII family lists, with an explicit rationale for not implementing Unicode title-casing — a bounded decision, not a defect, so nothing was filed.\n\nSuite: 322 unit tests (was 319), contract 19/19, parity --final 266 passed / 0 failed / 0 skipped, 45/45 goldens byte-match, test:all exit 0.",
+  "resolvedDate": "2026-07-31",
+  "severity": "low",
+  "status": "resolved",
   "title": "stderr truncation in ccusage.ts slices UTF-16 units where Python slices code points"
 }

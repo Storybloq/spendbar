@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 
 import { encodePath } from "../dist/config.js";
-import { padLeft, padRight, pyLen } from "../dist/format.js";
+import { padLeft, padRight, pyLen, pySlice } from "../dist/format.js";
 import { pyCompareStr, pyMaxStr, pyMinStr, pySorted } from "../dist/pysort.js";
 import { pyStrip } from "../dist/pystr.js";
 import { aggProjects, cnum } from "../dist/aggregate.js";
@@ -451,6 +451,117 @@ test("the ccusage failure branch and its message body follow str.strip() (ISS-01
         } else {
           assert.match(e.message, /^could not parse ccusage output\./, `${label}: wrong branch`);
         }
+        return true;
+      },
+    );
+  });
+});
+
+/**
+ * ISS-001: `s.slice(0, 400)` cuts UTF-16 code units where usage.py:124 cuts 400 CODE
+ * POINTS. Two distinct symptoms, both measured below:
+ *
+ *   short read  — all-astral stderr keeps 200 code points where Python keeps 400, so the
+ *                 informative tail of a diagnostic silently disappears
+ *   split pair  — a cut landing between a surrogate pair leaves a lone surrogate, which
+ *                 becomes U+FFFD on the way out
+ *
+ * The cut width is 400 in production; the small-n cases exist so a failure points at the
+ * boundary rule rather than at a 400-character haystack.
+ */
+const EMOJI = String.fromCodePoint(0x1f600);
+const HI = String.fromCodePoint(0xd800);
+const LO = String.fromCodePoint(0xdc00);
+
+/** True when `s` ends in an unpaired high surrogate — the split-pair symptom. */
+const endsUnpaired = (s) => {
+  const c = s.charCodeAt(s.length - 1);
+  return c >= 0xd800 && c <= 0xdbff;
+};
+
+const SLICE_CASES = [
+  ["", 400],
+  ["abc", 0],
+  ["abc", 2],
+  ["abc", 400],
+  [EMOJI, 1],
+  [EMOJI + "x", 1],
+  ["a" + EMOJI + "b", 2],
+  // The cut lands INSIDE the surrogate pair — the split-pair symptom.
+  ["a".repeat(399) + EMOJI + "TAIL", 400],
+  // ...and one unit either side of it, so the boundary is pinned rather than sampled.
+  ["a".repeat(398) + EMOJI + "TAIL", 400],
+  ["a".repeat(400) + EMOJI + "TAIL", 400],
+  // Astral throughout — the short-read symptom at its worst: 200 kept where Python keeps 400.
+  [EMOJI.repeat(500), 400],
+  ["日本語".repeat(200), 400],
+  ["café" + EMOJI.repeat(300), 400],
+  // Lone surrogates count as one code point in CPython, exactly as pyLen treats them.
+  [HI + "abc", 2],
+  ["abc" + LO, 4],
+];
+
+const sliceOracle = pyStrings(
+  `
+import json, sys
+print(json.dumps([s[:n] for s, n in json.loads(sys.stdin.read())], ensure_ascii=True))
+`,
+  SLICE_CASES,
+);
+
+describe("Python slice parity (ISS-001)", {
+  skip: sliceOracle === null ? "python3 is unavailable" : false,
+}, () => {
+  test("pySlice matches s[:n] on code points, not code units", () => {
+    assert.deepEqual(SLICE_CASES.map(([s, n]) => pySlice(s, n)), sliceOracle);
+  });
+
+  test("pySlice never manufactures a lone surrogate", () => {
+    // The split-pair symptom stated directly: cutting a well-formed string at every offset
+    // through an astral character must never produce an unpaired surrogate, and must keep
+    // exactly the requested number of code points while any remain.
+    const s = "a".repeat(5) + EMOJI + "b" + EMOJI;
+    for (let n = 0; n <= pyLen(s) + 2; n++) {
+      const got = pySlice(s, n);
+      assert.ok(!endsUnpaired(got), `pySlice(s, ${n}) ends in an unpaired high surrogate`);
+      assert.equal(pyLen(got), Math.min(n, pyLen(s)), `wrong code-point count at n=${n}`);
+    }
+  });
+});
+
+/**
+ * The frozen diagnostic itself. usage.py:124 interpolates `out.stderr[:400]` into a message
+ * compared byte-for-byte, so the helper agreeing with CPython is necessary but not
+ * sufficient — the call site has to be the thing using it.
+ */
+test("the parse-failure diagnostic truncates stderr like Python (ISS-001)", {
+  skip: sliceOracle === null ? "python3 is unavailable" : false,
+}, () => {
+  const STDERRS = [EMOJI.repeat(500), "a".repeat(399) + EMOJI + "TAIL", "plain"];
+  const want = pyStrings(
+    `
+import json, sys
+print(json.dumps([s[:400] for s in json.loads(sys.stdin.read())], ensure_ascii=True))
+`,
+    STDERRS,
+  );
+
+  STDERRS.forEach((stderr, i) => {
+    // status 0 with unparseable stdout lands on the parse branch, which is the only place
+    // this truncation is reachable.
+    const deps = createDeps({ CCUSAGE_CMD: "ccusage" }, "/h", () => ({
+      status: 0,
+      stdout: "not json",
+      stderr,
+    }));
+    assert.throws(
+      () => runCcusage({ deps, config: DEFAULT_CONFIG }, ["daily", "--json"]),
+      (e) => {
+        assert.ok(e instanceof UsageError, `case ${i}: ${e}`);
+        const marker = "stderr: ";
+        const tail = e.message.slice(e.message.indexOf(marker) + marker.length);
+        assert.equal(tail, want[i], `case ${i}: message must carry Python's 400 code points`);
+        assert.ok(!endsUnpaired(tail), `case ${i}: message ends in an unpaired surrogate`);
         return true;
       },
     );

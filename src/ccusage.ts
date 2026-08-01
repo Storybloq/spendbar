@@ -13,6 +13,7 @@
 import { UsageError } from "./errors.js";
 import type { Ctx } from "./context.js";
 import { pyStrip } from "./pystr.js";
+import { pySlice } from "./format.js";
 import { normDate } from "./dates.js";
 import {
   validateCodexDaily,
@@ -49,7 +50,8 @@ export function runCcusage(ctx: Ctx, args: string[]): unknown {
     return JSON.parse(res.stdout);
   } catch {
     throw new UsageError(
-      `could not parse ccusage output.\ncmd: ${cmdStr}\nstderr: ${res.stderr.slice(0, 400)}`,
+      // `pySlice`, not `.slice()`: usage.py:124 cuts 400 code points, not 400 UTF-16 units.
+      `could not parse ccusage output.\ncmd: ${cmdStr}\nstderr: ${pySlice(res.stderr, 400)}`,
     );
   }
 }

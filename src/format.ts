@@ -140,6 +140,34 @@ export function pyLen(s: string): number {
   return n;
 }
 
+/**
+ * CPython `s[:n]`: the first `n` CODE POINTS (ISS-001).
+ *
+ * `s.slice(0, n)` counts UTF-16 code units, so it takes fewer characters than Python
+ * whenever the prefix holds astral text, and — worse — can cut between a surrogate pair,
+ * leaving a lone surrogate that becomes U+FFFD on the way out. The one call site is the
+ * `stderr:` tail of a frozen diagnostic, so both the short read and the mojibake are
+ * visible divergences in a message that is compared byte-for-byte.
+ *
+ * Scans rather than `[...s].slice(0, n).join("")` for the same reasons as `pyLen` above:
+ * it never materialises an array, and an unpaired surrogate counts as one code point here
+ * exactly as it does in CPython. Advancing past a complete pair is what makes splitting one
+ * unrepresentable rather than merely unlikely.
+ */
+export function pySlice(s: string, n: number): string {
+  if (n <= 0) return "";
+  let i = 0;
+  for (let count = 0; i < s.length && count < n; count++) {
+    const c = s.charCodeAt(i);
+    i++;
+    if (c >= 0xd800 && c <= 0xdbff && i < s.length) {
+      const d = s.charCodeAt(i);
+      if (d >= 0xdc00 && d <= 0xdfff) i++;
+    }
+  }
+  return s.slice(0, i);
+}
+
 /** CPython `f"{s:<width>}"` for a string: left-aligned, never truncates. */
 export function padRight(s: string, width: number): string {
   const len = pyLen(s);
