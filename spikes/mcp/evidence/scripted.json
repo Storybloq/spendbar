@@ -30,9 +30,44 @@
     "failed": 0,
     "isolation": {
       "builtins": 8,
+      "everyCaseInstrumented": true,
       "insidePrefix": 4280,
       "ok": true,
       "oppositeSdkProbe": "not-found",
+      "perCase": {
+        "broken-framing": {
+          "total": 536,
+          "violations": 0
+        },
+        "cancellation": {
+          "total": 536,
+          "violations": 0
+        },
+        "client-eof": {
+          "total": 536,
+          "violations": 0
+        },
+        "initialize": {
+          "total": 536,
+          "violations": 0
+        },
+        "schema-violation": {
+          "total": 536,
+          "violations": 0
+        },
+        "stdout-purity": {
+          "total": 536,
+          "violations": 0
+        },
+        "tools-call": {
+          "total": 536,
+          "violations": 0
+        },
+        "tools-list": {
+          "total": 536,
+          "violations": 0
+        }
+      },
       "resolutionsTotal": 4288,
       "violations": []
     },
@@ -70,9 +105,44 @@
     "failed": 0,
     "isolation": {
       "builtins": 8,
+      "everyCaseInstrumented": true,
       "insidePrefix": 1624,
       "ok": true,
       "oppositeSdkProbe": "not-found",
+      "perCase": {
+        "broken-framing": {
+          "total": 204,
+          "violations": 0
+        },
+        "cancellation": {
+          "total": 204,
+          "violations": 0
+        },
+        "client-eof": {
+          "total": 204,
+          "violations": 0
+        },
+        "initialize": {
+          "total": 204,
+          "violations": 0
+        },
+        "schema-violation": {
+          "total": 204,
+          "violations": 0
+        },
+        "stdout-purity": {
+          "total": 204,
+          "violations": 0
+        },
+        "tools-call": {
+          "total": 204,
+          "violations": 0
+        },
+        "tools-list": {
+          "total": 204,
+          "violations": 0
+        }
+      },
       "resolutionsTotal": 1632,
       "violations": []
     },

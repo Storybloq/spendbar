@@ -38,6 +38,11 @@ const check = (cond, msg) => {
   if (!cond) throw new CaseFailure(msg);
 };
 
+// Candidate-controlled output is bounded: a runaway server must fail its case, not exhaust
+// the runner (review round 1). The raw byte COUNT keeps accumulating past the cap so the
+// diagnostic can say how much was discarded.
+const MAX_STREAM_BYTES = 5_000_000;
+
 /** Newline-JSON scripted client around a spawned server process. */
 class Harness {
   constructor(child) {
@@ -47,10 +52,24 @@ class Harness {
     this.messages = [];
     this.byId = new Map();
     this.exited = null;
+    this.closed = null; // exit AND both stdio streams drained — what waits should key on
+    this.spawnError = null;
+    this.overflow = null;
     this.listeners = new Set();
     let buf = "";
+    child.on("error", (error) => {
+      // A spawn failure (or late child error) is harness STATE, never an uncaught throw
+      // that would abort the remaining cases of a no-short-circuit run.
+      this.spawnError = error;
+      this.#notify();
+    });
+    child.stdin.on("error", () => {
+      // EPIPE from a server that died mid-write (framing-dies, args-crash): the death itself
+      // is what the case observes; the broken pipe must not crash the suite.
+    });
     child.stdout.on("data", (d) => {
-      this.stdoutRaw += d;
+      if (this.stdoutRaw.length < MAX_STREAM_BYTES) this.stdoutRaw += d;
+      else this.overflow ??= "stdout";
       buf += d;
       let idx;
       while ((idx = buf.indexOf("\n")) >= 0) {
@@ -69,13 +88,19 @@ class Harness {
         }
         this.#notify();
       }
+      if (this.overflow) this.#notify();
     });
     child.stderr.on("data", (d) => {
-      this.stderrRaw += d;
+      if (this.stderrRaw.length < MAX_STREAM_BYTES) this.stderrRaw += d;
+      else this.overflow ??= "stderr";
       this.#notify();
     });
     child.on("exit", (code, signal) => {
       this.exited = { code, signal };
+      this.#notify();
+    });
+    child.on("close", (code, signal) => {
+      this.closed = { code, signal };
       this.#notify();
     });
   }
@@ -84,20 +109,37 @@ class Harness {
     for (const fn of [...this.listeners]) fn();
   }
 
-  /** Await `predicate()`; on deadline, dispose of the child and fail the case. */
+  /** Await `predicate()`; spawn errors and stream overflow fail the case immediately; on
+   *  deadline, dispose of the child and fail the case. */
   async waitFor(predicate, timeoutMs, what) {
+    const trouble = () => {
+      if (this.spawnError) return `server process error: ${this.spawnError.message}`;
+      if (this.overflow) return `server ${this.overflow} exceeded ${MAX_STREAM_BYTES} bytes`;
+      return null;
+    };
+    const early = trouble();
+    if (early && !predicate()) {
+      await this.dispose();
+      throw new CaseFailure(early);
+    }
     if (predicate()) return;
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.listeners.delete(onEvent);
-        this.dispose();
-        reject(new CaseFailure(`timed out after ${timeoutMs}ms waiting for ${what}`));
+        this.dispose().then(() => reject(new CaseFailure(`timed out after ${timeoutMs}ms waiting for ${what}`)));
       }, timeoutMs);
       const onEvent = () => {
         if (predicate()) {
           clearTimeout(timer);
           this.listeners.delete(onEvent);
           resolve();
+          return;
+        }
+        const bad = trouble();
+        if (bad) {
+          clearTimeout(timer);
+          this.listeners.delete(onEvent);
+          this.dispose().then(() => reject(new CaseFailure(bad)));
         }
       };
       this.listeners.add(onEvent);
@@ -131,23 +173,44 @@ class Harness {
     await this.waitFor(() => this.stderrRaw.includes(substring), timeoutMs, what);
   }
 
-  async waitExit(timeoutMs) {
+  /** Await exit AND drained stdio ('close'), so stream inspection sees every byte. Returns
+   *  null on deadline — callers that treat a non-close as a verdict must check for it. */
+  async waitClose(timeoutMs) {
     try {
-      await this.waitFor(() => this.exited !== null, timeoutMs, "process exit");
+      await this.waitFor(() => this.closed !== null, timeoutMs, "process close (exit + drained stdio)");
     } catch (error) {
-      if (error instanceof CaseFailure) return null; // caller owns the verdict on a non-exit
+      if (error instanceof CaseFailure) return null;
       throw error;
     }
-    return this.exited;
+    return this.closed;
   }
 
   settle(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  dispose() {
-    if (this.exited === null) this.child.kill("SIGKILL");
-    this.child.stdin.destroy();
+  /** Asynchronous and idempotent: kill if alive, then await 'close' (bounded) so the next
+   *  case never starts while this child still holds the root or its streams. */
+  async dispose() {
+    if (this.disposing) return this.disposing;
+    this.disposing = (async () => {
+      this.child.stdin.destroy();
+      if (this.exited === null) this.child.kill("SIGKILL");
+      if (this.closed === null) {
+        await new Promise((resolve) => {
+          const timer = setTimeout(resolve, 3_000); // best effort; an unkillable child cannot block the run forever
+          this.child.on("close", () => {
+            clearTimeout(timer);
+            resolve();
+          });
+          if (this.closed !== null) {
+            clearTimeout(timer);
+            resolve();
+          }
+        });
+      }
+    })();
+    return this.disposing;
   }
 }
 
@@ -275,9 +338,9 @@ export const CASES = [
     async run(h) {
       await initialize(h);
       h.child.stdin.end();
-      const exited = await h.waitExit(EXIT_DEADLINE);
-      check(exited !== null, `server still alive ${EXIT_DEADLINE}ms after client EOF`);
-      check(exited.code === 0, `server exited ${exited.code}/${exited.signal} on EOF, expected 0`);
+      const closed = await h.waitClose(EXIT_DEADLINE);
+      check(closed !== null, `server still alive ${EXIT_DEADLINE}ms after client EOF`);
+      check(closed.code === 0, `server exited ${closed.code}/${closed.signal} on EOF, expected 0`);
     },
   },
   {
@@ -288,7 +351,11 @@ export const CASES = [
       await h.request(2, "tools/list");
       await callProbe(h, { nonce: "purity" });
       h.child.stdin.end();
-      await h.waitExit(EXIT_DEADLINE);
+      // The clean close is REQUIRED before inspection: a null here (still alive, undrained
+      // streams) must fail the case, not let it judge a partial capture (review round 1).
+      const closed = await h.waitClose(EXIT_DEADLINE);
+      check(closed !== null, `server did not close within ${EXIT_DEADLINE}ms; stream inspection would be partial`);
+      check(closed.code === 0, `server exited ${closed.code}/${closed.signal}, expected 0`);
       for (const line of h.stdoutRaw.split("\n").filter((l) => l.trim() !== "")) {
         let msg;
         try {
@@ -303,16 +370,20 @@ export const CASES = [
   },
 ];
 
-/** Run one case against a fresh child; expected failures come back as data, never throws. */
+/** Run one case against a fresh child; expected failures come back as data, never throws —
+ *  including a spawn that fails synchronously, which must be a recorded case failure rather
+ *  than an abort of the remaining cases. Disposal is awaited so the child is fully closed
+ *  before the caller reuses (or removes) anything the child referenced. */
 export async function runCase(def, spawnFn) {
-  const h = new Harness(spawnFn());
+  let h = null;
   try {
+    h = new Harness(spawnFn(def.name));
     await def.run(h);
     return { status: "pass" };
   } catch (error) {
     return { status: "fail", detail: String(error.message ?? error) };
   } finally {
-    h.dispose();
+    if (h) await h.dispose();
   }
 }
 
@@ -333,18 +404,37 @@ export function spawnMutant(mutant) {
 export async function runCandidate(candidate) {
   const { root, resolveLog, cleanup } = assembleCandidateRoot(candidate);
   try {
-    const spawnFn = () =>
+    // One resolution log PER CASE PROCESS, validated immediately after that child closes.
+    // A shared log cannot prove every server was instrumented: records from an earlier
+    // process would keep it nonempty while a later uninstrumented child contributed nothing
+    // (review round 1). runCase awaits disposal, so each log is complete when checked.
+    const logFor = (name) => `${resolveLog}.${name}`;
+    const spawnFn = (caseName) =>
       spawn(process.execPath, ["--import", "./instrument.mjs", "server.mjs"], {
         cwd: root,
-        env: buildServerEnv({ resolveLog }),
+        env: buildServerEnv({ resolveLog: logFor(caseName) }),
         stdio: ["pipe", "pipe", "pipe"],
       });
     const cases = {};
+    const perCase = {};
+    const resolutions = { total: 0, builtins: 0, inside: 0, violations: [] };
+    let everyCaseInstrumented = true;
     for (const def of CASES) {
       cases[def.name] = await runCase(def, spawnFn); // every case runs; failures accumulate
+      try {
+        const r = checkResolutions(logFor(def.name), root);
+        perCase[def.name] = { total: r.total, violations: r.violations.length };
+        resolutions.total += r.total;
+        resolutions.builtins += r.builtins;
+        resolutions.inside += r.inside;
+        resolutions.violations.push(...r.violations);
+      } catch (error) {
+        // Includes the empty-log case: this child ran WITHOUT working instrumentation, so
+        // its result proves nothing about isolation — recorded, and it breaks the aggregate.
+        perCase[def.name] = { error: String(error.message ?? error) };
+        everyCaseInstrumented = false;
+      }
     }
-
-    const resolutions = checkResolutions(resolveLog, root);
     const sdk = candidate === "v1" ? "@modelcontextprotocol/sdk" : "@modelcontextprotocol/server";
     const opposite = candidate === "v1" ? "@modelcontextprotocol/server" : "@modelcontextprotocol/sdk";
     let oppositeSdkProbe;
@@ -358,7 +448,8 @@ export async function runCandidate(candidate) {
       readFileSync(join(root, "node_modules", ...sdk.split("/"), "package.json"), "utf8"),
     ).version;
 
-    const isolationOk = resolutions.violations.length === 0 && oppositeSdkProbe === "not-found";
+    const isolationOk =
+      everyCaseInstrumented && resolutions.violations.length === 0 && oppositeSdkProbe === "not-found";
     const failedCases = Object.values(cases).filter((c) => c.status === "fail").length;
     return {
       candidate,
@@ -370,6 +461,8 @@ export async function runCandidate(candidate) {
         builtins: resolutions.builtins,
         insidePrefix: resolutions.inside,
         violations: resolutions.violations,
+        perCase,
+        everyCaseInstrumented,
         oppositeSdkProbe,
         ok: isolationOk,
       },
