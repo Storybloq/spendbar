@@ -19,6 +19,13 @@
     "spikes/mcp/instrument.mjs": "bf574b1710dd1227bb3dda1614cfe014e4f35f629be37abe47d60e133eece33d",
     "spikes/mcp/isolate.mjs": "2b29a9011ccba7651f9c2cb6e4485dfd589757dc8f1f0bcdad2b720c2d105473",
     "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
+    "spikes/mcp/real-client/capture-wrapper.mjs": "c715be25baff7329d42c471bf384831f6b77f6e2d23ae5373d4193c6b3936549",
+    "spikes/mcp/real-client/capture.mjs": "a94268efe2d4e0e98a8a0f1bbecf00629459e8395dee2caba892d7fd9dbcdf6b",
+    "spikes/mcp/real-client/classify.mjs": "397fa206cde796b4ef6c229e462fe50b6c7093ca4fa1c30f323a94ea925962ab",
+    "spikes/mcp/real-client/normalize.mjs": "ac5b8b1811115299de9f27e396aaf3ce0122991e440da5c94dfff8832a8d388d",
+    "spikes/mcp/real-client/receipt.mjs": "cbdcdbcbcba50370bbc41d157d7b5a1c9895f384d550920472a2171e5c8dc188",
+    "spikes/mcp/real-client/sanitize.mjs": "bec24e4e1ded221e9d59e41db83daacc60ef23e0af91b908a87774268cac9a9f",
+    "spikes/mcp/supply-chain.mjs": "be6cf584c4b56f05d6c7d2ffe3b0f298e3e39f28e72b696d748f2f2850224876",
     "spikes/mcp/token-cost.mjs": "0932a60bc8327fb3d62adea7455f72676adff7f30c5e041395181b1a5fe7eee6"
   },
   "notes": [

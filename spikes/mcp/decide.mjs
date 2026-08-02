@@ -92,6 +92,14 @@ function collectNotRun(verified) {
   return unavailable;
 }
 
+/** Evidence-controlled strings rendered into Markdown: single line, pipes escaped, bounded —
+ *  an embedded newline or table pipe must not make the document visually disagree with the
+ *  structured evidence it was generated from (review round 1). */
+const md = (value) => {
+  const s = String(value).replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
+  return s.length > 500 ? `${s.slice(0, 500)}…` : s;
+};
+
 /** The decision document is GENERATED from the verifier output so prose cannot disagree. */
 export function renderDecisionDoc(verified, decision) {
   const { outcome, aggregates } = decision;
@@ -103,14 +111,14 @@ export function renderDecisionDoc(verified, decision) {
   lines.push(`| candidate | SDK | version | result |`);
   lines.push(`|---|---|---|---|`);
   for (const c of ["v2", "v1"]) {
-    lines.push(`| ${c} | ${verified.sdk[c]} | ${verified.versions[c]} | ${aggregates[c]} |`);
+    lines.push(`| ${c} | ${md(verified.sdk[c])} | ${md(verified.versions[c])} | ${aggregates[c]} |`);
   }
   lines.push("");
   for (const c of ["v2", "v1"]) {
     lines.push(`## ${c} cells`);
     for (const name of MANDATORY_CELLS) {
       const cell = verified.cells[c][name];
-      lines.push(`- ${name}: ${cell.status}${cell.detail ? ` — ${cell.detail}` : ""}`);
+      lines.push(`- ${name}: ${cell.status}${cell.detail ? ` — ${md(cell.detail)}` : ""}`);
     }
     lines.push("");
   }
@@ -122,7 +130,7 @@ export function renderDecisionDoc(verified, decision) {
       `v1 ${verified.report.tokenCost.v1.canonicalBytes}B/${verified.report.tokenCost.v1.proxyTokens}t — ` +
       `no acceptance threshold; that is open question 3, an owner decision`,
   );
-  for (const note of verified.report.notes ?? []) lines.push(`- ${note}`);
+  for (const note of verified.report.notes ?? []) lines.push(`- ${md(note)}`);
   lines.push("");
   return lines.join("\n");
 }
@@ -145,6 +153,20 @@ export async function act1(decision, verified, deps) {
       throw new TransitionError(name, String(error?.message ?? error));
     }
   };
+
+  // The supplied decision is never trusted (review round 1): recompute it from the verified
+  // evidence and refuse any disagreement — otherwise an inconsistent or unknown outcome
+  // would fall through to the blocked branch and mutate the ticket graph.
+  const expected = decide(verified);
+  if (
+    decision.outcome !== expected.outcome ||
+    JSON.stringify(decision.aggregates) !== JSON.stringify(expected.aggregates)
+  ) {
+    throw new TransitionError(
+      "decision-recompute",
+      `supplied decision ${JSON.stringify(decision)} does not equal the recomputed ${JSON.stringify(expected)}`,
+    );
+  }
 
   if (decision.outcome === "incomplete") {
     await step("attempt-report", () =>
@@ -170,6 +192,22 @@ export async function act1(decision, verified, deps) {
     ticket = await step("create-resolution-ticket", () =>
       deps.graph.createResolutionTicket(dedupeKey, decision, verified),
     );
+  }
+  // Locate/create results are not trusted either: re-read the ticket and require that it
+  // exists, is open, and carries the semantic dedupe key before it touches T-013 (review
+  // round 1) — a stale or malformed result must fail closed, not attach.
+  const back = await step("read-back-resolution-ticket", () => deps.graph.readTicket(ticket.id));
+  if (!back || typeof back !== "object") {
+    throw new TransitionError("read-back-resolution-ticket", `ticket ${ticket.id} could not be read back`);
+  }
+  if (typeof back.title !== "string" || !back.title.includes(dedupeKey)) {
+    throw new TransitionError(
+      "read-back-resolution-ticket",
+      `ticket ${ticket.id} does not carry dedupe key '${dedupeKey}' in its title`,
+    );
+  }
+  if (["done", "cancelled"].includes(back.status)) {
+    throw new TransitionError("read-back-resolution-ticket", `ticket ${ticket.id} is ${back.status}, not open`);
   }
   await step("attach-blocker", () => deps.graph.attachBlocker("T-013", ticket.id));
   const t013 = await step("read-back-t013", () => deps.graph.readTicket("T-013"));

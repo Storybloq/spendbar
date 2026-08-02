@@ -122,7 +122,12 @@ function verifiedFixture(v2Status, v1Status) {
   };
 }
 
-function spyDeps({ existingTicket = null, failAt = null, blockedByAfterAttach = true } = {}) {
+function spyDeps({
+  existingTicket = null,
+  failAt = null,
+  blockedByAfterAttach = true,
+  resolutionTicketBack = null, // override the read-back record for the resolution ticket
+} = {}) {
   const calls = [];
   const fail = (step) => {
     if (failAt === step) throw new Error(`injected ${step} failure`);
@@ -159,6 +164,16 @@ function spyDeps({ existingTicket = null, failAt = null, blockedByAfterAttach = 
       },
       readTicket(id) {
         calls.push(`read:${id}`);
+        if (id === "T-900") {
+          fail("read-back-resolution-ticket");
+          return (
+            resolutionTicketBack ?? {
+              id,
+              title: "No supported MCP SDK (T-009:no-supported-sdk:2.0.0+1.30.0)",
+              status: "open",
+            }
+          );
+        }
         fail("read-back-t013");
         return { id, blockedBy: blockedByAfterAttach ? ["T-900"] : [] };
       },
@@ -198,6 +213,7 @@ test("act1 on blocked: dedupe-keyed ticket, attach, read-back, then the document
   assert.deepEqual(deps.calls, [
     "locate:T-009:no-supported-sdk:2.0.0+1.30.0",
     "create:T-009:no-supported-sdk:2.0.0+1.30.0",
+    "read:T-900",
     "attach:T-013:T-900",
     "read:T-013",
     "decision-doc",
@@ -222,11 +238,58 @@ test("act1 trusts the read-back, not the write: a lying attach is a transition e
   assert.equal(deps.docs.length, 0, "decision document written despite failed read-back");
 });
 
+test("act1 recomputes the decision and refuses a supplied one that disagrees — before any effect", async () => {
+  const verified = verifiedFixture("pass", "pass"); // truth: adopt-v2
+  const deps = spyDeps();
+  await assert.rejects(
+    () => act1({ outcome: "blocked", aggregates: { v2: "fail", v1: "fail" } }, verified, deps),
+    (e) => e instanceof TransitionError && e.step === "decision-recompute",
+  );
+  assert.deepEqual(deps.calls, [], `effects ran on a mismatched decision: ${deps.calls}`);
+});
+
+test("act1 refuses an unknown outcome before any effect", async () => {
+  const verified = verifiedFixture("fail", "fail");
+  const deps = spyDeps();
+  await assert.rejects(
+    () => act1({ outcome: "adopt-v3", aggregates: { v2: "fail", v1: "fail" } }, verified, deps),
+    (e) => e instanceof TransitionError && e.step === "decision-recompute",
+  );
+  assert.deepEqual(deps.calls, []);
+});
+
+test("act1 on blocked verifies the resolution ticket read-back: a missing dedupe key fails closed", async () => {
+  const verified = verifiedFixture("fail", "fail");
+  const deps = spyDeps({ resolutionTicketBack: { id: "T-900", title: "Some other ticket", status: "open" } });
+  await assert.rejects(
+    () => act1(decide(verified), verified, deps),
+    (e) => e instanceof TransitionError && e.step === "read-back-resolution-ticket",
+  );
+  assert.ok(!deps.calls.some((c) => c.startsWith("attach:")), `attached despite bad read-back: ${deps.calls}`);
+});
+
+test("act1 on blocked refuses a resolution ticket that read back closed", async () => {
+  const verified = verifiedFixture("fail", "fail");
+  const deps = spyDeps({
+    resolutionTicketBack: {
+      id: "T-900",
+      title: "No supported MCP SDK (T-009:no-supported-sdk:2.0.0+1.30.0)",
+      status: "done",
+    },
+  });
+  await assert.rejects(
+    () => act1(decide(verified), verified, deps),
+    (e) => e instanceof TransitionError && e.step === "read-back-resolution-ticket",
+  );
+  assert.ok(!deps.calls.some((c) => c.startsWith("attach:")));
+});
+
 test("act1: an injected failure at each step surfaces as that step's transition error", async () => {
   const verified = verifiedFixture("fail", "fail");
   for (const step of [
     "locate-resolution-ticket",
     "create-resolution-ticket",
+    "read-back-resolution-ticket",
     "attach-blocker",
     "read-back-t013",
     "decision-doc",
@@ -238,6 +301,18 @@ test("act1: an injected failure at each step surfaces as that step's transition 
       `step ${step}`,
     );
   }
+});
+
+test("evidence-controlled strings cannot corrupt the decision document's markdown", () => {
+  const verified = verifiedFixture("pass", "fail");
+  verified.sdk.v2 = "evil|name\nsecond-line";
+  verified.cells.v1["scripted:initialize"] = { status: "fail", detail: "bad | pipe\nand newline" };
+  verified.report.notes = ["note with | pipe"];
+  const doc = renderDecisionDoc(verified, decide(verified));
+  assert.ok(doc.includes("| v2 | evil\\|name second-line |".replace("| v2 | ", "| v2 | ")), "sdk not escaped");
+  assert.ok(!doc.includes("evil|name"), "raw pipe survived into the table");
+  assert.ok(doc.includes("bad \\| pipe and newline"), "detail not escaped/normalized");
+  assert.ok(doc.includes("note with \\| pipe"), "note not escaped");
 });
 
 test("the decision document is generated from the data and reports without gating", () => {
@@ -316,14 +391,14 @@ test("a one-byte mutation of the probe source is rejected — versions and resul
 test("a missing scripted case is rejected", () => {
   withFixture(({ evidenceDir, repoRoot, mutate }) => {
     mutate("scripted.json", (s) => delete s.v1.cases["cancellation"]);
-    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /missing case 'cancellation'/);
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /v1\.cases has keys .* expected exactly/);
   });
 });
 
 test("an unknown scripted case is rejected", () => {
   withFixture(({ evidenceDir, repoRoot, mutate }) => {
     mutate("scripted.json", (s) => (s.v2.cases["bonus-case"] = { status: "pass" }));
-    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /unknown case 'bonus-case'/);
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /v2\.cases has keys .*bonus-case.* expected exactly/);
   });
 });
 
@@ -361,6 +436,7 @@ test("even a fully failing scripted matrix cannot reach blocked while real cells
     mutate("scripted.json", (s) => {
       for (const c of ["v1", "v2"]) {
         for (const name of Object.keys(s[c].cases)) s[c].cases[name] = { status: "fail" };
+        s[c].failed = Object.keys(s[c].cases).length; // keep the internal consistency the verifier checks
       }
     });
     const verified = verifyEvidence({ evidenceDir, repoRoot });
@@ -368,10 +444,14 @@ test("even a fully failing scripted matrix cannot reach blocked while real cells
   });
 });
 
-test("real-client cells with recorded outcomes complete the matrix and unlock a verdict", () => {
+test("hand-fabricated real-client cells with no receipt are refused, never accepted", () => {
+  // Review round 1: a cells.json alone must not complete the matrix — the verifier demands
+  // the receipt and per-cell manifests it re-derives from. (The positive path — recorded
+  // cells + receipt + manifests unlocking adopt-v2 — is the committed-evidence test above.)
   withFixture(({ evidenceDir, repoRoot }) => {
+    rmSync(join(evidenceDir, "real-clients"), { recursive: true, force: true });
     mkdirSync(join(evidenceDir, "real-clients"), { recursive: true });
-    const cell = { status: "pass", clientVersion: "0.0.0-fixture" };
+    const cell = { status: "pass", traceDigest: "0".repeat(64), clientVersion: "0.0.0-fixture" };
     writeFileSync(
       join(evidenceDir, "real-clients", "cells.json"),
       JSON.stringify({
@@ -379,9 +459,84 @@ test("real-client cells with recorded outcomes complete the matrix and unlock a 
         v2: { "claude-code": cell, codex: cell },
       }),
     );
-    const verified = verifyEvidence({ evidenceDir, repoRoot });
-    assert.equal(decide(verified).outcome, "adopt-v2");
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /receipt\.json is absent/);
   });
+});
+
+test("a flipped real-client status is caught by re-derivation from the manifest", () => {
+  withFixture(({ evidenceDir, repoRoot }) => {
+    const p = join(evidenceDir, "real-clients", "cells.json");
+    const cells = JSON.parse(readFileSync(p, "utf8"));
+    cells.v1["claude-code"].status = "fail";
+    writeFileSync(p, JSON.stringify(cells, null, 2));
+    assert.throws(
+      () => verifyEvidence({ evidenceDir, repoRoot }),
+      /records status 'fail' but the manifest re-derives 'pass'/,
+    );
+  });
+});
+
+test("a missing sanitized manifest is refused", () => {
+  withFixture(({ evidenceDir, repoRoot }) => {
+    rmSync(join(evidenceDir, "real-clients", "codex-v2.manifest.json"));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /manifest is absent/);
+  });
+});
+
+test("a receipt whose digests disagree with the manifest is refused", () => {
+  withFixture(({ evidenceDir, repoRoot }) => {
+    const p = join(evidenceDir, "real-clients", "receipt.json");
+    const receipts = JSON.parse(readFileSync(p, "utf8"));
+    receipts[0].reproduced.derivationDigest = "0".repeat(64);
+    writeFileSync(p, JSON.stringify(receipts, null, 2));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /disagree with the manifest/);
+  });
+});
+
+test("a duplicated key in an evidence file is refused — JSON.parse's last-wins is not accepted", () => {
+  withFixture(({ evidenceDir, repoRoot }) => {
+    const p = join(evidenceDir, "token-cost.json");
+    const text = readFileSync(p, "utf8");
+    // Duplicate the proxyVersion key: one value for a human reader, one for the machine.
+    writeFileSync(p, text.replace('"proxyVersion":', '"proxyVersion": "decoy/v0", "proxyVersion":'));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /duplicate key 'proxyVersion'/);
+  });
+});
+
+test("an unknown field on a candidate record is refused at the top level too", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    mutate("scripted.json", (s) => (s.v1.reviewedBy = "nobody"));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /unknown field 'reviewedBy'/);
+  });
+});
+
+test("a tampered token count that no longer follows from the recorded bytes is refused", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    mutate("token-cost.json", (t) => (t.v2.proxyTokens = 1));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /does not follow from canonicalBytes/);
+  });
+});
+
+test("an inconsistent failed count on a candidate record is refused", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    mutate("scripted.json", (s) => (s.v1.failed = 7));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /inconsistent/);
+  });
+});
+
+test("EVERY bound producer's digest is enforced — a stale recorded digest for each file refuses", () => {
+  // Review round 1: each evidence-producing input must independently invalidate stale
+  // evidence. One fixture per bound input, corrupting only that file's recorded digest.
+  for (const rel of BOUND_INPUTS) {
+    withFixture(({ evidenceDir, repoRoot, mutate }) => {
+      mutate("inputs.json", (i) => (i.files[rel] = "0".repeat(64)));
+      assert.throws(
+        () => verifyEvidence({ evidenceDir, repoRoot }),
+        /changed since capture/,
+        `bound input ${rel} did not enforce staleness`,
+      );
+    });
+  }
 });
 
 test("the committed matrix recorded every scripted case for both candidates — no short-circuit", () => {
