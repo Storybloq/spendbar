@@ -1,0 +1,70 @@
+[
+  {
+    "captureId": "claude-code-v1-e338143b",
+    "client": "claude-code",
+    "candidate": "v1",
+    "reproduced": {
+      "clientToServerSha256": "c86c744ed8faa93a760025519ec0f0e0fdd38e1974a79b5e4d4136fc9c491f0e",
+      "serverStdoutSha256": "a233c44cd4a80c1e8415a400bc9d922816a4d5b26f6b4d67864f8b800fde38a6",
+      "serverStderrSha256": "53c2434a4a18fce9dde586cae35592aa1470901efa7da557477e5778df5b1c4f",
+      "derivationDigest": "02d8dc7d14c022a7a64bec1ebc48022cf86197491ef2c8436a17cbbe38e99424"
+    },
+    "rawStatistics": {
+      "bytes": 1350,
+      "remainder": 0,
+      "parseErrors": 0
+    },
+    "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
+  },
+  {
+    "captureId": "claude-code-v2-8abc88cf",
+    "client": "claude-code",
+    "candidate": "v2",
+    "reproduced": {
+      "clientToServerSha256": "907c851006bbbc444387cf3f0ca4acd5dedbfad54fab82eb12790b04544919a1",
+      "serverStdoutSha256": "7df0e204d697688b47f43c5018cb4d563c6980407d1279a72db676fcd8818b00",
+      "serverStderrSha256": "3221e32c0b6d2d0e4bc4bd52e5c9c44d70f27f648891e7f0f808ccd3b3c828b8",
+      "derivationDigest": "7e0cd940e453d58fd1d488d02848a5cfe0ac339a21e9b3b1c0bb1e09dc445c08"
+    },
+    "rawStatistics": {
+      "bytes": 1320,
+      "remainder": 0,
+      "parseErrors": 0
+    },
+    "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
+  },
+  {
+    "captureId": "codex-v1-1bfbfd50",
+    "client": "codex",
+    "candidate": "v1",
+    "reproduced": {
+      "clientToServerSha256": "a9b1238b11525dfdaab70ea70760b452ab24811b17d76320c9564383fd015371",
+      "serverStdoutSha256": "adc5f3b2f32049df22bab5ddc0a3f76d54864d776fa20201ef20001abc9da173",
+      "serverStderrSha256": "3fa9582abb0bf9678503bac6021de76b4f34de1c2cf6560d684249e87266048e",
+      "derivationDigest": "be0bca2db013ae6c09ce19851d68952c7f9d109db96771be89c15eb46c107e7b"
+    },
+    "rawStatistics": {
+      "bytes": 1350,
+      "remainder": 0,
+      "parseErrors": 0
+    },
+    "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
+  },
+  {
+    "captureId": "codex-v2-9791d5e6",
+    "client": "codex",
+    "candidate": "v2",
+    "reproduced": {
+      "clientToServerSha256": "6e326f0cd65aa0a98f3c6974f7c6d5030fba96cf0917712e19a9226b78da2043",
+      "serverStdoutSha256": "1a787faa56e10c1d3c98b06a43545e36bfe8842c494a9dde16a8f1cec543f482",
+      "serverStderrSha256": "82234f5bc6f7b86cc2fe7682c9df39e794a70b6b24d8f11de07cc0de37adcf12",
+      "derivationDigest": "6ce155e5b7d746025b033765ca960b115f0bb3229d36a926d00a4a946fe4fa4d"
+    },
+    "rawStatistics": {
+      "bytes": 1320,
+      "remainder": 0,
+      "parseErrors": 0
+    },
+    "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
+  }
+]

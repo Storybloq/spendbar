@@ -59,11 +59,17 @@ const NEEDS_PYTHON = [
 
 /**
  * Python-free, but they need a toolchain this stripped PATH deliberately removes: the packaging
- * contract shells out to `npm pack`, and the schema contract drives the real ccusage binary.
- * Excluded here and run by `npm run test:contract` instead — recorded as its own category
- * rather than lumped in with NEEDS_PYTHON, which would misstate why they are absent.
+ * contract shells out to `npm pack`, the schema contract drives the real ccusage binary, and
+ * the privacy-scan suite builds real git fixture repositories.
+ * Excluded here and run elsewhere (the contracts by `npm run test:contract`, the privacy-scan
+ * suite by `npm test`) — recorded as its own category rather than lumped in with
+ * NEEDS_PYTHON, which would misstate why they are absent.
  */
-const NEEDS_TOOLCHAIN = ["contract/packaging.contract.mjs", "contract/schema.contract.mjs"];
+const NEEDS_TOOLCHAIN = [
+  "contract/packaging.contract.mjs",
+  "contract/schema.contract.mjs",
+  "privacy-scan.test.mjs",
+];
 
 // ------------------------------------------------------------------ classification guard
 

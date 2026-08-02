@@ -1,0 +1,83 @@
+{
+  "captureId": "codex-v1-1bfbfd50",
+  "client": "codex",
+  "candidate": "v1",
+  "clientVersion": "codex-cli 0.144.0",
+  "promptSha256": "132d4baa74ecc6de23889d173bf2314a70fdd92615023a40fbce4f6da1ead2be",
+  "nonce": "t009-831ebd708aa5b102",
+  "executablePath": "<path:executablePath>",
+  "executableIdentity": "resolved-at-spawn-via-PATH",
+  "commandLine": [
+    "exec",
+    "--skip-git-repo-check",
+    "-c",
+    "<arg3:path>",
+    "-c",
+    "<arg5:path>",
+    "Call the MCP tool \"spendbar_probe\" exactly once, with the argument object {\"nonce\": \"t009-831ebd708aa5b102\"}. Do not call any other tool. Do not repeat, quote, or mention the nonce value anywhere in your reply. After the tool call succeeds, reply with exactly this single line and nothing else: SPENDBAR_PROBE_DONE"
+  ],
+  "env": [
+    "PATH"
+  ],
+  "cwd": "<path:cwd>",
+  "spawn": {
+    "client": {
+      "ok": true
+    },
+    "server": {
+      "ok": true
+    }
+  },
+  "environmental": null,
+  "timedOut": false,
+  "lastPhase": "called",
+  "clientExit": {
+    "code": 0,
+    "signal": null
+  },
+  "serverTermination": {
+    "signal": null
+  },
+  "frames": [
+    {
+      "type": "response",
+      "method": "initialize",
+      "protocolVersion": "2025-06-18"
+    },
+    {
+      "type": "response",
+      "method": "tools/list",
+      "toolNames": [
+        "spendbar_probe"
+      ]
+    },
+    {
+      "type": "response",
+      "method": "tools/call",
+      "structuredNonce": "t009-831ebd708aa5b102",
+      "text": "probe nonce=t009-831ebd708aa5b102 blocked=false",
+      "isError": false
+    }
+  ],
+  "serverStdout": {
+    "bytes": 1350,
+    "remainder": 0,
+    "parseErrors": 0
+  },
+  "serverStderr": {
+    "hasReadyLine": true,
+    "containsFrames": false
+  },
+  "clientStdout": {
+    "hasCompletionMarker": true,
+    "containsNonce": false,
+    "containsAllowlistedEnvValue": false
+  },
+  "digests": {
+    "clientToServerSha256": "a9b1238b11525dfdaab70ea70760b452ab24811b17d76320c9564383fd015371",
+    "serverStdoutSha256": "adc5f3b2f32049df22bab5ddc0a3f76d54864d776fa20201ef20001abc9da173",
+    "serverStderrSha256": "3fa9582abb0bf9678503bac6021de76b4f34de1c2cf6560d684249e87266048e",
+    "derivationDigest": "be0bca2db013ae6c09ce19851d68952c7f9d109db96771be89c15eb46c107e7b"
+  },
+  "retries": []
+}

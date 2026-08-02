@@ -1,0 +1,26 @@
+{
+  "v2": {
+    "claude-code": {
+      "status": "pass",
+      "traceDigest": "7e0cd940e453d58fd1d488d02848a5cfe0ac339a21e9b3b1c0bb1e09dc445c08",
+      "clientVersion": "2.1.220 (Claude Code)"
+    },
+    "codex": {
+      "status": "pass",
+      "traceDigest": "6ce155e5b7d746025b033765ca960b115f0bb3229d36a926d00a4a946fe4fa4d",
+      "clientVersion": "codex-cli 0.144.0"
+    }
+  },
+  "v1": {
+    "claude-code": {
+      "status": "pass",
+      "traceDigest": "02d8dc7d14c022a7a64bec1ebc48022cf86197491ef2c8436a17cbbe38e99424",
+      "clientVersion": "2.1.220 (Claude Code)"
+    },
+    "codex": {
+      "status": "pass",
+      "traceDigest": "be0bca2db013ae6c09ce19851d68952c7f9d109db96771be89c15eb46c107e7b",
+      "clientVersion": "codex-cli 0.144.0"
+    }
+  }
+}

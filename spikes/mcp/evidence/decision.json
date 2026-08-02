@@ -1,0 +1,11 @@
+{
+  "outcome": "adopt-v2",
+  "aggregates": {
+    "v2": "pass",
+    "v1": "pass"
+  },
+  "versions": {
+    "v1": "1.30.0",
+    "v2": "2.0.0"
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "captureId": "claude-code-v2-8abc88cf",
+  "client": "claude-code",
+  "candidate": "v2",
+  "clientVersion": "2.1.220 (Claude Code)",
+  "promptSha256": "132d4baa74ecc6de23889d173bf2314a70fdd92615023a40fbce4f6da1ead2be",
+  "nonce": "t009-5ab794a6c2fdcc84",
+  "executablePath": "<path:executablePath>",
+  "executableIdentity": "resolved-at-spawn-via-PATH",
+  "commandLine": [
+    "-p",
+    "Call the MCP tool \"spendbar_probe\" exactly once, with the argument object {\"nonce\": \"t009-5ab794a6c2fdcc84\"}. Do not call any other tool. Do not repeat, quote, or mention the nonce value anywhere in your reply. After the tool call succeeds, reply with exactly this single line and nothing else: SPENDBAR_PROBE_DONE",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "<arg4:path>",
+    "--settings",
+    "<arg6:path>"
+  ],
+  "env": [
+    "PATH"
+  ],
+  "cwd": "<path:cwd>",
+  "spawn": {
+    "client": {
+      "ok": true
+    },
+    "server": {
+      "ok": true
+    }
+  },
+  "environmental": null,
+  "timedOut": false,
+  "lastPhase": "called",
+  "clientExit": {
+    "code": 0,
+    "signal": null
+  },
+  "serverTermination": {
+    "signal": null
+  },
+  "frames": [
+    {
+      "type": "response",
+      "method": "initialize",
+      "protocolVersion": "2025-11-25"
+    },
+    {
+      "type": "response",
+      "method": "tools/list",
+      "toolNames": [
+        "spendbar_probe"
+      ]
+    },
+    {
+      "type": "response",
+      "method": "tools/call",
+      "structuredNonce": "t009-5ab794a6c2fdcc84",
+      "text": "probe nonce=t009-5ab794a6c2fdcc84 blocked=false",
+      "isError": false
+    }
+  ],
+  "serverStdout": {
+    "bytes": 1320,
+    "remainder": 0,
+    "parseErrors": 0
+  },
+  "serverStderr": {
+    "hasReadyLine": true,
+    "containsFrames": false
+  },
+  "clientStdout": {
+    "hasCompletionMarker": true,
+    "containsNonce": false,
+    "containsAllowlistedEnvValue": false
+  },
+  "digests": {
+    "clientToServerSha256": "907c851006bbbc444387cf3f0ca4acd5dedbfad54fab82eb12790b04544919a1",
+    "serverStdoutSha256": "7df0e204d697688b47f43c5018cb4d563c6980407d1279a72db676fcd8818b00",
+    "serverStderrSha256": "3221e32c0b6d2d0e4bc4bd52e5c9c44d70f27f648891e7f0f808ccd3b3c828b8",
+    "derivationDigest": "7e0cd940e453d58fd1d488d02848a5cfe0ac339a21e9b3b1c0bb1e09dc445c08"
+  },
+  "retries": []
+}

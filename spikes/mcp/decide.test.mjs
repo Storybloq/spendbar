@@ -275,13 +275,29 @@ function withFixture(fn) {
   }
 }
 
-test("the untouched fixture verifies, and with no real-client capture decide() is incomplete", () => {
+test("the committed evidence verifies offline, with the full mandatory set", () => {
+  // This is §5's "recorded evidence validated offline" running against the real record:
+  // structure, digests, isolation, supply chain, and all twenty cells.
+  const verified = verifyEvidence();
+  for (const c of ["v1", "v2"]) {
+    assert.deepEqual(Object.keys(verified.cells[c]).sort(), [...MANDATORY_CELLS].sort());
+  }
+  // The recorded verdict, pinned: both candidates pass everywhere, so the ticket's own
+  // go/no-go answers adopt-v2 — v1 is unselected, not failed. A future recapture that
+  // changes this must change this line WITH the evidence, never instead of it.
+  assert.equal(decide(verified).outcome, "adopt-v2");
+});
+
+test("with the real-client capture removed, decide() is incomplete", () => {
   withFixture(({ evidenceDir, repoRoot }) => {
+    rmSync(join(evidenceDir, "real-clients"), { recursive: true, force: true });
     const verified = verifyEvidence({ evidenceDir, repoRoot });
-    for (const c of ["v1", "v2"]) {
-      assert.deepEqual(Object.keys(verified.cells[c]).sort(), [...MANDATORY_CELLS].sort());
-    }
     assert.equal(decide(verified).outcome, "incomplete");
+    for (const c of ["v1", "v2"]) {
+      for (const client of REAL_CLIENTS) {
+        assert.equal(verified.cells[c][`real:${client}`].status, "not-run");
+      }
+    }
   });
 });
 
@@ -339,6 +355,7 @@ test("a supply-chain violation fails verification — the no-hooks precondition"
 
 test("even a fully failing scripted matrix cannot reach blocked while real cells are absent", () => {
   withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    rmSync(join(evidenceDir, "real-clients"), { recursive: true, force: true });
     mutate("scripted.json", (s) => {
       for (const c of ["v1", "v2"]) {
         for (const name of Object.keys(s[c].cases)) s[c].cases[name] = { status: "fail" };
