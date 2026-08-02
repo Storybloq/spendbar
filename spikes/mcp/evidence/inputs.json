@@ -27,11 +27,11 @@
     "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
     "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
     "spikes/mcp/real-client/capture.mjs": "a54701b4e4a619791acc3e118677351336e5158ee139a7bbb2d5b5db9a593aae",
-    "spikes/mcp/real-client/classify.mjs": "ae15f1562b68c840ef80ff34c2b7f902a91a78275428d7316d25934f73e67cc1",
+    "spikes/mcp/real-client/classify.mjs": "ef61fc7a656950b12de9cf89724c792cf818d7e4933cb2cd28e96e7d3364ad6c",
     "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
     "spikes/mcp/real-client/provenance.mjs": "1b63ccea67cc330e1748b85dd9a34ed72512f6b6af67e541b48e9cfa546d1658",
     "spikes/mcp/real-client/receipt.mjs": "68f5c41404cb1702c9f1a467b672ad619578a3213d64e7b1e9b7a67cff4b4cd6",
-    "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
+    "spikes/mcp/real-client/sanitize.mjs": "27ca6b5529845d27b04f910094a34b6325b5b9ed9c9ecec41a4ff43af043d325",
     "spikes/mcp/supply-chain.mjs": "720e7236d8c973824e52b9ced4017f23db81beee39488d8d83fc2824ecc4df1d",
     "spikes/mcp/token-cost.mjs": "0932a60bc8327fb3d62adea7455f72676adff7f30c5e041395181b1a5fe7eee6"
   },

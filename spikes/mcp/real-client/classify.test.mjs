@@ -26,6 +26,8 @@ import {
   SCHEMA,
   PLACEHOLDER,
   STREAM_STAT_KEYS,
+  looksLikePath,
+  independentlyPathLike,
 } from "./sanitize.mjs";
 import { CAPTURE_INPUTS } from "./provenance.mjs";
 import { buildClientEnv, CLIENT_ENV_ALLOWLIST } from "./capture.mjs";
@@ -92,6 +94,42 @@ function passingRecord() {
     },
   };
 }
+
+test("a committed record is judged on its text predicates exactly as a raw one is on its body", () => {
+  // A raw frame holds the tool-result body; a committed one does not, because the body is not
+  // evidence and is not published. The classifier accepts either shape and asserts the same two
+  // things about it, so the committed form is not judged more weakly than the raw form.
+  const committed = passingRecord();
+  const body = committed.frames[2].text;
+  delete committed.frames[2].text;
+  committed.frames[2].textLength = body.length;
+  committed.frames[2].textEchoesNonce = true;
+  assert.deepEqual(classify(committed, EXPECTED), { outcome: "pass", reasons: [] });
+
+  // Each predicate carries the weight the body used to: an empty body, and one that did not
+  // echo the nonce, both fail — and with the same reason the raw form gives.
+  for (const broken of [{ textLength: 0 }, { textEchoesNonce: false }]) {
+    const r = structuredClone(committed);
+    Object.assign(r.frames[2], broken);
+    const out = classify(r, EXPECTED);
+    assert.equal(out.outcome, "conformance-fail");
+    assert.ok(out.reasons.some((x) => x.includes("text fallback carrying the nonce")), JSON.stringify(out.reasons));
+  }
+
+  // Both shapes at once is one record with two sources of truth about the same bytes, and is
+  // rejected rather than silently resolved in either one's favour.
+  const both = structuredClone(committed);
+  both.frames[2].text = body;
+  const conflicted = classify(both, EXPECTED);
+  assert.equal(conflicted.outcome, "conformance-fail");
+  assert.ok(conflicted.reasons.some((x) => x.includes("two sources of truth")), JSON.stringify(conflicted.reasons));
+
+  // And neither shape is not a pass by default.
+  const neither = structuredClone(committed);
+  delete neither.frames[2].textLength;
+  delete neither.frames[2].textEchoesNonce;
+  assert.equal(classify(neither, EXPECTED).outcome, "conformance-fail");
+});
 
 test("a record satisfying all seven clauses classifies as pass", () => {
   assert.deepEqual(classify(passingRecord(), EXPECTED), { outcome: "pass", reasons: [] });
@@ -533,10 +571,11 @@ test("EVERY transformation has a value it refuses — none is a silent pass-thro
 });
 
 /**
- * What must become a placeholder, decided by a LITERAL TABLE rather than by re-running the
- * sanitizer's own path test. sanitize and checkPreservation share `PATHISH`, so a shared
- * mistake — a Windows path or an attached flag value not recognised as a path — would be
- * emitted verbatim by one and expected verbatim by the other, and both would agree.
+ * What must become a placeholder, decided by a LITERAL TABLE rather than by re-running either
+ * side's path test. The two sides now hold separate implementations that must agree with each
+ * other, which catches one being changed alone — but not both being wrong in the same way from
+ * the start. Only a table written by hand catches that, so this is a third opinion, not a
+ * duplicate of the agreement test above.
  */
 const ARGV_ORACLE = [
   [cat("/Users", "/jdoe/notes.txt"), "<arg0:path>", "POSIX absolute"],
@@ -592,20 +631,162 @@ test("a spawn failure message is reduced to its errno — the path inside it nev
 });
 
 test("personal data nested inside a schema-allowed field is refused by the privacy backstop", () => {
-  // The schemas are an allowlist of SHAPES. This is the allowlist of MEANINGS: a home path
-  // that arrives inside a field whose shape is perfectly legal still cannot be committed.
+  // The schemas are an allowlist of SHAPES. This is the allowlist of MEANINGS: a value that
+  // arrives inside a field whose shape is perfectly legal still cannot be committed.
+  //
+  // The site used to be a tool-result body, which no longer reaches the output at all. An
+  // argument that is not path-shaped and not a flag IS still preserved byte-identically, so it
+  // is the site where a shape-legal value can carry a forbidden meaning all the way out.
   const raw = rawManifest();
-  raw.frames = [
-    { type: "response", method: "tools/call", structuredNonce: EXPECTED.nonce, text: cat("/Users", "/jdoe/x"), isError: false },
-  ];
+  raw.commandLine = ["-p", cat("-Users", "-jdoe-Developer-x")];
   assert.throws(
     () => sanitize(raw),
     (e) => {
       assert.ok(e instanceof SanitizeError);
-      assert.match(e.message, /macos-home/);
+      assert.match(e.message, /mangled-home/);
       assert.ok(!e.message.includes("jdoe"), "the refusal quoted the value it was refusing");
       return true;
     },
+  );
+});
+
+test("a tool-result body is not committed, whatever it contains", () => {
+  // Review round 2, chunk 3 — the critical finding. The body used to be copied verbatim for
+  // its first 1000 characters. Bounding a string limits its length, not its meaning, and none
+  // of these three is a shape the privacy scanner classifies, so the backstop did not fire
+  // either: all three were published, and checkPreservation called it preserved.
+  const planted = [cat("Jane", " ", "Doe"), "build-box-07.internal.example.net", "sk-ant-api03-" + "Z".repeat(40)];
+  const raw = rawManifest();
+  raw.frames = [
+    {
+      type: "response",
+      method: "tools/call",
+      structuredNonce: EXPECTED.nonce,
+      text: `ok ${EXPECTED.nonce} by ${planted.join(" on ")}`,
+      isError: false,
+    },
+  ];
+  const s = sanitize(raw);
+  const doc = JSON.stringify(s);
+  for (const value of planted) assert.ok(!doc.includes(value), "a tool-result body reached committed evidence");
+  assert.ok(!("text" in s.frames[0]), "the frame still carries the body");
+
+  // What replaced it is the two predicates the classifier actually asked of the body, and they
+  // describe the real one: length, and whether it echoed this run's nonce.
+  assert.equal(s.frames[0].textLength, raw.frames[0].text.length);
+  assert.equal(s.frames[0].textEchoesNonce, true);
+  assert.deepEqual(checkPreservation(raw, s), []);
+
+  // And the predicates are checked against the raw body, not merely copied: a sanitizer that
+  // claimed the nonce was echoed by a body that never carried it is a preservation violation.
+  const lying = { ...s, frames: [{ ...s.frames[0], textEchoesNonce: true }] };
+  const noNonce = structuredClone(raw);
+  noNonce.frames[0].text = "ok, but this body never carried the nonce";
+  assert.ok(
+    checkPreservation(noNonce, lying).some((v) => v.includes("textEchoesNonce")),
+    "a predicate contradicting the raw body was accepted",
+  );
+});
+
+test("an account name in a spawn failure cannot be published as its errno", () => {
+  // `\b(E[A-Z]{2,15})\b` is a test for "uppercase word starting with E", not for "errno". Node's
+  // own message for the commonest failure is `spawn <path> ENOENT`, so a capitalised account in
+  // that path matched FIRST and became the published errorCode — and an account name is not a
+  // class the privacy scanner recognises, so nothing downstream caught it.
+  const raw = rawManifest();
+  raw.spawn.client = { ok: false, error: `spawn ${cat("/Users", "/EDWARD/bin/claude")} ENOENT` };
+  const s = sanitize(raw);
+  assert.deepEqual(s.spawn.client, { ok: false, errorCode: "ENOENT" }, "the errno was not preferred over the account");
+  assert.ok(!JSON.stringify(s).includes("EDWARD"));
+
+  // A message with no errno at all still says so, rather than nominating whatever it found.
+  const none = rawManifest();
+  none.spawn.client = { ok: false, error: `cannot run ${cat("/Users", "/ELENA/x")}` };
+  assert.equal(sanitize(none).spawn.client.errorCode, "unknown");
+});
+
+test("a path the old test could not see is redacted in argv and in the version banner", () => {
+  // `/[\\/]/` was the only path test in the module. These three shapes are paths that walk
+  // past it: percent-encoded separators, a `file:` URL, and a bare `~user` home reference,
+  // which has no separator at all. The privacy scanner does not classify any of them either.
+  // Assembled at runtime like every other fixture path here, so this file stays clean under
+  // the commit-time scanner — the `file:` shape is a literal home path once it is joined up.
+  for (const shape of ["%2FUsers%2Fjdoe%2Fsecrets", cat("file:///Users", "/jdoe/secrets"), "~jdoe"]) {
+    const raw = rawManifest();
+    raw.commandLine = ["-p", shape];
+    const argvOut = sanitize(raw);
+    assert.equal(argvOut.commandLine[1], PLACEHOLDER.arg(1), `argv kept ${shape.slice(0, 6)}...`);
+    assert.deepEqual(checkPreservation(raw, argvOut), []);
+
+    const banner = rawManifest();
+    banner.clientVersion = `cli 1.0 built at ${shape}`;
+    assert.equal(sanitize(banner).clientVersion, PLACEHOLDER.redacted("clientVersion"));
+  }
+});
+
+test("a bundled short option carrying a path is refused, not guessed at", () => {
+  // `-I<path>` is a leading-dash argument with no `=`, which used to mean "a bare flag, keep it
+  // whole". There is no general way to find the option/value boundary in that form, so the
+  // sanitizer refuses rather than inventing one. Refusing costs a loud capture failure; the
+  // alternative cost a published path.
+  for (const arg of ["-I/opt/acme-internal/proj-titan/include", "-Csrc/customer-zeta/build"]) {
+    const raw = rawManifest();
+    raw.commandLine = [arg];
+    assert.throws(() => sanitize(raw), SanitizeError, `${arg} was emitted`);
+  }
+  // A genuine bare flag is still preserved byte-identically.
+  const ok = rawManifest();
+  ok.commandLine = ["--strict-mcp-config", "-p"];
+  assert.deepEqual(sanitize(ok).commandLine, ["--strict-mcp-config", "-p"]);
+});
+
+test("the sanitizer's idea of a path and the oracle's are two implementations that agree", () => {
+  // The preservation check used to import the sanitizer's own path regex, so a wrong idea of
+  // what a path looks like was wrong identically on both sides and the oracle stayed silent on
+  // exactly the bug it exists to catch. They are now written from opposite directions — regex
+  // alternation against a character/substring scan — and this is what holds them together.
+  // Changing one without the other fails here rather than at some future capture.
+  const corpus = [
+    "", "-p", "fixed prompt", "--strict-mcp-config", "claude", "codex", "2.1.220 (Claude Code)",
+    cat("/Users", "/jdoe/x"), cat("C:\\", "Users\\jdoe"), "src/build", "..", "./x", "a\\b",
+    "~", "~/x", "~jdoe", "cli 1.0 built at ~jdoe", "%2FUsers%2Fjdoe", "%5cUsers", "%7Ejdoe",
+    "file:///etc/passwd", "FILE:///x", "profile:default", "not~quite", "e%2Fscaped",
+    "-I/opt/x", "--dir=/opt/x", "no-path-here", "a.b.c", "sha256:" + "a".repeat(64),
+  ];
+  for (const value of corpus) {
+    assert.equal(
+      looksLikePath(value),
+      independentlyPathLike(value),
+      `the two path definitions disagree about ${JSON.stringify(value.slice(0, 24))}`,
+    );
+  }
+  // Non-strings are not paths, and neither implementation may throw on one.
+  for (const value of [null, undefined, 7, {}, []]) {
+    assert.equal(looksLikePath(value), false);
+    assert.equal(independentlyPathLike(value), false);
+  }
+
+  // The agreement above cannot notice the cheapest way to break independence: having one
+  // function call the other. Two implementations that are secretly one always agree. Being two
+  // implementations is a structural property, so it takes a structural assertion.
+  assert.doesNotMatch(
+    independentlyPathLike.toString(),
+    /looksLikePath/,
+    "the preservation oracle's path test delegates to the sanitizer's — they are one implementation wearing two names",
+  );
+  assert.doesNotMatch(looksLikePath.toString(), /independentlyPathLike/);
+});
+
+test("a short environment value has no length below which it may survive", () => {
+  // The absence check skipped every value under four characters, so initials, a short account
+  // name and a region code were all exempt. The enumerated-site search has no floor.
+  const raw = rawManifest();
+  raw.env = { ...raw.env, TZ: "UTC" };
+  raw.commandLine = [...raw.commandLine, "--tz", "UTC"];
+  const s = sanitize(raw);
+  assert.ok(
+    checkPreservation(raw, s).some((v) => v.includes("environment VALUE")),
+    "a three-character environment value survived without a violation",
   );
 });
 

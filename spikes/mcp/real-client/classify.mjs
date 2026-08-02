@@ -215,10 +215,32 @@ export function classify(record, expected) {
   if (idxCall >= 0) {
     const call = frames[idxCall];
     clause(call.structuredNonce === expected.nonce, "tools/call result does not echo the nonce in structuredContent");
+    // The text fallback is judged in one of two forms, and a record must be in exactly one of
+    // them. A RAW frame still holds the body, so the predicates are computed here from the
+    // bytes. A SANITIZED frame does not — the body is not evidence and is not committed — so it
+    // carries the two predicates the sanitizer derived while the bytes still existed. Accepting
+    // either shape but not both keeps a record from presenting a body and a contradicting
+    // claim about that body, and keeps the committed form from being judged more weakly than
+    // the raw one: the same two things are asserted about both.
+    const hasBody = typeof call.text === "string";
+    const hasPredicates = typeof call.textLength === "number" && typeof call.textEchoesNonce === "boolean";
     clause(
-      typeof call.text === "string" && call.text.length > 0 && call.text.includes(expected.nonce),
-      "tools/call result lacks a non-empty text fallback carrying the nonce",
+      hasBody !== hasPredicates,
+      hasBody
+        ? "tools/call frame carries both the result body and derived predicates about it — one record, two sources of truth"
+        : "tools/call frame carries neither the result body nor the predicates derived from it",
     );
+    if (hasBody && !hasPredicates) {
+      clause(
+        call.text.length > 0 && call.text.includes(expected.nonce),
+        "tools/call result lacks a non-empty text fallback carrying the nonce",
+      );
+    } else if (hasPredicates && !hasBody) {
+      clause(
+        call.textLength > 0 && call.textEchoesNonce === true,
+        "tools/call result lacks a non-empty text fallback carrying the nonce",
+      );
+    }
   }
   clause(
     idxInit >= 0 && idxList > idxInit && idxCall > idxList,
