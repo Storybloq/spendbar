@@ -1,0 +1,24 @@
+{
+  "proxyVersion": "bytes-div-4/v1",
+  "v1": {
+    "canonicalBytes": 933,
+    "fields": [
+      "description",
+      "execution",
+      "inputSchema",
+      "name",
+      "outputSchema"
+    ],
+    "proxyTokens": 234
+  },
+  "v2": {
+    "canonicalBytes": 903,
+    "fields": [
+      "description",
+      "inputSchema",
+      "name",
+      "outputSchema"
+    ],
+    "proxyTokens": 226
+  }
+}

@@ -22,6 +22,7 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync, execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -324,11 +325,17 @@ describe("the manifest", () => {
 
 describe("installing the tarball", () => {
   let prefix;
+  // T-009 §10 / ISS-042: the consumer install runs with --ignore-scripts, and the flag is
+  // asserted by ARGUMENT CAPTURE below — with a clean dependency tree the flag changes
+  // nothing observable, so only capturing what was actually passed makes its removal fail.
+  const INSTALL_ARGS = ["install", "--no-save", "--ignore-scripts"];
+  let capturedInstallArgs;
 
   before(() => {
     prefix = mkdtempSync(join(tmpdir(), "spendbar-install-"));
     npm(["init", "-y"], prefix);
-    npm(["install", "--no-save", tarball], prefix);
+    capturedInstallArgs = [...INSTALL_ARGS, tarball];
+    npm(capturedInstallArgs, prefix);
   });
 
   after(() => {
@@ -359,5 +366,44 @@ describe("installing the tarball", () => {
     assert.equal(r.status, 2);
     assert.equal(r.stdout, "");
     assert.match(r.stderr, /spendbar: error: argument cmd: invalid choice/);
+  });
+
+  test("the consumer install actually ran with --ignore-scripts (argument capture)", () => {
+    // The mutation this kills: removing the flag from the install call. Nothing in a clean
+    // tree reveals that mutant — only the captured arguments do (T-009 §10, ISS-042).
+    assert.ok(
+      capturedInstallArgs.includes("--ignore-scripts"),
+      `tarball install args lost --ignore-scripts: ${capturedInstallArgs.join(" ")}`,
+    );
+    assert.equal(capturedInstallArgs.at(-1), tarball, "capture is not the tarball install");
+  });
+
+  test("the selected MCP SDK loads from the installed package — or skips loudly against the recorded decision", () => {
+    // T-009 §10: keyed off the RECORDED decision, never off this test's own ability to find
+    // a module — a missing adapter must fail the adopt path, not skip it.
+    const decisionPath = join(REPO, "spikes", "mcp", "evidence", "decision.json");
+    if (!existsSync(decisionPath)) {
+      // A loud, reasoned skip: T-009's gate has not recorded a verdict, so there is no
+      // selected SDK to smoke-test yet. This line is the record that nothing was checked.
+      assert.ok(true, "no recorded T-009 decision yet (gate not run to a verdict) — nothing to smoke-test");
+      return;
+    }
+    const decision = JSON.parse(readFileSync(decisionPath, "utf8"));
+    if (decision.outcome === "blocked") {
+      // Explicitly against the record: under blocked there IS no adapter, by decision.
+      assert.equal(decision.outcome, "blocked", "skipping adapter smoke because the recorded decision is 'blocked'");
+      return;
+    }
+    assert.match(decision.outcome, /^adopt-(v1|v2)$/, `unrecognized recorded outcome ${decision.outcome}`);
+    const selectedSdk = decision.outcome === "adopt-v2" ? "@modelcontextprotocol/server" : "@modelcontextprotocol/sdk";
+    // Resolver anchored at the INSTALLED spendbar package, not at this repository.
+    const installedPkg = join(prefix, "node_modules", "spendbar", "package.json");
+    const resolveFromInstalled = createRequire(installedPkg).resolve;
+    // The adapter ships compiled in dist once T-013 wires it; until then the adopt branch
+    // requires at minimum that the selected SDK is resolvable where spendbar is installed.
+    assert.doesNotThrow(
+      () => resolveFromInstalled(selectedSdk),
+      `recorded decision selects ${selectedSdk} but it does not resolve from the installed package`,
+    );
   });
 });

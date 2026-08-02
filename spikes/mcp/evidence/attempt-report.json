@@ -1,0 +1,26 @@
+{
+  "type": "t009-attempt-report",
+  "outcome": "incomplete",
+  "unavailable": [
+    {
+      "candidate": "v2",
+      "cell": "real:claude-code",
+      "cause": "no real-client capture recorded"
+    },
+    {
+      "candidate": "v2",
+      "cell": "real:codex",
+      "cause": "no real-client capture recorded"
+    },
+    {
+      "candidate": "v1",
+      "cell": "real:claude-code",
+      "cause": "no real-client capture recorded"
+    },
+    {
+      "candidate": "v1",
+      "cell": "real:codex",
+      "cause": "no real-client capture recorded"
+    }
+  ]
+}

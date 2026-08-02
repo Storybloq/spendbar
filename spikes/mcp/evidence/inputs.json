@@ -1,0 +1,29 @@
+{
+  "caseList": [
+    "initialize",
+    "tools-list",
+    "tools-call",
+    "broken-framing",
+    "schema-violation",
+    "cancellation",
+    "client-eof",
+    "stdout-purity"
+  ],
+  "files": {
+    "spikes/mcp/candidates/v1/package-lock.json": "ed8fde3e4ba03f1abc84bc64121eada03d47e5f9adc340eb2cafcab76547e30b",
+    "spikes/mcp/candidates/v1/server.mjs": "950f44b0294a482f6f166cc618deeba2208a9a5a66c558794d3632d6724159fa",
+    "spikes/mcp/candidates/v2/package-lock.json": "fa646e3069a4937fab5a5ef9905d461e98a51da9aaac4334e2585ce2d3e85db9",
+    "spikes/mcp/candidates/v2/server.mjs": "0a84d7fa0f79dfc7a3d5942d756ce7292211369d855ea35f135680028606c237",
+    "spikes/mcp/conformance.mjs": "0adc4676a75dcc848b67be76652d36b374e1ad37aa28582a3e819edf5795db3d",
+    "spikes/mcp/instrument-hooks.mjs": "c95368d3454a7bfa4d1c8d87921727524cf73f458054fd7a5c7d6b0f9c222911",
+    "spikes/mcp/instrument.mjs": "bf574b1710dd1227bb3dda1614cfe014e4f35f629be37abe47d60e133eece33d",
+    "spikes/mcp/isolate.mjs": "f076241462e35fcf02aedf873f31473797b1fb2518801dcbece870d17b991fae",
+    "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
+    "spikes/mcp/token-cost.mjs": "0932a60bc8327fb3d62adea7455f72676adff7f30c5e041395181b1a5fe7eee6"
+  },
+  "notes": [
+    "v1 (@modelcontextprotocol/sdk 1.30.0) ships no dist/{esm,cjs}/index.js: the package's root '.' export maps to absent files, so only subpath imports work (pinned by isolate.test.mjs).",
+    "Neither SDK answers a malformed stdio line with -32700; both drop it and keep serving (the broken-framing oracle accepts -32700 or silence).",
+    "v1 exposes the request abort signal at extra.signal; v2 at ctx.mcpReq.signal (probe-def.mjs checks both)."
+  ]
+}

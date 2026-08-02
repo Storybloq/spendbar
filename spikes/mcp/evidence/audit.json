@@ -1,0 +1,26 @@
+{
+  "v1": {
+    "advisoriesTotal": 0,
+    "ran": true,
+    "vulnerabilities": {
+      "critical": 0,
+      "high": 0,
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "total": 0
+    }
+  },
+  "v2": {
+    "advisoriesTotal": 0,
+    "ran": true,
+    "vulnerabilities": {
+      "critical": 0,
+      "high": 0,
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "total": 0
+    }
+  }
+}

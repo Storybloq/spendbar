@@ -1,0 +1,82 @@
+{
+  "v1": {
+    "candidate": "v1",
+    "cases": {
+      "broken-framing": {
+        "status": "pass"
+      },
+      "cancellation": {
+        "status": "pass"
+      },
+      "client-eof": {
+        "status": "pass"
+      },
+      "initialize": {
+        "status": "pass"
+      },
+      "schema-violation": {
+        "status": "pass"
+      },
+      "stdout-purity": {
+        "status": "pass"
+      },
+      "tools-call": {
+        "status": "pass"
+      },
+      "tools-list": {
+        "status": "pass"
+      }
+    },
+    "failed": 0,
+    "isolation": {
+      "builtins": 8,
+      "insidePrefix": 4280,
+      "ok": true,
+      "oppositeSdkProbe": "not-found",
+      "resolutionsTotal": 4288,
+      "violations": []
+    },
+    "sdk": "@modelcontextprotocol/sdk",
+    "sdkVersion": "1.30.0"
+  },
+  "v2": {
+    "candidate": "v2",
+    "cases": {
+      "broken-framing": {
+        "status": "pass"
+      },
+      "cancellation": {
+        "status": "pass"
+      },
+      "client-eof": {
+        "status": "pass"
+      },
+      "initialize": {
+        "status": "pass"
+      },
+      "schema-violation": {
+        "status": "pass"
+      },
+      "stdout-purity": {
+        "status": "pass"
+      },
+      "tools-call": {
+        "status": "pass"
+      },
+      "tools-list": {
+        "status": "pass"
+      }
+    },
+    "failed": 0,
+    "isolation": {
+      "builtins": 8,
+      "insidePrefix": 1624,
+      "ok": true,
+      "oppositeSdkProbe": "not-found",
+      "resolutionsTotal": 1632,
+      "violations": []
+    },
+    "sdk": "@modelcontextprotocol/server",
+    "sdkVersion": "2.0.0"
+  }
+}

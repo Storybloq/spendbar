@@ -1,0 +1,9 @@
+{
+  "name": "spendbar-mcp-candidate-v1",
+  "private": true,
+  "description": "T-009 candidate workspace: MCP SDK v1. Exact experimental pins - reproducible evidence needs a fixed resolution; the root production pinning syntax is open question 2 and is NOT decided here.",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "4.4.3"
+  }
+}
