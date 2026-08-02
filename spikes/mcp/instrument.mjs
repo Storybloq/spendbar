@@ -14,14 +14,22 @@
 // only part of what ran (review round 1, chunk 16). checkResolutions treats such an entry as a
 // violation: the honest reading of an uninstrumented descendant is not "clean", it is "unknown".
 //
+// That claim was FALSE until review round 2, chunk 4 [sic: chunk 6]. Patching a property on the
+// builtin's module object does not touch the named exports Node already snapshotted for ESM, so
+// `import { spawnSync } from "node:child_process"` held the ORIGINAL function and created a
+// descendant that was never recorded — while the resolution log still showed in-root entries and
+// zero violations. Demonstrated directly: with the property patched and nothing else, a named
+// import records nothing; with `syncBuiltinESMExports()` after the patches, it records. That call
+// is now the last thing this preload does, and it is what makes the enumeration claim true.
+//
 // Recording is append-only writes to one file; the instrument resolves nothing itself and
 // changes no resolution result.
 
-import { register } from "node:module";
+import { register, syncBuiltinESMExports } from "node:module";
 import Module from "node:module";
 import child_process from "node:child_process";
 import worker_threads from "node:worker_threads";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 const logPath = process.env.SPENDBAR_RESOLVE_LOG;
 
@@ -41,8 +49,17 @@ Module._resolveFilename = function (request, ...rest) {
  * the log's reader is entitled to assume every line in it is one. The conformance runner reads
  * this file and treats any entry as an isolation violation.
  */
+const DESCENDANT_SIDECAR = logPath ? `${logPath}.descendants` : null;
+// Created EMPTY at preload, before anything can spawn. Without it, an absent sidecar meant both
+// "no descendant was created" and "the instrument never ran / could not write", and the reader
+// resolved that ambiguity in favour of clean (review round 2, chunk 6). Its existence is now the
+// instrument's own witness; descendantsFor refuses when it is missing.
+if (DESCENDANT_SIDECAR) writeFileSync(DESCENDANT_SIDECAR, "");
+
 const noteDescendant = (api) => {
-  if (logPath) appendFileSync(`${logPath}.descendants`, JSON.stringify({ api }) + "\n");
+  // Deliberately NOT swallowed. If the record cannot be written, the honest outcome is a process
+  // that fails loudly, not one that creates an unobserved descendant and looks clean.
+  if (DESCENDANT_SIDECAR) appendFileSync(DESCENDANT_SIDECAR, JSON.stringify({ api }) + "\n");
 };
 // Same two-place patching as net-observe.mjs, and for the same reason: a builtin's ESM named
 // exports are snapshotted before this preload can patch the module object, so the asynchronous
@@ -62,13 +79,24 @@ if (typeof child_process.ChildProcess?.prototype?.spawn === "function") {
     return originalSpawn.apply(this, args);
   };
 }
+// A Proxy with only a `construct` trap, not a replacement function (review round 2, chunk 6).
+// The plain function changed the constructor's semantics on the observed process: it could be
+// called without `new`, a subclass constructed an OriginalWorker instead of the subclass, and
+// static properties were lost. An observer that alters the thing it observes invalidates the
+// run. `Reflect.construct(target, args, newTarget)` preserves the subclass, and everything not
+// trapped — statics, prototype, name, instanceof — passes straight through to the original.
 if (typeof worker_threads.Worker === "function") {
   const OriginalWorker = worker_threads.Worker;
-  worker_threads.Worker = function Worker(...args) {
-    noteDescendant("worker_threads.Worker");
-    return new OriginalWorker(...args);
-  };
-  worker_threads.Worker.prototype = OriginalWorker.prototype;
+  worker_threads.Worker = new Proxy(OriginalWorker, {
+    construct(target, args, newTarget) {
+      noteDescendant("worker_threads.Worker");
+      return Reflect.construct(target, args, newTarget);
+    },
+  });
 }
+
+// LAST, after every property replacement above: this is what pushes the wrapped functions into
+// the ESM named exports that `import { spawnSync } from "node:child_process"` already bound.
+syncBuiltinESMExports();
 
 register(new URL("./instrument-hooks.mjs", import.meta.url), { data: { logPath } });

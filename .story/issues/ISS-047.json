@@ -1,0 +1,16 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-047",
+  "impact": "The two Codex real-client cells ran with userConfigIsolated:false and were published as unqualified passes. `codex exec -c` has no equivalent of Claude Code's --strict-mcp-config plus --settings, so the operator's own ~/.codex configuration was reachable during those runs: they establish that the SDK works on this machine, not from a fresh state. Confirmed independently by the reviewer at major severity in both chunk 17b (manifests) and chunk 17c (receipt). PARTIALLY ADDRESSED in commit 5aa951b: verify-evidence now shape-checks manifest.isolation, collects a typed qualification per unisolated cell, and both DECISION.md and decision.json carry it, so nothing downstream can read an unconditional pass any more; a hostile config that actually executed is now a hard refusal rather than a qualification. DEFERRED REMAINDER: marking the two cells not-run and recapturing under an isolated temporary CODEX_HOME, which is what would actually close the gap. That requires copying authentication material into a temporary home, and this project's standing constraints forbid modifying ~/.codex/config.toml and forbid copying credentials, so it cannot be done autonomously — it is an owner decision about whether to relax that constraint or accept the qualified evidence.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "status": "open",
+  "title": "[evidence-validity] The two Codex real-client cells ran with userConfigIsolated:false and were publi"
+}

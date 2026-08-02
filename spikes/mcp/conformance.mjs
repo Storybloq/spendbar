@@ -412,7 +412,15 @@ export function spawnMutant(mutant) {
  */
 export function descendantsFor(logPath) {
   const sidecar = `${logPath}.descendants`;
-  if (!existsSync(sidecar)) return [];
+  // An absent sidecar used to mean "no descendants". It also meant "the instrument never ran"
+  // and "the sidecar could not be written", and the reader resolved that ambiguity in favour of
+  // clean (review round 2, chunk 6). The instrument now creates it EMPTY before anything can
+  // spawn, so absence is a broken observation and is refused; empty is the honest "none".
+  if (!existsSync(sidecar)) {
+    throw new Error(
+      `descendant sidecar is absent for ${logPath} — the instrument did not run, so "no descendants" is unobserved, not observed`,
+    );
+  }
   return readFileSync(sidecar, "utf8")
     .split("\n")
     .filter((line) => line.trim() !== "")

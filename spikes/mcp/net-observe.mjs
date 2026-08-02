@@ -23,6 +23,7 @@
 // contexts it cannot see into. A native addon could bypass it, which is precluded separately —
 // the supply-chain gate refuses any closure that carries native-build machinery.
 
+import { syncBuiltinESMExports } from "node:module";
 import net from "node:net";
 import dgram from "node:dgram";
 import dns from "node:dns";
@@ -32,20 +33,45 @@ import { appendFileSync } from "node:fs";
 
 const LOG = process.env.SPENDBAR_NET_LOG;
 
+/**
+ * Record one attempt, and FAIL CLOSED if it cannot be recorded (review round 2, chunk 6).
+ *
+ * This used to swallow every serialization and append failure and then let the call through, so
+ * a full or unwritable log filesystem — or an argument whose selected properties would not
+ * serialize — produced real egress with no record at all, and the resulting empty log read as
+ * "no egress was observed". The comment claimed a positive control would catch that; it cannot,
+ * because a control that succeeded earlier says nothing about whether THIS record succeeded.
+ *
+ * So the record is built in two stages: a minimal always-serializable line first, then the
+ * detail. If the line cannot be appended, this THROWS, and the network call never happens. An
+ * observer that cannot observe must stop the thing it was watching, not wave it through.
+ */
 function record(api, args) {
   if (!LOG) return;
-  const a = args[0];
-  const detail =
-    a !== null && typeof a === "object"
-      ? { host: a.host ?? a.hostname, port: a.port, path: a.path }
-      : { arg: typeof a === "string" ? a : a === undefined ? undefined : String(a) };
+  let line;
   try {
-    appendFileSync(LOG, JSON.stringify({ api, detail }) + "\n");
+    const a = args[0];
+    const detail =
+      a !== null && typeof a === "object"
+        ? { host: a.host ?? a.hostname, port: a.port, path: a.path }
+        : { arg: typeof a === "string" ? a : a === undefined ? undefined : String(a) };
+    line = JSON.stringify({ api, detail });
   } catch {
-    // The observer must never crash the observed process; a lost record surfaces as a
-    // failed positive control, never as a false "no egress".
+    // The detail did not serialize. The ATTEMPT still gets recorded — losing the fact of an
+    // egress attempt because its argument was exotic is the failure mode this whole file exists
+    // to prevent.
+    line = JSON.stringify({ api, detail: { unserializable: true } });
   }
+  appendFileSync(LOG, line + "\n");
 }
+
+/**
+ * The observer's own witness, written before anything is patched. Absence of this line means
+ * the observer never started or could not write — which is NOT the same as "nothing tried to
+ * reach the network", and used to be indistinguishable from it.
+ */
+export const NET_OBSERVE_SENTINEL = "net-observe/1 started";
+if (LOG) appendFileSync(LOG, JSON.stringify({ api: NET_OBSERVE_SENTINEL, detail: {} }) + "\n");
 
 function wrapMethod(target, name, api) {
   const original = target[name];
@@ -86,25 +112,34 @@ for (const name of DNS_METHODS) {
 // `ChildProcess.prototype.spawn` whatever the import style, so that is where the reliable
 // observation goes; the property patches remain for `require()` and namespace access.
 //
-// The residual blind spot, stated rather than papered over: the SYNCHRONOUS spawns
-// (`spawnSync`/`execSync`/`execFileSync`) and `new Worker(...)` reached through an ESM NAMED
-// import go straight to an internal binding or constructor with no userland funnel, and are
-// not observed. Closing that needs Node's permission model (--experimental-permission denies
-// child processes and workers outright) rather than any patch from inside the process; the
-// tests below record which paths each control actually covers, so the gap is visible.
+// The blind spot this comment used to DESCRIBE AS UNCLOSABLE is closed (review round 2, chunk
+// 6). It claimed the synchronous spawns and `new Worker(...)` reached through an ESM named
+// import could not be observed from inside the process and needed Node's permission model. That
+// was wrong: `syncBuiltinESMExports()` pushes the wrapped functions into the named exports Node
+// already snapshotted, and a direct experiment settles it — with the property patched and
+// nothing else a named import records NOTHING, and with the sync call it records. It is invoked
+// at the end of this file, after every replacement below.
 for (const name of ["spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"]) {
   if (typeof child_process[name] === "function") wrapMethod(child_process, name, `child_process.${name}`);
 }
 if (typeof child_process.ChildProcess?.prototype?.spawn === "function") {
   wrapMethod(child_process.ChildProcess.prototype, "spawn", "child_process.ChildProcess.spawn");
 }
+// A construct trap rather than a replacement function: see the identical note in
+// instrument.mjs. An observer that changes the constructor semantics of the code it observes
+// has invalidated the run it is reporting on.
 if (typeof worker_threads.Worker === "function") {
   const OriginalWorker = worker_threads.Worker;
-  worker_threads.Worker = function Worker(...args) {
-    record("worker_threads.Worker", args);
-    return new OriginalWorker(...args);
-  };
-  worker_threads.Worker.prototype = OriginalWorker.prototype;
+  worker_threads.Worker = new Proxy(OriginalWorker, {
+    construct(target, args, newTarget) {
+      record("worker_threads.Worker", args);
+      return Reflect.construct(target, args, newTarget);
+    },
+  });
 }
 
 if (typeof globalThis.fetch === "function") wrapMethod(globalThis, "fetch", "fetch");
+
+// LAST. Everything above patched module objects; this is what makes those patches visible to
+// `import { resolveTxt } from "node:dns"` and every other ESM named binding.
+syncBuiltinESMExports();
