@@ -234,6 +234,14 @@ export function classify(record, expected) {
       `advertised tool set is [${listed.join(", ")}], expected exactly [spendbar_probe]`,
     );
   }
+  // An error response is judged on its own terms. Every one of these also fails a content
+  // clause below (an error carries no protocolVersion, no tools and no nonce), so the VERDICT
+  // was already right — but the reason read as if the server had answered with empty fields
+  // rather than refused, and a run diagnosed wrongly is a run investigated wrongly. Frames from
+  // before this field existed simply do not trigger it.
+  for (const [label, idx] of [["initialize", idxInit], ["tools/list", idxList], ["tools/call", idxCall]]) {
+    if (idx >= 0 && frames[idx].kind === "error") clause(false, `${label} was answered with a JSON-RPC error, not a result`);
+  }
   clause(idxCall >= 0, "no tools/call response for the probe");
   if (idxCall >= 0) {
     const call = frames[idxCall];

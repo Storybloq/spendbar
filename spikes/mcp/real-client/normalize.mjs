@@ -24,16 +24,25 @@
 import { createHash } from "node:crypto";
 
 /** Bumped whenever the derivation changes; it is part of the digest, so old traces cannot silently match. */
-export const TRACE_VERSION = "normalize/2";
+export const TRACE_VERSION = "normalize/3";
 
 const NEWLINE = 0x0a;
-const DECODER = new TextDecoder("utf-8", { fatal: true });
+// `ignoreBOM: true` is the option whose name means the opposite of what it reads like: it tells
+// the decoder to leave a leading U+FEFF ALONE. The default STRIPS it, so a BOM-prefixed JSON
+// line decoded clean, parsed clean, and became a message with every counter at zero — three
+// bytes on a stream whose purity is asserted, accounted for by nothing (review round 2, chunk
+// 7). Kept, U+FEFF is not valid JSON, so the line lands in parseErrors where it belongs.
+const DECODER = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /** The response methods this probe attributes; anything else is an unattributed frame. */
 export const PROBE_METHODS = ["initialize", "tools/list", "tools/call"];
 
 const isPlainObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-const isValidId = (v) => typeof v === "string" || (typeof v === "number" && Number.isInteger(v));
+// SAFE integer, not merely integer. Two distinct JSON integers above 2^53 parse to the SAME
+// Number — 9007199254740993 and ...992 are indistinguishable once parsed — so accepting them
+// let two different request ids collide in the attribution map (review round 2, chunk 7).
+// Anything outside the safe range is a protocol error rather than a silently merged id.
+const isValidId = (v) => typeof v === "string" || (typeof v === "number" && Number.isSafeInteger(v));
 /** Ids are compared across directions, and `1` is not `"1"`. */
 const idKey = (id) => (typeof id === "string" ? `s:${id}` : `n:${id}`);
 
@@ -165,30 +174,56 @@ function canonicalJson(value) {
   return JSON.stringify(value ?? null);
 }
 
-/** Only the protocol fields this probe judges, and only when they have the right type. */
-function buildFrame(method, result) {
-  const frame = { type: "response", method };
+/**
+ * Only the protocol fields this probe judges, and only when they have the right type.
+ *
+ * Two round-2 corrections, both the same defect: a malformed observation was collapsed into a
+ * value a well-formed one could also produce.
+ *
+ *   * `kind` records whether the response carried `result` or `error`. Without it an error
+ *     response to tools/call produced a frame byte-identical to a result response with empty
+ *     content — the run still failed, but for a reason the trace no longer contained.
+ *   * A field of the WRONG TYPE (`protocolVersion: 42`, a tool entry that is not an object)
+ *     used to become the same empty string an honest empty field produces. It is now counted as
+ *     a protocol error, so the difference survives into the statistics, into the digest, and
+ *     into the classifier — which requires that counter to be zero.
+ */
+function buildFrame(method, kind, result, noteProtocolError) {
+  const frame = { type: "response", method, kind };
+  const mistyped = () => noteProtocolError();
   if (method === "initialize") {
+    if (result?.protocolVersion !== undefined && typeof result.protocolVersion !== "string") mistyped();
     frame.protocolVersion = typeof result?.protocolVersion === "string" ? result.protocolVersion : "";
   }
   if (method === "tools/list") {
+    if (result?.tools !== undefined && !Array.isArray(result.tools)) mistyped();
     const tools = Array.isArray(result?.tools) ? result.tools : [];
-    frame.toolNames = tools.map((t) => (isPlainObject(t) && typeof t.name === "string" ? t.name : ""));
+    frame.toolNames = tools.map((t) => {
+      if (isPlainObject(t) && typeof t.name === "string") return t.name;
+      mistyped();
+      return "";
+    });
   }
   if (method === "tools/call") {
     const nonce = result?.structuredContent?.nonce;
+    if (nonce !== undefined && typeof nonce !== "string") mistyped();
     frame.structuredNonce = typeof nonce === "string" ? nonce : null;
+    if (result?.content !== undefined && !Array.isArray(result.content)) mistyped();
     const content = Array.isArray(result?.content) ? result.content : [];
     const textPart = content.find((c) => isPlainObject(c) && c.type === "text" && typeof c.text === "string");
     frame.text = textPart ? textPart.text : "";
+    if (result?.isError !== undefined && typeof result.isError !== "boolean") mistyped();
     frame.isError = result?.isError === true;
   }
   return frame;
 }
 
 export function normalize(clientToServerBuf, serverToClientBuf) {
+  // `ArrayBuffer.isView` is true for Uint16Array, Float64Array and DataView as well, none of
+  // which have single-byte elements — so newline scanning, `bytes` and `subarray` would all
+  // mean something different, and DataView has no `subarray` at all (review round 2, chunk 7).
   for (const [name, buf] of [["clientToServerBuf", clientToServerBuf], ["serverToClientBuf", serverToClientBuf]]) {
-    if (!ArrayBuffer.isView(buf)) throw new TypeError(`normalize: ${name} must be a Buffer/Uint8Array`);
+    if (!(buf instanceof Uint8Array)) throw new TypeError(`normalize: ${name} must be a Buffer/Uint8Array`);
   }
 
   // Method attribution: responses carry only ids, so the request direction maps id -> method.
@@ -199,12 +234,20 @@ export function normalize(clientToServerBuf, serverToClientBuf) {
     if (msg.kind !== "request") continue;
     const key = idKey(msg.id);
     if (methodById.has(key) || ambiguous.has(key)) {
-      // Reusing an in-flight id is a protocol violation AND it destroys attribution: the
-      // previous mapping was silently overwritten before (review round 1), so a response could
-      // be attributed to the wrong method. Neither mapping survives, and it is counted.
+      // A repeated id destroys attribution: the previous mapping was silently overwritten
+      // before (review round 1), so a response could be attributed to the wrong method. Neither
+      // mapping survives.
+      //
+      // It is NOT counted as a protocol error (review round 2, chunk 7). MCP permits reusing an
+      // id once its response has been received, and the two directions are captured as separate
+      // streams with no interleaving between them — so nothing here can tell a legal sequential
+      // reuse from an illegal in-flight one. Counting it asserted a verdict the evidence cannot
+      // support, and would have recorded a conformant client as violating the protocol, which
+      // is the exact failure this file warns about two comments above. Refusing to attribute is
+      // what the evidence does support, and the classifier still fails a run whose response
+      // cannot be attributed.
       methodById.delete(key);
       ambiguous.add(key);
-      c2s.stats.protocolErrors += 1;
     } else {
       methodById.set(key, msg.method);
     }
@@ -216,17 +259,28 @@ export function normalize(clientToServerBuf, serverToClientBuf) {
     if (msg.kind !== "response") continue;
     const key = msg.id === null ? null : idKey(msg.id);
     const method = key === null ? "unknown" : ambiguous.has(key) ? "ambiguous" : (methodById.get(key) ?? "unknown");
-    frames.push(buildFrame(method, "result" in msg.value ? msg.value.result : null));
+    const kind = "result" in msg.value ? "result" : "error";
+    frames.push(buildFrame(method, kind, kind === "result" ? msg.value.result : null, () => {
+      s2c.stats.protocolErrors += 1;
+    }));
   }
 
-  // The digest covers the frames AND both directions' statistics: a trace whose frames are
-  // identical but whose stream carried unaccounted bytes is a DIFFERENT observation, and
-  // digesting only the frames let that difference reproduce as a match (review round 1).
+  // The digest covers the frames, both directions' statistics, AND a digest of each input
+  // buffer. Frames alone let a stream carrying unaccounted bytes reproduce as a match (review
+  // round 1). Frames plus counters was still not enough (review round 2, chunk 7): two captures
+  // whose valid frames agree and whose rejected content differs only in CONTENT — a different
+  // malformed line of the same length, a different unterminated tail of the same length, a
+  // different invalid UTF-8 sequence — produce identical statistics and therefore digested
+  // identically. Counts are not a substitute for the bytes they count, so the bytes are in.
   const trace = {
     version: TRACE_VERSION,
     frames,
     clientToServer: c2s.stats,
     serverStdout: s2c.stats,
+    inputs: {
+      clientToServerSha256: createHash("sha256").update(clientToServerBuf).digest("hex"),
+      serverToClientSha256: createHash("sha256").update(serverToClientBuf).digest("hex"),
+    },
   };
   return {
     frames,

@@ -308,7 +308,12 @@ const TRANSFORMS = {
       if (!isPlainObject(f)) fail(`${field}[${i}]: not an object`);
       if (f.type !== "response") fail(`${field}[${i}].type: only response frames are recorded`);
       if (!FRAME_METHODS.includes(f.method)) fail(`${field}[${i}].method: not a recorded method`);
-      const out = { type: "response", method: f.method };
+      // A closed two-value enum, carrying no content of its own — it says which arm of the
+      // JSON-RPC response union the frame came from. It is committed because without it an
+      // error response was byte-identical to a result response with empty fields, so a run that
+      // was REFUSED and a run that answered emptily left the same trace (review round 2).
+      if (f.kind !== "result" && f.kind !== "error") fail(`${field}[${i}].kind: expected "result" or "error"`);
+      const out = { type: "response", method: f.method, kind: f.kind };
       if (f.method === "initialize") {
         out.protocolVersion = f.protocolVersion === "" ? "" : keepOrRedact(f.protocolVersion, PROTOCOL_VERSION, "protocolVersion");
       }
@@ -569,6 +574,7 @@ export function checkPreservation(raw, sanitized) {
         );
         if (!kept || s.toolNames?.length !== f.toolNames.length) violations.push(`frame ${i} tool set was altered`);
       }
+      if (s.kind !== f.kind) violations.push(`frame ${i} kind was altered`);
       if ("isError" in f && s.isError !== f.isError) violations.push(`frame ${i} isError was altered`);
       if (typeof f.structuredNonce === "string" && s.structuredNonce !== f.structuredNonce) {
         violations.push(`frame ${i} structuredNonce was altered`);

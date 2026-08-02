@@ -75,11 +75,12 @@ function passingRecord() {
     serverTermination: { signal: null },
     wrapper: { spawned: true, closed: true, forwardErrors: 0 },
     frames: [
-      { type: "response", method: "initialize", protocolVersion: "2025-06-18" },
-      { type: "response", method: "tools/list", toolNames: ["spendbar_probe"] },
+      { type: "response", method: "initialize", kind: "result", protocolVersion: "2025-06-18" },
+      { type: "response", method: "tools/list", kind: "result", toolNames: ["spendbar_probe"] },
       {
         type: "response",
         method: "tools/call",
+        kind: "result",
         structuredNonce: EXPECTED.nonce,
         text: `probe nonce=${EXPECTED.nonce} blocked=false`,
       },
@@ -298,7 +299,7 @@ test("frame order is part of the claim: list before initialize fails", () => {
 
 test("an unattributable response — a reused request id — is conformance-fail", () => {
   const r = passingRecord();
-  r.frames.push({ type: "response", method: "ambiguous" });
+  r.frames.push({ type: "response", method: "ambiguous", kind: "result" });
   const c = classify(r, EXPECTED);
   assert.equal(c.outcome, "conformance-fail");
   assert.ok(c.reasons.some((x) => x.includes("reused a request id")), c.reasons.join("; "));
@@ -440,7 +441,7 @@ function rawManifest() {
     clientExit: { code: 0, signal: null },
     serverTermination: { signal: null },
     wrapper: { spawned: true, closed: true, forwardErrors: 0 },
-    frames: [{ type: "response", method: "initialize", protocolVersion: "2025-06-18" }],
+    frames: [{ type: "response", method: "initialize", kind: "result", protocolVersion: "2025-06-18" }],
     clientToServer: stats({ bytes: 512 }),
     serverStdout: stats(),
     serverStderr: { hasReadyLine: true, containsFrames: false },
@@ -671,6 +672,7 @@ test("a tool-result body is not committed, whatever it contains", () => {
     {
       type: "response",
       method: "tools/call",
+      kind: "result",
       structuredNonce: EXPECTED.nonce,
       text: `ok ${EXPECTED.nonce} by ${planted.join(" on ")}`,
       isError: false,
@@ -885,7 +887,7 @@ test("a bare binary name in a path field is not mistaken for a leak of itself", 
 
   // The protection it exists for is intact: a real path that survived is still a violation.
   const leaked = sanitize(rawManifest());
-  leaked.frames = [{ type: "response", method: "unknown", note: rawManifest().cwd }];
+  leaked.frames = [{ type: "response", method: "unknown", kind: "result", note: rawManifest().cwd }];
   assert.ok(checkPreservation(rawManifest(), leaked).some((v) => v.includes("survived")));
 });
 
@@ -929,13 +931,13 @@ test("the client environment is an allowlist, and the manifest records what was 
  */
 const LEAK_SITES = {
   "frames[].text": (raw, value) => {
-    raw.frames = [{ type: "response", method: "tools/call", structuredNonce: EXPECTED.nonce, text: value, isError: false }];
+    raw.frames = [{ type: "response", method: "tools/call", kind: "result", structuredNonce: EXPECTED.nonce, text: value, isError: false }];
   },
   "frames[].toolNames": (raw, value) => {
-    raw.frames = [{ type: "response", method: "tools/list", toolNames: [value] }];
+    raw.frames = [{ type: "response", method: "tools/list", kind: "result", toolNames: [value] }];
   },
   "frames[].protocolVersion": (raw, value) => {
-    raw.frames = [{ type: "response", method: "initialize", protocolVersion: value }];
+    raw.frames = [{ type: "response", method: "initialize", kind: "result", protocolVersion: value }];
   },
   clientVersion: (raw, value) => (raw.clientVersion = value),
   "environmental.detail": (raw, value) => (raw.environmental = { condition: "auth-failure", detail: value }),
@@ -1052,4 +1054,42 @@ test("the T-024 scanner catches a real-shaped path planted in a committed-manife
   const findings = scanText(planted, "fixture-manifest.json");
   assert.ok(findings.length > 0, "scanner missed a real-shaped path in the manifest fixture");
   assert.ok(findings.every((f) => !JSON.stringify(f).includes("jdoe")), "a finding carried the value");
+});
+
+// ---------------------------------------------------------------------------
+// Review round 2, chunk 7: an error response and an empty result response used
+// to leave the same trace, so a REFUSED run and a run that answered with
+// nothing were the same evidence.
+// ---------------------------------------------------------------------------
+
+test("mutation: rewriting which arm of the response union a frame came from is rejected", () => {
+  const raw = rawManifest();
+  const s = sanitize(raw);
+  s.frames[0].kind = "result";
+  raw.frames[0].kind = "error"; // the server actually refused to initialize
+  assert.ok(checkPreservation(raw, s).some((v) => v.includes("kind")), "an altered kind survived preservation");
+});
+
+test("a run whose probe call was answered with a JSON-RPC error says so", () => {
+  const r = passingRecord();
+  r.frames[2] = { type: "response", method: "tools/call", kind: "error", structuredNonce: null, text: "", isError: false };
+  const out = classify(r, EXPECTED);
+  assert.equal(out.outcome, "conformance-fail");
+  assert.ok(
+    out.reasons.some((x) => x.includes("tools/call was answered with a JSON-RPC error")),
+    `the refusal is not named among the reasons: ${out.reasons.join("; ")}`,
+  );
+});
+
+test("a frame that does not say which arm of the response union it came from is refused", () => {
+  // Not merely "copied if present": an absent `kind` becomes `undefined`, which JSON.stringify
+  // DELETES, so the committed frame would silently go back to being the shape that could not
+  // tell a refusal from an empty answer — and the preservation check, comparing undefined to
+  // undefined, would agree it was preserved.
+  for (const bad of [undefined, null, "ok", "results", "", 1, true]) {
+    const raw = rawManifest();
+    if (bad === undefined) delete raw.frames[0].kind;
+    else raw.frames[0].kind = bad;
+    assert.throws(() => sanitize(raw), /frames\[0\]\.kind/, `kind=${JSON.stringify(bad)} was admitted`);
+  }
 });

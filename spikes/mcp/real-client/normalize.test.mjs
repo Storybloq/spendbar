@@ -208,12 +208,13 @@ test("the client direction is judged by the same rules, not merely read for attr
   assert.deepEqual(t.frames.map((f) => f.method), ["initialize", "unknown"]);
 });
 
-test("a reused request id is counted AND makes the response unattributable, never misattributed", () => {
+test("a reused request id makes the response unattributable, never misattributed", () => {
   // The old map overwrote silently, so the response to request 1 was reported as whichever
   // method happened to be written last — a wrong method with no trace that anything was wrong.
+  // Neither mapping survives now. It is not ALSO counted as a protocol error; see the round-2
+  // test below for why the evidence cannot support that.
   const c2s = stream(req(1, "initialize"), req(1, "tools/call"));
   const t = normalize(c2s, stream(res(1, { protocolVersion: "2025-06-18" })));
-  assert.equal(t.clientToServer.protocolErrors, 1);
   assert.deepEqual(
     t.frames.map((f) => f.method),
     ["ambiguous"],
@@ -299,18 +300,39 @@ test("the digest is over the documented canonical form, version included", () =>
         frames: t.frames,
         clientToServer: t.clientToServer,
         serverStdout: t.serverStdout,
+        inputs: {
+          clientToServerSha256: createHash("sha256").update(HANDSHAKE_C2S).digest("hex"),
+          serverToClientSha256: createHash("sha256").update(HANDSHAKE_S2C).digest("hex"),
+        },
       }),
     )
     .digest("hex");
-  assert.equal(t.derivationDigest, expected, "the digest is not over {version, frames, both directions' stats}");
+  assert.equal(
+    t.derivationDigest,
+    expected,
+    "the digest is not over {version, frames, both directions' stats, both input digests}",
+  );
 
   // The negative control: the same structure under a different version digests differently, so
   // the version is load-bearing rather than merely present in the source.
   const other = createHash("sha256")
-    .update(canonical({ version: "normalize/1", frames: t.frames, clientToServer: t.clientToServer, serverStdout: t.serverStdout }))
+    .update(
+      canonical({
+        version: "normalize/1",
+        frames: t.frames,
+        clientToServer: t.clientToServer,
+        serverStdout: t.serverStdout,
+        inputs: {
+          clientToServerSha256: createHash("sha256").update(HANDSHAKE_C2S).digest("hex"),
+          serverToClientSha256: createHash("sha256").update(HANDSHAKE_S2C).digest("hex"),
+        },
+      }),
+    )
     .digest("hex");
   assert.notEqual(expected, other);
-  assert.equal(TRACE_VERSION, "normalize/2");
+  // Pinned literally: the version must be BUMPED when the derivation changes, or an old trace
+  // and a new one digest under the same label. Round 2 changed the derivation, so this moved.
+  assert.equal(TRACE_VERSION, "normalize/3");
 });
 
 // ---------- inputs ------------------------------------------------------------------------------
@@ -337,4 +359,94 @@ test("classifyMessage is exact about the three JSON-RPC shapes", () => {
   assert.equal(classifyMessage({ jsonrpc: "2.0", id: 1, method: "x", result: {} }), null);
   assert.equal(classifyMessage(null), null);
   assert.equal(classifyMessage([{ jsonrpc: "2.0", id: 1, result: {} }]), null);
+});
+
+// ---------------------------------------------------------------------------
+// Review round 2, chunk 7. Six findings, each one a case where something the
+// stream actually carried became something it could not be told apart from.
+// ---------------------------------------------------------------------------
+
+const errRes = (id, code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
+
+test("a byte-order mark is a parse error, not three bytes that vanish", () => {
+  // TextDecoder STRIPS a leading U+FEFF by default, so the line decoded clean, parsed clean and
+  // became a message — three bytes on a stream whose purity is asserted, counted by nothing.
+  const s2c = Buffer.concat([Buffer.from("﻿"), stream(res(1, { protocolVersion: "2025-06-18" }))]);
+  const t = normalize(stream(req(1, "initialize")), s2c);
+  assert.equal(t.serverStdout.parseErrors, 1);
+  assert.equal(t.serverStdout.messages, 0);
+  assert.equal(t.frames.length, 0);
+});
+
+test("integers too large to survive JSON parsing are protocol errors, not colliding ids", () => {
+  // 9007199254740993 and 9007199254740992 are DIFFERENT JSON integers that parse to the SAME
+  // Number. Accepting them merged two request ids into one attribution key.
+  const c2s = Buffer.from(
+    '{"jsonrpc":"2.0","id":9007199254740993,"method":"initialize"}\n' +
+      '{"jsonrpc":"2.0","id":9007199254740992,"method":"tools/list"}\n',
+  );
+  // The response uses a safe id: the point is that NEITHER request was ever mapped, so even a
+  // perfectly well-formed response has nothing to attribute to.
+  const t = normalize(c2s, stream(res(5, { protocolVersion: "x" })));
+  assert.equal(t.clientToServer.protocolErrors, 2, "both unsafe ids are refused");
+  assert.equal(t.clientToServer.messages, 0);
+  // Unattributed — not "ambiguous", which would mean two KNOWN requests contended for it, which
+  // is exactly what accepting the colliding ids produced.
+  assert.equal(t.frames[0].method, "unknown");
+});
+
+test("the digest covers the input bytes, not only the frames and the counts", () => {
+  // Same frames, same length, same counters — different rejected content. Statistics count
+  // bytes; they do not stand in for them.
+  const a = normalize(stream(req(1, "initialize")), stream(res(1, { protocolVersion: "2025-06-18" }), "{oops"));
+  const b = normalize(stream(req(1, "initialize")), stream(res(1, { protocolVersion: "2025-06-18" }), "{oxps"));
+  assert.deepEqual(a.frames, b.frames);
+  assert.deepEqual(a.serverStdout, b.serverStdout, "the counters are identical, which is the point");
+  assert.notEqual(a.derivationDigest, b.derivationDigest);
+});
+
+test("a field of the wrong type is counted, not quietly turned into an empty one", () => {
+  const t = normalize(
+    stream(req(1, "initialize"), req(2, "tools/list"), req(3, "tools/call")),
+    stream(
+      res(1, { protocolVersion: 42 }),
+      res(2, { tools: [{ name: "ok" }, "not-an-object"] }),
+      res(3, { structuredContent: { nonce: 7 }, content: "not-an-array" }),
+    ),
+  );
+  assert.equal(t.serverStdout.protocolErrors, 4, "42, the bad tool entry, the numeric nonce, the string content");
+  assert.equal(t.frames[0].protocolVersion, "", "the value is still not invented");
+  assert.deepEqual(t.frames[1].toolNames, ["ok", ""]);
+  assert.equal(t.frames[2].structuredNonce, null);
+});
+
+test("an error response is not an empty result response", () => {
+  const c2s = stream(req(3, "tools/call"));
+  const failed = normalize(c2s, stream(errRes(3, -32603, "internal error")));
+  const empty = normalize(c2s, stream(res(3, {})));
+  assert.equal(failed.frames[0].kind, "error");
+  assert.equal(empty.frames[0].kind, "result");
+  assert.notEqual(failed.derivationDigest, empty.derivationDigest);
+  // Everything else about the two frames agrees, which is why `kind` had to exist.
+  assert.deepEqual({ ...failed.frames[0], kind: null }, { ...empty.frames[0], kind: null });
+});
+
+test("a reused id refuses attribution without asserting a protocol violation", () => {
+  // MCP permits reusing an id after its response arrives, and two separately captured
+  // directions cannot tell that from an in-flight reuse. Refusing to attribute is supported by
+  // the evidence; counting a violation is not.
+  const t = normalize(stream(req(1, "initialize"), req(1, "tools/list")), stream(res(1, { protocolVersion: "x" })));
+  assert.equal(t.clientToServer.protocolErrors, 0);
+  assert.equal(t.clientToServer.messages, 2, "both requests are well-formed messages");
+  assert.equal(t.frames[0].method, "ambiguous");
+});
+
+test("a typed array that is not byte-wide is refused rather than mis-scanned", () => {
+  // ArrayBuffer.isView is true for all of these, and none of them has single-byte elements —
+  // newline scanning and `bytes` would silently mean something else, and DataView has no
+  // `subarray` at all.
+  for (const buf of [new Uint16Array(4), new Float64Array(2), new DataView(new ArrayBuffer(8))]) {
+    assert.throws(() => normalize(Buffer.alloc(0), buf), /serverToClientBuf must be a Buffer\/Uint8Array/);
+    assert.throws(() => normalize(buf, Buffer.alloc(0)), /clientToServerBuf must be a Buffer\/Uint8Array/);
+  }
 });

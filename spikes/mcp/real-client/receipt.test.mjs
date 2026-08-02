@@ -280,7 +280,7 @@ test("an edited derivation digest is caught with the bytes and frames left alone
 test("a frame the streams do not contain is caught", () => {
   withFixture((ctx) => refuses(verify(ctx), "reproduced frames differ"), {
     mutateRaw: (raw) =>
-      raw.frames.push({ type: "response", method: "tools/call", structuredNonce: NONCE, text: "", isError: false }),
+      raw.frames.push({ type: "response", method: "tools/call", kind: "result", structuredNonce: NONCE, text: "", isError: false }),
   });
 });
 
