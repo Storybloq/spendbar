@@ -80,6 +80,18 @@ export const BOUND_INPUTS = [
   "scripts/privacy-synthetic.json",
 ];
 
+/**
+ * Which real clients CAN take their user configuration out of a capture — a property of the
+ * CLIENT, not something a capture manifest is trusted to report about itself.
+ *
+ * Claude Code accepts --strict-mcp-config plus --settings, so its user configuration is provably
+ * out of the run. `codex exec -c` has no equivalent. A codex manifest claiming isolation is
+ * claiming something the tool cannot do, and the effect of believing it was that the
+ * `user-config-not-isolated` qualification silently disappeared — a conditional pass presented
+ * as an unconditional one (review round 2, chunk 12).
+ */
+export const CAN_ISOLATE_USER_CONFIG = { "claude-code": true, codex: false };
+
 const HEX64 = /^[0-9a-f]{64}$/;
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 
@@ -105,7 +117,11 @@ function checkShape(record, spec, what) {
     refuse(`${what} is not an object`);
   }
   for (const key of Object.keys(record)) {
-    if (!(key in spec)) refuse(`${what} carries unknown field '${key}'`);
+    // `key in spec` consults Object.prototype, so `constructor`, `toString`, `valueOf` and
+    // `__proto__` all read as DECLARED fields — and `Object.entries(spec)` never iterates them,
+    // so their values were not type-checked either. An evidence record could carry those names
+    // through a primitive whose whole contract is an exact field set (round 2, chunk 12).
+    if (!Object.prototype.hasOwnProperty.call(spec, key)) refuse(`${what} carries unknown field '${key}'`);
   }
   for (const [key, rule] of Object.entries(spec)) {
     const value = record[key];
@@ -115,6 +131,16 @@ function checkShape(record, spec, what) {
     }
     if (value === null) {
       if (!rule.nullable) refuse(`${what}.${key} is null`);
+      continue;
+    }
+    // `count` is `number` plus the constraints a count actually has. `typeof x === "number"`
+    // admits Infinity (strict JSON parses 1e999 to it), NaN, negatives and fractions — and
+    // Math.ceil(Infinity/4) === Infinity, so even the token-cost arithmetic check passed on a
+    // number that means nothing (round 2, chunk 12).
+    if (rule.type === "count") {
+      if (!Number.isSafeInteger(value) || value < 0) {
+        refuse(`${what}.${key} is ${JSON.stringify(value)}, not a non-negative integer`);
+      }
       continue;
     }
     const actual = Array.isArray(value) ? "array" : typeof value;
@@ -189,11 +215,14 @@ const RECEIPT_SPEC = {
   rawStatistics: { type: "object" },
   captureInputs: { type: "object" },
   candidateTreeSha256: { type: "string" },
+  // The digest of the sanitized manifest this capture produced. The stream digests beside it
+  // describe bytes that were deleted; this describes the file that survives them.
+  manifestSha256: { type: "string" },
   note: { type: "string", optional: true },
 };
 
 /** Both directions carry the same seven counters; the key set is the sanitizer's, not a copy. */
-const STREAM_STATS_SPEC = Object.fromEntries(STREAM_STAT_KEYS.map((key) => [key, { type: "number" }]));
+const STREAM_STATS_SPEC = Object.fromEntries(STREAM_STAT_KEYS.map((key) => [key, { type: "count" }]));
 
 // Built from the sanitizer's key list rather than restated, so a stream that becomes
 // digest-bound cannot be bound in one place and unchecked in the other.
@@ -256,7 +285,7 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
         sdk: { type: "string" },
         sdkVersion: { type: "string" },
         cases: { type: "object" },
-        failed: { type: "number" },
+        failed: { type: "count" },
         isolation: { type: "object" },
       },
       `scripted.json ${candidate}`,
@@ -277,9 +306,9 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
     const iso = checkShape(
       rec.isolation,
       {
-        resolutionsTotal: { type: "number" },
-        builtins: { type: "number" },
-        insidePrefix: { type: "number" },
+        resolutionsTotal: { type: "count" },
+        builtins: { type: "count" },
+        insidePrefix: { type: "count" },
         violations: { type: "array" },
         // Child processes and Workers the candidate created. Their resolutions happened where
         // the instrument was never loaded, so a non-empty list means the enumeration is
@@ -302,7 +331,47 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       refuse(`${candidate} isolation is broken — its scripted results prove nothing about the SDK`);
     }
     if (!(iso.resolutionsTotal > 0)) refuse(`${candidate} isolation enumerated zero resolutions`);
+    // The PER-CASE records, checked rather than counted. Until review round 2, chunk 12 only
+    // their key NAMES were compared against the case list, so every entry could report an error
+    // or zero observations while the aggregate booleans beside them said all eight cases were
+    // instrumented — and the passing scripted cells stayed adoption-eligible on that. The
+    // aggregate is recomputed from the records now; a stored boolean is not evidence of itself.
     checkExactKeys(iso.perCase, SCRIPTED_CASES, `scripted.json ${candidate}.isolation.perCase`);
+    let recomputedTotal = 0;
+    for (const name of SCRIPTED_CASES) {
+      // Two shapes, and which one a record has IS the fact being read. conformance.mjs writes
+      // an error-only record when a case's audit could not be performed at all, so that record
+      // is checked against its own shape and then refused — rather than being refused for
+      // "missing required field 'total'", which would report a broken observation as a
+      // malformed one and send a reader looking in the wrong place.
+      const raw = iso.perCase[name];
+      const label = `scripted.json ${candidate}.isolation.perCase.${name}`;
+      if (raw !== null && typeof raw === "object" && !Array.isArray(raw) && raw.error !== undefined) {
+        checkShape(raw, { error: { type: "string" } }, label);
+        refuse(`${candidate}/${name} isolation was not observed: ${raw.error}`);
+      }
+      const pc = checkShape(
+        raw,
+        {
+          total: { type: "count" },
+          violations: { type: "count" },
+          descendants: { type: "count" },
+          sdkResolutions: { type: "count" },
+        },
+        label,
+      );
+      if (pc.total === 0) refuse(`${candidate}/${name} enumerated zero resolutions — its closure was never observed`);
+      if (pc.violations !== 0) refuse(`${candidate}/${name} resolved ${pc.violations} module(s) outside its root`);
+      if (pc.descendants !== 0) refuse(`${candidate}/${name} created ${pc.descendants} uninstrumented descendant(s)`);
+      // The witness that this case exercised the CANDIDATE SDK rather than merely something
+      // inside the assembled root (round 2, chunk 9 added it; this is what makes it load-bearing
+      // to a reader who only ever sees the committed evidence).
+      if (pc.sdkResolutions === 0) refuse(`${candidate}/${name} resolved nothing from the candidate SDK — it did not exercise it`);
+      recomputedTotal += pc.total;
+    }
+    if (recomputedTotal !== iso.resolutionsTotal) {
+      refuse(`${candidate} isolation reports ${iso.resolutionsTotal} resolutions but its per-case records sum to ${recomputedTotal}`);
+    }
     const failingCases = SCRIPTED_CASES.filter((name) => rec.cases[name].status === "fail").length;
     if (rec.failed !== failingCases) {
       refuse(`${candidate} records failed=${rec.failed} but ${failingCases} cases fail — inconsistent`);
@@ -311,8 +380,8 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
     const sc = checkShape(
       supplyChain[candidate],
       {
-        packages: { type: "number" },
-        verified: { type: "number" },
+        packages: { type: "count" },
+        verified: { type: "count" },
         violations: { type: "array" },
         install: { type: "object" },
         installedRescan: { type: "object" },
@@ -338,10 +407,15 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
     }
     const rescan = checkShape(
       sc.installedRescan,
-      { packagesScanned: { type: "number" }, violations: { type: "array" } },
+      { packagesScanned: { type: "count" }, violations: { type: "array" } },
       `supply-chain.json ${candidate}.installedRescan`,
     );
-    if (!(rescan.packagesScanned > 0)) refuse(`${candidate} installed-tree rescan scanned zero packages`);
+    // The rescan must cover the WHOLE declared closure. `> 0` let a record claim 100 verified
+    // packages while the installed-tree rescan — the check that the bytes actually on disk carry
+    // no install hooks — looked at one of them (round 2, chunk 12).
+    if (rescan.packagesScanned !== sc.packages) {
+      refuse(`${candidate} installed-tree rescan covered ${rescan.packagesScanned} of ${sc.packages} packages`);
+    }
     if (rescan.violations.length > 0) {
       refuse(`${candidate} installed tree has violations — the no-hooks precondition fails`);
     }
@@ -360,7 +434,7 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
   for (const candidate of ["v1", "v2"]) {
     const tc = checkShape(
       tokenCost[candidate],
-      { canonicalBytes: { type: "number" }, proxyTokens: { type: "number" }, fields: { type: "array" } },
+      { canonicalBytes: { type: "count" }, proxyTokens: { type: "count" }, fields: { type: "array" } },
       `token-cost.json ${candidate}`,
     );
     if (tc.proxyTokens !== Math.ceil(tc.canonicalBytes / 4)) {
@@ -377,18 +451,18 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
     if (a?.ran === true) {
       checkShape(
         a,
-        { advisoriesTotal: { type: "number" }, ran: { type: "boolean" }, vulnerabilities: { type: "object" } },
+        { advisoriesTotal: { type: "count" }, ran: { type: "boolean" }, vulnerabilities: { type: "object" } },
         `audit.json ${candidate}`,
       );
       checkShape(
         a.vulnerabilities,
         {
-          critical: { type: "number" },
-          high: { type: "number" },
-          info: { type: "number" },
-          low: { type: "number" },
-          moderate: { type: "number" },
-          total: { type: "number" },
+          critical: { type: "count" },
+          high: { type: "count" },
+          info: { type: "count" },
+          low: { type: "count" },
+          moderate: { type: "count" },
+          total: { type: "count" },
         },
         `audit.json ${candidate}.vulnerabilities`,
       );
@@ -415,9 +489,11 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
   // recapture and left them to discover the rest a run at a time; it also made the test for
   // this behaviour depend on which file happened to sort first (review round 2, chunk 4).
   let captureInputsStale = null;
+  // Hoisted: the receipt and manifest provenance checks below compare against these pins.
+  let ci = null;
   if (real !== null) {
     const ciPath = join(evidenceDir, "real-clients", "capture-inputs.json");
-    const ci = checkShape(readJson(ciPath, "real-clients/capture-inputs.json"), { files: { type: "object" } },
+    ci = checkShape(readJson(ciPath, "real-clients/capture-inputs.json"), { files: { type: "object" } },
       "real-clients/capture-inputs.json");
     const recorded = Object.keys(ci.files).sort();
     if (JSON.stringify(recorded) !== JSON.stringify([...CAPTURE_INPUTS].sort())) {
@@ -435,8 +511,29 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
     checkExactKeys(real, ["v1", "v2"], "real-clients/cells.json");
     const receiptRaw = readJson(join(evidenceDir, "real-clients", "receipt.json"), "real-clients/receipt.json");
     if (!Array.isArray(receiptRaw)) refuse("real-clients/receipt.json is not an array");
+    const seenIds = new Set();
     receipts = receiptRaw.map((entry, index) => {
       const r = checkShape(entry, RECEIPT_SPEC, `receipt.json[${index}]`);
+      // Identity, from the known sets. A receipt naming a client or candidate that is not in
+      // the matrix belongs to no cell, so nothing would ever compare it — it could carry any
+      // outcome at all and sit in a "verified" evidence set unexamined (round 2, chunk 12).
+      if (!REAL_CLIENTS.includes(r.client)) refuse(`receipt.json[${index}] names unknown client '${r.client}'`);
+      if (!["v1", "v2"].includes(r.candidate)) refuse(`receipt.json[${index}] names unknown candidate '${r.candidate}'`);
+      if (seenIds.has(r.captureId)) {
+        refuse(`receipt.json lists capture ${r.captureId} more than once — refusing to guess which is real`);
+      }
+      seenIds.add(r.captureId);
+      if (!HEX64.test(r.manifestSha256)) refuse(`receipt.json[${index}].manifestSha256 is not a sha256 hex string`);
+      // The provenance a receipt claims must be the provenance the evidence set claims. Neither
+      // the receipt's nor the manifest's captureInputs were ever compared against
+      // capture-inputs.json, so replacing that one file with today's digests made stale captures
+      // read as current — the staleness check above was checking a file against itself.
+      checkExactKeys(r.captureInputs, CAPTURE_INPUTS, `receipt.json[${index}].captureInputs`);
+      for (const rel of CAPTURE_INPUTS) {
+        if (r.captureInputs[rel] !== ci.files[rel]) {
+          refuse(`receipt.json[${index}] was taken under a different ${rel} than capture-inputs.json pins`);
+        }
+      }
       // A receipt is a permission to have deleted the raw bytes, so one written by an older,
       // weaker verifier must not keep validating after the verifier is strengthened — the
       // evidence that would settle it is gone.
@@ -467,6 +564,7 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
   // is refuse to let the qualification be dropped on the way to the decision document, which
   // is where an unconditional-looking "pass" was actually doing harm (review round 1, chunk 17).
   const qualifications = [];
+  const consumedReceipts = new Set();
   for (const candidate of ["v1", "v2"]) {
     for (const client of REAL_CLIENTS) {
       if (captureInputsStale !== null) {
@@ -547,6 +645,7 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       // to discard its predecessor, leaving a receipt with nowhere to belong and an attempt
       // that committed evidence never mentioned.
       const matching = receipts.filter((r) => r.client === client && r.candidate === candidate);
+      for (const r of matching) consumedReceipts.add(r.captureId);
       const attemptIds = rec.attempts.map((a) => a.captureId);
       if (JSON.stringify([...matching.map((r) => r.captureId)].sort()) !== JSON.stringify([...attemptIds].sort())) {
         refuse(`${what} receipts [${matching.map((r) => r.captureId).join(", ")}] do not match its attempts [${attemptIds.join(", ")}]`);
@@ -564,6 +663,29 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       const receipt = matching.find((r) => r.captureId === finalId);
       if (JSON.stringify(receipt.reproduced) !== JSON.stringify(manifest.digests)) {
         refuse(`${what} receipt digests disagree with the manifest — the derivation was not reproduced`);
+      }
+      // THE MANIFEST ITSELF, bound to the receipt. Everything above compares two editable
+      // records to each other, and the digests they agree on describe raw streams that were
+      // deleted — so an editor who changed the manifest's frames, its stdout predicates, its
+      // isolation flags and the matching cell status left every one of those comparisons
+      // satisfied, and `classify()` then re-derived a status from the edited assertions. The
+      // receipt records the digest of the manifest it sanitized, taken while the bytes still
+      // existed, and the committed file has to be that file (round 2, chunk 12).
+      if (sha256(manifestBytes) !== receipt.manifestSha256) {
+        refuse(`${what} committed manifest is not the file its receipt was written for — it has been edited since`);
+      }
+      // An independent cross-check of the same counters from the other record.
+      for (const direction of ["clientToServer", "serverStdout"]) {
+        if (JSON.stringify(receipt.rawStatistics[direction]) !== JSON.stringify(manifest[direction])) {
+          refuse(`${what} receipt ${direction} statistics disagree with the manifest`);
+        }
+      }
+      // The manifest's own provenance pins, against the evidence set's.
+      checkExactKeys(manifest.captureInputs, CAPTURE_INPUTS, `${what} manifest.captureInputs`);
+      for (const rel of CAPTURE_INPUTS) {
+        if (manifest.captureInputs[rel] !== ci.files[rel]) {
+          refuse(`${what} manifest was captured under a different ${rel} than capture-inputs.json pins`);
+        }
       }
       // The dependency tree the server ran from. Checking it against the installed tree needs a
       // working tree and belongs to the receipt; what is checkable offline is that every record
@@ -632,6 +754,16 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
         });
       }
       cells[candidate][`real:${client}`] = rec;
+    }
+  }
+
+  // Every receipt has to belong to a cell that was verified. A receipt nothing consumed is a
+  // permission to have deleted raw bytes that no cell accounts for — either a superseded
+  // generation left behind, or an entry added by hand (round 2, chunk 12).
+  if (receipts !== null) {
+    const orphans = receipts.map((r) => r.captureId).filter((id) => !consumedReceipts.has(id));
+    if (orphans.length) {
+      refuse(`real-clients/receipt.json holds receipt(s) no cell claims: ${orphans.sort().join(", ")}`);
     }
   }
 

@@ -76,7 +76,12 @@ export const CAPTURE_INPUTS = [
  *   receipt/2 — full re-derivation: re-sanitize, re-classify, all four streams, provenance
  *   receipt/3 — the installed dependency tree the server actually ran from is checked too
  */
-export const RECEIPT_SCHEMA_VERSION = "receipt/3";
+// receipt/4 adds `manifestSha256`: the digest of the sanitized manifest this capture produces.
+// Without it nothing bound the manifest's CONTENT to the receipt — the two files agreed only on
+// digests of raw streams that no longer exist, so an editor who changed a manifest's frames,
+// predicates or isolation flags and the matching cell status left every cross-check satisfied
+// (review round 2, chunk 12).
+export const RECEIPT_SCHEMA_VERSION = "receipt/4";
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 

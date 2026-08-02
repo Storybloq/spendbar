@@ -553,6 +553,11 @@ export function publishReceipts({
       candidate: v.raw.candidate,
       outcome: v.outcome,
       reproduced: { ...v.raw.digests },
+      // The sanitized manifest THIS capture produces, digested in the exact committed form.
+      // The stream digests describe bytes that are about to be deleted; this describes the file
+      // that survives them, and it is what stops a later edit to the manifest from going
+      // unnoticed (review round 2, chunk 12).
+      manifestSha256: sha256(Buffer.from(JSON.stringify(v.sanitized, null, 2) + "\n", "utf8")),
       rawStatistics: { clientToServer: v.raw.clientToServer, serverStdout: v.raw.serverStdout },
       captureInputs: { ...v.raw.captureInputs },
       candidateTreeSha256: v.raw.candidateTreeSha256,

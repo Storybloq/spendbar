@@ -23,7 +23,7 @@ import {
   versionTuple,
   TransitionError,
 } from "./decide.mjs";
-import { verifyEvidence, BOUND_INPUTS, EVIDENCE_DIR, EvidenceError } from "./verify-evidence.mjs";
+import { verifyEvidence, BOUND_INPUTS, EVIDENCE_DIR, EvidenceError, CAN_ISOLATE_USER_CONFIG } from "./verify-evidence.mjs";
 import { canonicalize, proxyTokens, measureToolDefinition, TOKEN_PROXY_VERSION } from "./token-cost.mjs";
 import { runStages, buildStages } from "./matrix.mjs";
 import { CAPTURE_INPUTS } from "./real-client/provenance.mjs";
@@ -1048,4 +1048,94 @@ test("every line terminator and a literal backslash-pipe are neutralised in the 
   // The backslash is escaped FIRST, so what follows is a literal pipe inside the cell rather
   // than an escaped backslash followed by a live table delimiter.
   assert.ok(doc.includes("a\\\\\\|b split"), `backslash-pipe was not neutralised: ${JSON.stringify(doc.slice(-400))}`);
+});
+
+// ---------------------------------------------------------------------------
+// Review round 2, chunk 12: the verifier is the last guard. Everything else in
+// this pipeline is bypassed at once if it can be made to return a clean result.
+// ---------------------------------------------------------------------------
+
+test("an inherited Object.prototype name is an unknown field, not a declared one", () => {
+  // `key in spec` consults the prototype chain, so `constructor` and `toString` read as
+  // DECLARED — and Object.entries(spec) never iterates them, so their values went unchecked
+  // too. A record could carry them through a primitive whose contract is an exact field set.
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    for (const field of ["constructor", "toString", "valueOf", "hasOwnProperty"]) {
+      mutate("token-cost.json", (t) => {
+        for (const k of ["constructor", "toString", "valueOf", "hasOwnProperty"]) delete t.v2[k];
+        t.v2[field] = "smuggled";
+      });
+      assert.throws(
+        () => verifyEvidence({ evidenceDir, repoRoot }),
+        new RegExp(`carries unknown field '${field}'`),
+        `${field} was accepted as a declared field`,
+      );
+    }
+  });
+});
+
+test("a count that is not a non-negative integer is refused", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    // 1e999 parses to Infinity, and Math.ceil(Infinity / 4) === Infinity — so the token-cost
+    // arithmetic check passed on a number that means nothing.
+    const p = join(evidenceDir, "token-cost.json");
+    const raw = readFileSync(p, "utf8");
+    writeFileSync(p, raw.replace(/"canonicalBytes":\s*\d+/, '"canonicalBytes": 1e999'));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /not a non-negative integer/);
+
+    for (const bad of [-1, 0.5]) {
+      mutate("supply-chain.json", (sc) => (sc.v2.packages = bad));
+      assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /not a non-negative integer/);
+      mutate("supply-chain.json", (sc) => (sc.v2.packages = sc.v2.verified));
+    }
+  });
+});
+
+test("an installed-tree rescan that covered part of the closure is refused", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    // `packagesScanned > 0` let a record claim 93 verified packages while the rescan — the
+    // check that the bytes on disk carry no install hooks — looked at one of them.
+    mutate("supply-chain.json", (sc) => (sc.v2.installedRescan.packagesScanned = 1));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /rescan covered 1 of \d+ packages/);
+  });
+});
+
+test("per-case isolation records are read, not merely counted", () => {
+  // Every one of these leaves the aggregate booleans — ok, everyCaseInstrumented — saying the
+  // run was clean, which is exactly what made counting the keys and trusting the aggregate a
+  // check that observed nothing. A FRESH fixture per case: they are alternatives, not a
+  // sequence, and mutating one on top of the last tests a record no run can produce.
+  const cases = [
+    [(iso) => (iso.perCase["initialize"] = { error: "boom" }), /isolation was not observed: boom/],
+    [(iso) => (iso.perCase["initialize"].total = 0), /enumerated zero resolutions/],
+    [(iso) => (iso.perCase["initialize"].violations = 3), /resolved 3 module\(s\) outside its root/],
+    [(iso) => (iso.perCase["initialize"].descendants = 1), /uninstrumented descendant/],
+    [(iso) => (iso.perCase["initialize"].sdkResolutions = 0), /did not exercise it/],
+  ];
+  for (const [break_, pattern] of cases) {
+    withFixture(({ evidenceDir, repoRoot, mutate }) => {
+      mutate("scripted.json", (s) => break_(s.v2.isolation));
+      assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), pattern);
+    });
+  }
+});
+
+test("the isolation total must follow from the per-case records", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    mutate("scripted.json", (s) => (s.v2.isolation.resolutionsTotal += 1));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /per-case records sum to/);
+  });
+});
+
+test("which clients can isolate their user configuration is a literal, not a manifest claim", () => {
+  // The integration path — a codex manifest asserting userConfigIsolated:true — cannot be
+  // exercised while the real cells are not-run pending recapture, because the manifest is never
+  // read. What IS pinned now is the table the check consults, so a silent edit of it fails here.
+  // The end-to-end refusal is covered once the captures are retaken.
+  assert.deepEqual(CAN_ISOLATE_USER_CONFIG, { "claude-code": true, codex: false });
+  assert.equal(
+    CAN_ISOLATE_USER_CONFIG.codex,
+    false,
+    "codex exec -c has no equivalent of --strict-mcp-config plus --settings; claiming otherwise drops the qualification",
+  );
 });
