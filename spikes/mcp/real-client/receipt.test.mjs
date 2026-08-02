@@ -596,7 +596,10 @@ test("a durable write is read back, and the temporary file does not survive", ()
     writeDurable(path, [{ captureId: "a", schemaVersion: RECEIPT_SCHEMA_VERSION }]);
     assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), [{ captureId: "a", schemaVersion: RECEIPT_SCHEMA_VERSION }]);
     assert.equal(readFileSync(path, "utf8").endsWith("\n"), true);
-    assert.throws(() => readFileSync(`${path}.writing`, "utf8"));
+    // Was a matcher-less assert.throws, which any error satisfied — a mistyped path, a
+    // permission fault, anything. The claim is that the temporary file does not exist, so say
+    // that (review round 2, chunk 14).
+    assert.equal(existsSync(`${path}.writing`), false, "the staging file survived the commit");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

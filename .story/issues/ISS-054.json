@@ -1,0 +1,23 @@
+{
+  "components": [
+    ".story",
+    "scripts"
+  ],
+  "createdBy": "codex review round 2 chunk 13",
+  "dedupeKey": "story-ticket-json-operator-identifiers-worktree",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-054",
+  "impact": ".story/tickets/T-009.json is tracked in git, and during an autonomous session it acquires two fields the repository's own privacy scanner classifies as personal data: line 9 (key `user`, email class) and line 11 (key `claimedBySession`, session-identifier class). Neither value is present in the committed version at HEAD — they exist only in the working tree — so the repository is clean today, but the file is tracked, which means an ordinary `git add -A` or `git commit -a` publishes both. `scripts/guarded-commit.mjs` catches it only because it scans the index, so the protection depends entirely on every future commit going through that wrapper. This is pre-existing and unrelated to T-009's own changes (it is written by the session tooling, not by this ticket's code), so it is filed rather than fixed here. Two candidate fixes: have the session tooling keep run-scoped ownership fields out of the tracked ticket file (a sibling untracked lock/lease file), or add a repo-side gitattributes/pre-commit filter that strips them. Deliberately NOT reproduced here: this note names the file, the line and the class, never the values.",
+  "location": [
+    ".story/tickets/T-009.json"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-009"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "Tracked ticket JSON accumulates operator identifiers in the working tree"
+}

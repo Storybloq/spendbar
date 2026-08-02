@@ -211,11 +211,14 @@ test("an empty resolution log is an error, not a pass", async () => {
   });
 });
 
-test("a malformed resolution log line is a hard error", async () => {
+test("a malformed resolution log line is a hard error that names the log and the line", async () => {
   await withTempDir((dir) => {
     const log = join(dir, "log.ndjson");
-    writeFileSync(log, "{not json\n");
-    assert.throws(() => checkResolutions(log, dir));
+    // A matcher-less assert.throws passed on ANY error — a typo inside checkResolutions
+    // satisfied it just as well as the refusal it exists for. And what it accepted was a bare
+    // SyntaxError naming a character position (review round 2, chunk 14).
+    writeFileSync(log, '{"kind":"esm","resolved":"node:fs"}\n{not json\n');
+    assert.throws(() => checkResolutions(log, dir), /resolution log .*log\.ndjson line 2 is not JSON/);
   });
 });
 

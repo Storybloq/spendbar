@@ -267,8 +267,18 @@ export function checkResolutions(logPath, root) {
   // closure stayed in the root; it was NOT enough to know WHICH package the closure came from,
   // so a candidate that never loaded its SDK still looked isolated (review round 2, chunk 9).
   const insidePaths = [];
-  for (const line of lines) {
-    const entry = JSON.parse(line); // malformed log lines are a hard error, deliberately
+  for (const [index, line] of lines.entries()) {
+    // Malformed log lines are a hard error, deliberately — but the error has to say what was
+    // read. `JSON.parse` alone threw a bare SyntaxError naming a character position, from the
+    // one module whose job is proving the instrument ran; an operator got "Expected property
+    // name at position 1" and no file, no line, no hint that a resolution log was involved
+    // (review round 2, chunk 14).
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch (error) {
+      throw new Error(`resolution log ${logPath} line ${index + 1} is not JSON: ${error.message}`);
+    }
     let filePath = null;
     if (entry.kind === "esm") {
       // Only node: builtins are permitted. A data: URL is executable code from nowhere on

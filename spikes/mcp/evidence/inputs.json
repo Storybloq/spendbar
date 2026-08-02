@@ -22,7 +22,7 @@
     "spikes/mcp/conformance.mjs": "b65f43cbd1d953ccaf8d1f24c8bb09a4f3060f506d2c98ee8cdf5a92cdbe537d",
     "spikes/mcp/instrument-hooks.mjs": "c95368d3454a7bfa4d1c8d87921727524cf73f458054fd7a5c7d6b0f9c222911",
     "spikes/mcp/instrument.mjs": "5ddb84bf5ef39e72a30164095822a7bfcefd799333e43e6b421d06b68e6222ea",
-    "spikes/mcp/isolate.mjs": "b09180a1f48f15832a17790e42452001ea86955382f96b1d5f3f8dbeddd6a9cf",
+    "spikes/mcp/isolate.mjs": "711bc6d7b39ce8d2b8001ef2f035f25feaf1f8e94233d59de24c2c34fe1dfaed",
     "spikes/mcp/matrix.mjs": "a1eae6d220d04763b038d74a39de1e2d10ada15460cebbd53846537bfbf87e6c",
     "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
     "spikes/mcp/real-client/capture-wrapper.mjs": "460db92a5a646f2162f47955e167936723b2c91610195f3442ef5cc81e0364a4",
