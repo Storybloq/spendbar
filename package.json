@@ -50,5 +50,13 @@
   },
   "dependencies": {
     "ccusage": "20.0.19"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Storybloq/spendbar.git"
+  },
+  "homepage": "https://github.com/Storybloq/spendbar#readme",
+  "bugs": {
+    "url": "https://github.com/Storybloq/spendbar/issues"
   }
 }
