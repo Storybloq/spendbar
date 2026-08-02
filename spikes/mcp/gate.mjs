@@ -16,7 +16,14 @@ import { writeFileSync, renameSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { decide, act1, EXIT_CODES, TransitionError, resolutionTicketTitle } from "./decide.mjs";
+import {
+  decide,
+  act1,
+  EXIT_CODES,
+  TransitionError,
+  resolutionTicketTitle,
+  serializeJsonArtifact,
+} from "./decide.mjs";
 import { verifyEvidence, EVIDENCE_DIR, EvidenceError } from "./verify-evidence.mjs";
 import { isDirectEntry } from "../../scripts/direct-entry.mjs";
 
@@ -113,7 +120,7 @@ const deps = {
   // The machine-readable record packaging keys off (§10) — written INSIDE act1's transaction,
   // and mutually exclusive with the attempt report (review round 1).
   writeDecisionRecord(record) {
-    writeAtomic(join(EVIDENCE_DIR, "decision.json"), JSON.stringify(record, null, 2) + "\n");
+    writeAtomic(join(EVIDENCE_DIR, "decision.json"), serializeJsonArtifact(record));
     rmSync(join(EVIDENCE_DIR, "attempt-report.json"), { force: true });
   },
   removeDecisionArtifacts() {
@@ -121,7 +128,7 @@ const deps = {
     rmSync(join(EVIDENCE_DIR, "decision.json"), { force: true });
   },
   writeAttemptReport(report) {
-    writeAtomic(join(EVIDENCE_DIR, "attempt-report.json"), JSON.stringify(report, null, 2) + "\n");
+    writeAtomic(join(EVIDENCE_DIR, "attempt-report.json"), serializeJsonArtifact(report));
   },
 };
 

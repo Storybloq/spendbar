@@ -33,7 +33,17 @@ import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { SCRIPTED_CASES, REAL_CLIENTS, MANDATORY_CELLS, STATUSES } from "./decide.mjs";
+import {
+  SCRIPTED_CASES,
+  REAL_CLIENTS,
+  MANDATORY_CELLS,
+  STATUSES,
+  decide,
+  renderDecisionDoc,
+  renderDecisionRecord,
+  renderAttemptReport,
+  serializeJsonArtifact,
+} from "./decide.mjs";
 import { parseStrictJson, JsonSyntaxError } from "./strict-json.mjs";
 import { classify, toCellStatus, InvalidRecordError } from "./real-client/classify.mjs";
 import { STREAM_STAT_KEYS, DIGEST_KEYS } from "./real-client/sanitize.mjs";
@@ -630,20 +640,31 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       if (iso.hostileConfigExecuted) {
         refuse(`${what} ran a hostile configuration — the capture is not evidence about the SDK`);
       }
-      // The Codex asymmetry, recorded rather than smoothed over: Claude Code accepts
-      // --strict-mcp-config plus --settings, so its user configuration is provably out of the
-      // run; `codex exec -c` has no equivalent, so those cells ran with the operator's own
-      // configuration reachable. The cell still passes — the probe really did reach the server
-      // and come back — but "passed on this machine" is not "passed from a fresh state", and
-      // the difference has to survive all the way into the decision document.
-      if (!iso.userConfigIsolated) {
-        qualifications.push({
-          candidate,
-          cell: `real:${client}`,
-          kind: "user-config-not-isolated",
-          detail: `${client} ran with the operator's own user configuration reachable; this cell is a pass on this machine, not from a fresh state`,
-        });
-      }
+      // The Codex asymmetry: Claude Code accepts --strict-mcp-config plus --settings, so its
+      // user configuration is provably out of the run; `codex exec -c` has no equivalent, so
+      // those cells ran with the operator's own configuration reachable.
+      //
+      // Until review round 12 this was a QUALIFICATION and the cell stayed a mandatory pass.
+      // That made §9's isolation requirement unenforceable, and measurably so: qualifications
+      // reach DECISION.md prose (decide.mjs renderDecisionDoc) and never enter decide()'s
+      // aggregate, so two cells that did not meet the isolation the plan requires still counted
+      // as mandatory passes and could certify adopt-v2, with the shortfall demoted to a
+      // paragraph a reader has to notice. Prose is not a gate; a qualification a reader must
+      // act on is an unenforced invariant with better manners (ISS-047, plan §14.2).
+      //
+      // So a capture that did not isolate is `not-run` with an infrastructure cause, which
+      // dominates to `incomplete` (§1) and can never buy an adoption. The downgrade is applied
+      // to the PUBLISHED cell at the end of this block rather than here, deliberately: every
+      // check below — receipt matching, manifest binding, re-derivation — still has to run and
+      // still has to agree with the recorded status, or a non-isolated capture would become a
+      // way to skip validation rather than a way to fail it.
+      //
+      // Fail-closed is the deliberate direction: it is the only one that cannot silently
+      // certify something untrue. Whether the TICKET should accept qualified non-isolated Codex
+      // evidence is an owner decision, not a review call — Codex offers no mechanism the
+      // harness can use, so refusing it means this gate reaches no verdict on Codex at all, and
+      // that is a contract change (plan §14.2).
+      const notIsolated = !iso.userConfigIsolated;
 
       // Every attempt is receipted, including a superseded environmental one — the retry used
       // to discard its predecessor, leaving a receipt with nowhere to belong and an attempt
@@ -747,7 +768,23 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       // the same server bytes from the same assembled root with the instrument loaded. Saying
       // so on every real pass is the difference between a reader knowing which cells prove
       // isolation and a reader assuming all of them do (review round 2, chunk 5).
-      if (rec.status !== "not-run") {
+      //
+      // The published cell, which is where the isolation downgrade lands (see above). Every
+      // check between there and here has already run against the RECORDED status, so this
+      // changes what the evidence is allowed to certify, not what it was allowed to skip.
+      const published = notIsolated
+        ? {
+            status: "not-run",
+            cause:
+              `${client} ran without a supported user-configuration isolation mechanism, so this ` +
+              `capture observed the operator's own configuration rather than a fresh state — it is ` +
+              `not evidence about the SDK and cannot count toward an adoption (ISS-047)`,
+          }
+        : rec;
+      // Keyed off the PUBLISHED status, not the recorded one: a cell downgraded to not-run did
+      // not contribute a pass, so annotating it as a qualified pass would describe a cell the
+      // decision never used.
+      if (published.status !== "not-run") {
         qualifications.push({
           candidate,
           cell: `real:${client}`,
@@ -757,7 +794,7 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
             "isolation for these bytes is established by the scripted cells, not by this one",
         });
       }
-      cells[candidate][`real:${client}`] = rec;
+      cells[candidate][`real:${client}`] = published;
     }
   }
 
@@ -797,9 +834,104 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
   };
 }
 
+/** The three outcome artifacts Act 1 writes, by filename inside the evidence directory. */
+export const OUTCOME_ARTIFACTS = {
+  decisionDoc: "DECISION.md",
+  decisionRecord: "decision.json",
+  attemptReport: "attempt-report.json",
+};
+
+/**
+ * Does the repository's RECORDED outcome still describe its evidence?
+ *
+ * This is a second, separate question from the one `verifyEvidence()` answers, and review round
+ * 11 was right that they cannot be the same function. `verifyEvidence()` validates INPUTS and is
+ * what the gate consumes BEFORE Act 1 writes, replaces or removes these artifacts; folding the
+ * artifact check into it would refuse a first run (nothing written yet), a run whose verdict
+ * legitimately changed, and an `incomplete` run still carrying the previous run's files — a
+ * producer gated on its own output. So: `verifyEvidence()` knows nothing about these three
+ * files, and this function, which never writes, is what `verify:real-client-evidence` and
+ * therefore `test:all` run.
+ *
+ * Why it exists at all: the repository reached the state §1 declares impossible, and nothing
+ * noticed. decide(verifyEvidence()) derived `incomplete` (four stale captures, every mandatory
+ * real-client cell degraded to not-run) while the committed decision.json and DECISION.md both
+ * declared `adopt-v2`, and `verify:real-client-evidence` exited 0 over it — a guard reporting
+ * success while having observed nothing, at the top of the gate, in the check whose whole job
+ * was to catch exactly this. §10's packaging smoke test reads that same stale decision.json to
+ * decide whether to skip.
+ *
+ * The comparison is REGENERATION, not outcome-equality. "The document names the same outcome
+ * the evidence implies" is far too weak: an adopt-v2 document survives changed cells, changed
+ * candidate versions, changed qualifications and a changed body so long as the newly derived
+ * outcome is also adopt-v2 — which is to say the stale artifact this exists to catch would
+ * pass. Every artifact is regenerated from the CURRENT verified result, through the same
+ * generators Act 1 writes with, and compared byte for byte.
+ */
+export function verifyRecordedOutcome({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HERE, "..", "..") } = {}) {
+  const verified = verifyEvidence({ evidenceDir, repoRoot });
+  const decision = decide(verified);
+  checkOutcomeArtifacts(verified, decision, (name) => {
+    const path = join(evidenceDir, name);
+    return existsSync(path) ? readFileSync(path) : null;
+  });
+  return { verified, decision };
+}
+
+/**
+ * The comparison itself, as a pure function over an injected reader — `read(name)` returns the
+ * artifact's bytes as a Buffer, or null when it is absent.
+ *
+ * Injected rather than reading the filesystem directly for a reason that is about coverage, not
+ * tidiness: the verdict branch is unreachable from any fixture built out of the committed
+ * evidence, because that evidence derives `incomplete`. A comparison welded to the filesystem
+ * could therefore only ever have half of itself tested, and the untested half is the one that
+ * decides whether an adoption is honest.
+ */
+export function checkOutcomeArtifacts(verified, decision, read) {
+  const requireAbsent = (name, why) => {
+    if (read(name) !== null) refuse(`${name} is present, but ${why}`);
+  };
+  const requireIdentical = (name, expected) => {
+    const actual = read(name);
+    if (actual === null) refuse(`${name} is missing, but the derived outcome is '${decision.outcome}'`);
+    const want = Buffer.from(expected, "utf8");
+    if (!actual.equals(want)) {
+      // The outcome is named on both sides deliberately: the common failure is a committed
+      // artifact whose outcome still matches while its body no longer describes the evidence,
+      // and a message that only said "does not match" would read as a formatting complaint.
+      refuse(
+        `${name} does not match the artifact regenerated from the current evidence ` +
+          `(derived outcome '${decision.outcome}', committed ${actual.length} bytes, regenerated ${want.length}) — ` +
+          `the recorded decision no longer describes the evidence it was generated from`,
+      );
+    }
+  };
+
+  if (decision.outcome === "incomplete") {
+    // §1: a run that reached no verdict has no decision to record. Both must be absent, or an
+    // older verdict stays visible to packaging.
+    requireAbsent(OUTCOME_ARTIFACTS.decisionDoc, "the derived outcome is 'incomplete' — no verdict was reached");
+    requireAbsent(OUTCOME_ARTIFACTS.decisionRecord, "the derived outcome is 'incomplete' — no verdict was reached");
+    // Byte-identical, not merely present and naming a cause: "present with a cause" is satisfied
+    // by a stale report from an earlier run and by a hand-written one.
+    requireIdentical(OUTCOME_ARTIFACTS.attemptReport, serializeJsonArtifact(renderAttemptReport(verified)));
+  } else {
+    requireAbsent(
+      OUTCOME_ARTIFACTS.attemptReport,
+      `the derived outcome is '${decision.outcome}' — an attempt report belongs only to 'incomplete'`,
+    );
+    requireIdentical(OUTCOME_ARTIFACTS.decisionDoc, renderDecisionDoc(verified, decision));
+    requireIdentical(
+      OUTCOME_ARTIFACTS.decisionRecord,
+      serializeJsonArtifact(renderDecisionRecord(verified, decision)),
+    );
+  }
+}
+
 async function main() {
   try {
-    const verified = verifyEvidence();
+    const { verified } = verifyRecordedOutcome();
     process.stdout.write(JSON.stringify(verified, null, 2) + "\n");
   } catch (error) {
     if (error instanceof EvidenceError) {

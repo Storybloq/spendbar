@@ -165,6 +165,49 @@ export function renderDecisionDoc(verified, decision) {
 }
 
 /**
+ * The machine-readable record packaging keys off. It carries the qualifications too, so a
+ * consumer reading only decision.json cannot conclude more than DECISION.md says.
+ *
+ * Exported, and a pure function of (verified, decision), because `verifyRecordedOutcome()`
+ * REGENERATES the committed artifacts and compares them byte for byte. Regeneration has to go
+ * through this exact code path: a verifier with its own copy of the rendering would be
+ * comparing two implementations, and would agree with a stale artifact precisely when both
+ * implementations drifted the same way (plan §14.1).
+ */
+export function renderDecisionRecord(verified, decision) {
+  return {
+    outcome: decision.outcome,
+    aggregates: decision.aggregates,
+    versions: verified.versions,
+    qualifications: verified.report.qualifications ?? [],
+  };
+}
+
+/** The `incomplete` artifact, same reasoning: generated here, regenerated from here. */
+export function renderAttemptReport(verified) {
+  return {
+    type: "t009-attempt-report",
+    outcome: "incomplete",
+    unavailable: collectNotRun(verified),
+  };
+}
+
+/**
+ * The single byte-form for both JSON artifacts. It lives here rather than at each write site so
+ * that "what was written" and "what is regenerated for comparison" cannot differ by a trailing
+ * newline or an indent width — a difference that would make a correct repository fail
+ * verification, and the predictable response to a check that cries wolf is to weaken it.
+ *
+ * DETERMINISM IS A REQUIREMENT, NOT AN ASSUMPTION (plan §14.1). Nothing reachable from these
+ * three generators may read the clock, the filesystem or an unordered map: every value comes
+ * from `verified`, which is itself derived from hash-bound inputs. There is deliberately NO
+ * volatile-field allowlist — review round 12 rejected one, correctly, because "this field is
+ * exempt because it varies" has no executable oracle and would let the allowlist certify its
+ * own contents, hiding exactly the stale differences this comparison exists to catch.
+ */
+export const serializeJsonArtifact = (value) => JSON.stringify(value, null, 2) + "\n";
+
+/**
  * Act 1 — branch by outcome:
  *   blocked    -> idempotent resolution ticket by semantic dedupe key, attach to T-013,
  *                 TRUST THE READ-BACK, then the decision document AND machine record.
@@ -204,24 +247,11 @@ export async function act1(decision, verified, deps) {
     );
   }
 
-  // The machine-readable record packaging keys off. It carries the qualifications too, so a
-  // consumer reading only decision.json cannot conclude more than DECISION.md says.
-  const decisionRecord = () => ({
-    outcome: decision.outcome,
-    aggregates: decision.aggregates,
-    versions: verified.versions,
-    qualifications: verified.report.qualifications ?? [],
-  });
+  const decisionRecord = () => renderDecisionRecord(verified, decision);
 
   if (decision.outcome === "incomplete") {
     await step("clear-stale-verdict", () => deps.removeDecisionArtifacts());
-    await step("attempt-report", () =>
-      deps.writeAttemptReport({
-        type: "t009-attempt-report",
-        outcome: "incomplete",
-        unavailable: collectNotRun(verified),
-      }),
-    );
+    await step("attempt-report", () => deps.writeAttemptReport(renderAttemptReport(verified)));
     return { exitCode: EXIT_CODES.incomplete, wrote: ["attempt-report"] };
   }
 

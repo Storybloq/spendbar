@@ -14,6 +14,8 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,10 +31,22 @@ import {
   decide,
   act1,
   renderDecisionDoc,
+  renderDecisionRecord,
+  renderAttemptReport,
+  serializeJsonArtifact,
   versionTuple,
   TransitionError,
 } from "./decide.mjs";
-import { verifyEvidence, BOUND_INPUTS, EVIDENCE_DIR, EvidenceError, CAN_ISOLATE_USER_CONFIG } from "./verify-evidence.mjs";
+import {
+  verifyEvidence,
+  BOUND_INPUTS,
+  EVIDENCE_DIR,
+  EvidenceError,
+  CAN_ISOLATE_USER_CONFIG,
+  checkOutcomeArtifacts,
+  verifyRecordedOutcome,
+  OUTCOME_ARTIFACTS,
+} from "./verify-evidence.mjs";
 import { canonicalize, proxyTokens, measureToolDefinition, TOKEN_PROXY_VERSION } from "./token-cost.mjs";
 import {
   runStages,
@@ -508,35 +522,324 @@ test("the committed evidence verifies offline, with the full mandatory set", () 
   for (const c of ["v1", "v2"]) {
     assert.deepEqual(Object.keys(verified.cells[c]).sort(), [...MANDATORY_CELLS].sort());
   }
-  // The recorded verdict, pinned: both candidates pass everywhere, so the ticket's own
-  // go/no-go answers adopt-v2 — v1 is unselected, not failed. A future recapture that
-  // changes this must change this line WITH the evidence, never instead of it.
-  assert.equal(decide(verified).outcome, "adopt-v2");
-  // The Codex cells passed with the operator's own configuration reachable — a real pass, but
-  // not a fresh-state one. Pinned here because it is the caveat most likely to be quietly lost:
-  // the run succeeded, so nothing downstream has a reason to mention it (review round 1,
-  // chunk 17). If a recapture ever isolates Codex, this expectation is what has to change.
-  assert.deepEqual(
-    verified.report.qualifications.map((q) => `${q.candidate}/${q.cell}:${q.kind}`).sort(),
-    ["v1/real:codex:user-config-not-isolated", "v2/real:codex:user-config-not-isolated"],
+  // The recorded verdict, pinned to what the evidence ACTUALLY derives today: `incomplete`.
+  //
+  // This line used to read adopt-v2, and the gap between it and reality is the whole reason
+  // §14 exists. The four real-client captures went stale — a capture input changed after they
+  // were taken — so every mandatory real cell degrades to not-run, not-run dominates (§1), and
+  // the gate has no verdict to give. Meanwhile the committed decision.json and DECISION.md
+  // still said adopt-v2 and `verify:real-client-evidence` exited 0 over the contradiction.
+  //
+  // A recapture is what changes this, and it must change this line WITH the evidence, never
+  // instead of it.
+  const decision = decide(verified);
+  assert.equal(decision.outcome, "incomplete");
+  assert.deepEqual(decision.aggregates, { v2: "not-run", v1: "not-run" });
+  // Non-vacuity: assert the CAUSE, not just the status. A not-run with an empty or missing
+  // cause would satisfy the line above while telling a reader nothing about why the gate could
+  // not run — and "the gate could not run" is only an honest answer when it says what stopped it.
+  for (const candidate of ["v1", "v2"]) {
+    for (const client of ["claude-code", "codex"]) {
+      const cell = verified.cells[candidate][`real:${client}`];
+      assert.equal(cell.status, "not-run", `${candidate}/real:${client} is not not-run`);
+      assert.match(
+        cell.cause,
+        /changed since these captures were taken/,
+        `${candidate}/real:${client} is not-run for an unstated reason`,
+      );
+    }
+  }
+  // No cell reached a pass, so nothing qualified one. Pinned as an exact set rather than a
+  // count: a qualification appearing here would mean a cell contributed to a decision the
+  // aggregates above say was never reached.
+  assert.deepEqual(verified.report.qualifications, []);
+});
+
+test("a cell that ran without user-config isolation is not-run — it cannot certify an adoption", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    // Flip the one client that IS isolated today. If the rule were hardcoded to Codex, or read
+    // from anywhere but the manifest, this would not move.
+    mutate("real-clients/claude-code-v2.manifest.json", (m) => (m.isolation.userConfigIsolated = false));
+    const verified = verifyEvidence({ evidenceDir, repoRoot });
+    const cell = verified.cells.v2["real:claude-code"];
+    // This assertion is the inversion of what it used to be, and the inversion IS the fix.
+    // Until review round 12 an unisolated capture stayed a mandatory `pass` and merely acquired
+    // a qualification — and qualifications reach DECISION.md prose without ever entering
+    // decide()'s aggregate, so a cell that did not meet §9's isolation requirement could still
+    // certify adopt-v2 with the shortfall demoted to a paragraph a reader has to notice
+    // (ISS-047). Prose is not a gate.
+    assert.equal(cell.status, "not-run", "an unisolated capture is still being counted as a pass");
+    assert.match(cell.cause, /isolation mechanism/, "the not-run does not say why");
+    // And the consequence that makes it a gate rather than a note: not-run dominates, so no
+    // adoption can be reached on this evidence.
+    assert.equal(decide(verified).outcome, "incomplete");
+    // The cell contributed nothing, so nothing may annotate it as a qualified pass.
+    assert.ok(
+      !verified.report.qualifications.some((q) => q.candidate === "v2" && q.cell === "real:claude-code"),
+      "a cell that was downgraded to not-run is still being described as a qualified pass",
+    );
+  });
+});
+
+test("an unisolated capture is still fully validated — the downgrade is not a way to skip checks", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    // The downgrade is applied to the PUBLISHED cell, after every receipt, manifest-binding and
+    // re-derivation check has run against the RECORDED status. If it were applied early — by
+    // returning or continuing at the isolation flag — a manifest could dodge validation by
+    // simply declaring itself unisolated, turning a fail-closed rule into a bypass.
+    mutate("real-clients/claude-code-v2.manifest.json", (m) => {
+      m.isolation.userConfigIsolated = false;
+      m.digests.derivationDigest = "0".repeat(64);
+    });
+    assert.throws(
+      () => verifyEvidence({ evidenceDir, repoRoot }),
+      /receipt digests disagree with the manifest|is not the file its receipt was written for/,
+      "an unisolated capture skipped the manifest/receipt binding checks",
+    );
+  });
+});
+
+// ---------- the recorded outcome, against the evidence it claims to describe ------------------
+//
+// The check that did not exist. decide(verifyEvidence()) derived `incomplete` while the
+// committed decision.json and DECISION.md declared adopt-v2, and `verify:real-client-evidence`
+// exited 0 over the contradiction — a guard reporting success while having observed nothing, in
+// the check whose whole job was to catch exactly this (plan §14.1).
+//
+// checkOutcomeArtifacts takes an injected reader precisely so BOTH branches are testable: the
+// verdict branch is unreachable from any fixture built out of the committed evidence, because
+// that evidence derives `incomplete`, and the untested half would have been the half that
+// decides whether an adoption is honest.
+
+/** An in-memory artifact set. Absent files are simply missing keys. */
+const reader = (files) => (name) => (name in files ? Buffer.from(files[name], "utf8") : null);
+
+const sha256Hex = (text) => createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex");
+
+/** Exactly what Act 1 would have written for this verified result — via the same generators. */
+function artifactsFor(verified, decision) {
+  if (decision.outcome === "incomplete") {
+    return { [OUTCOME_ARTIFACTS.attemptReport]: serializeJsonArtifact(renderAttemptReport(verified)) };
+  }
+  return {
+    [OUTCOME_ARTIFACTS.decisionDoc]: renderDecisionDoc(verified, decision),
+    [OUTCOME_ARTIFACTS.decisionRecord]: serializeJsonArtifact(renderDecisionRecord(verified, decision)),
+  };
+}
+
+test("a freshly generated artifact set verifies clean, on every outcome", () => {
+  // The positive control. Without it every refusal test below could pass against a check that
+  // refuses unconditionally — which would be a gate that never lets a correct repository through.
+  const cases = [
+    ["pass", "pass", "adopt-v2"],
+    ["fail", "pass", "adopt-v1"],
+    ["fail", "fail", "blocked"],
+    ["not-run", "pass", "incomplete"],
+  ];
+  for (const [v2, v1, expected] of cases) {
+    const verified = verifiedFixture(v2, v1);
+    const decision = decide(verified);
+    assert.equal(decision.outcome, expected, `fixture ${v2}/${v1} did not derive ${expected}`);
+    checkOutcomeArtifacts(verified, decision, reader(artifactsFor(verified, decision)));
+  }
+  assert.equal(cases.length, 4, "the outcome table lost a row — every outcome must be exercised");
+});
+
+test("a decision document is refused when the evidence derives incomplete", () => {
+  // The exact repository state that went unnoticed: stale captures, no verdict, and a decision
+  // document still naming a winner.
+  const verified = verifiedFixture("not-run", "pass");
+  const decision = decide(verified);
+  assert.equal(decision.outcome, "incomplete");
+  const stale = verifiedFixture("pass", "pass");
+  for (const name of [OUTCOME_ARTIFACTS.decisionDoc, OUTCOME_ARTIFACTS.decisionRecord]) {
+    const files = { ...artifactsFor(verified, decision), ...artifactsFor(stale, decide(stale)) };
+    delete files[name === OUTCOME_ARTIFACTS.decisionDoc ? OUTCOME_ARTIFACTS.decisionRecord : OUTCOME_ARTIFACTS.decisionDoc];
+    assert.throws(
+      () => checkOutcomeArtifacts(verified, decision, reader(files)),
+      new RegExp(`${name.replace(".", "\\.")} is present`),
+      `${name} survived alongside a derived incomplete`,
+    );
+  }
+});
+
+test("an attempt report that is missing, stale, or hand-written is refused", () => {
+  const verified = verifiedFixture("not-run", "pass");
+  const decision = decide(verified);
+
+  assert.throws(() => checkOutcomeArtifacts(verified, decision, reader({})), /attempt-report\.json is missing/);
+
+  // "Present and names a cause" — the weaker check — is satisfied by both of these. Byte
+  // equality is what separates a report generated from THIS evidence from one that merely
+  // looks like a report.
+  const handWritten = serializeJsonArtifact({
+    type: "t009-attempt-report",
+    outcome: "incomplete",
+    unavailable: [{ candidate: "v2", cell: "real:codex", cause: "something plausible" }],
+  });
+  assert.throws(
+    () => checkOutcomeArtifacts(verified, decision, reader({ [OUTCOME_ARTIFACTS.attemptReport]: handWritten })),
+    /does not match the artifact regenerated/,
+    "a hand-written attempt report naming a plausible cause was accepted",
+  );
+
+  // A report from a DIFFERENT incomplete run: same type, same outcome, different unavailable set.
+  const other = verifiedFixture("pass", "not-run");
+  assert.equal(decide(other).outcome, "incomplete");
+  assert.throws(
+    () =>
+      checkOutcomeArtifacts(
+        verified,
+        decision,
+        reader({ [OUTCOME_ARTIFACTS.attemptReport]: serializeJsonArtifact(renderAttemptReport(other)) }),
+      ),
+    /does not match the artifact regenerated/,
+    "an attempt report from a different run was accepted",
   );
 });
 
-test("a cell that ran without user-config isolation is qualified, not silently passed", () => {
-  withFixture(({ evidenceDir, repoRoot, mutate }) => {
-    // Flip the one client that IS isolated today. If the qualification were hardcoded to Codex,
-    // or read from anywhere but the manifest, this would not move.
-    mutate("real-clients/claude-code-v2.manifest.json", (m) => (m.isolation.userConfigIsolated = false));
-    const verified = verifyEvidence({ evidenceDir, repoRoot });
-    assert.ok(
-      verified.report.qualifications.some((q) => q.candidate === "v2" && q.cell === "real:claude-code"),
-      "an unisolated capture produced no qualification",
-    );
-    // Still a pass and still adopt-v2: the qualification records what the cell proves, it does
-    // not overrule the classifier that judged it.
-    assert.equal(verified.cells.v2["real:claude-code"].status, "pass");
-    assert.equal(decide(verified).outcome, "adopt-v2");
+test("a decision naming the RIGHT outcome but the wrong evidence is refused", () => {
+  // THE mutation the review round demanded, and the one outcome-equality would have passed.
+  // Both sides derive adopt-v2; only the bodies differ — different candidate versions, a
+  // different cell breakdown, a qualification that is no longer true. An outcome-only check
+  // calls this a match and leaves a document describing evidence that no longer exists.
+  const verified = verifiedFixture("pass", "pass");
+  const decision = decide(verified);
+  const drifted = verifiedFixture("pass", "fail", {
+    qualifications: [{ candidate: "v2", cell: "real:codex", kind: "stale-kind", detail: "no longer true" }],
   });
+  drifted.versions = { v2: "2.9.9", v1: "1.99.0" };
+  assert.equal(decide(drifted).outcome, decision.outcome, "the two fixtures must agree on the OUTCOME");
+
+  for (const name of [OUTCOME_ARTIFACTS.decisionDoc, OUTCOME_ARTIFACTS.decisionRecord]) {
+    const files = { ...artifactsFor(verified, decision), ...{ [name]: artifactsFor(drifted, decide(drifted))[name] } };
+    assert.throws(
+      () => checkOutcomeArtifacts(verified, decision, reader(files)),
+      /does not match the artifact regenerated/,
+      `a stale ${name} naming the same outcome was accepted`,
+    );
+  }
+});
+
+test("an attempt report alongside a verdict is refused, and a missing decision artifact too", () => {
+  const verified = verifiedFixture("pass", "pass");
+  const decision = decide(verified);
+  const incomplete = verifiedFixture("not-run", "pass");
+
+  assert.throws(
+    () =>
+      checkOutcomeArtifacts(
+        verified,
+        decision,
+        reader({
+          ...artifactsFor(verified, decision),
+          [OUTCOME_ARTIFACTS.attemptReport]: serializeJsonArtifact(renderAttemptReport(incomplete)),
+        }),
+      ),
+    /attempt-report\.json is present/,
+    "a verdict kept an attempt report from an earlier incomplete run",
+  );
+
+  for (const name of [OUTCOME_ARTIFACTS.decisionDoc, OUTCOME_ARTIFACTS.decisionRecord]) {
+    const files = artifactsFor(verified, decision);
+    delete files[name];
+    assert.throws(() => checkOutcomeArtifacts(verified, decision, reader(files)), new RegExp(`${name.replace(".", "\\.")} is missing`));
+  }
+});
+
+/**
+ * Golden digests: the exact bytes each generator produces for a fixed fixture, recorded as
+ * INDEPENDENT LITERALS rather than recomputed from the generators under test.
+ *
+ * These exist because the obvious determinism test does not work. Regenerating twice and
+ * comparing the two results passes a generator that reads `Date.now()`, because both calls land
+ * in the same millisecond — mutation-verified: adding `generatedAt: Date.now()` to the attempt
+ * report SURVIVED a back-to-back comparison. An oracle computed by the thing it is checking is
+ * the defect this whole review round is about, and it had reappeared in the test written to
+ * prevent it.
+ *
+ * A pin against a fixed literal has no such blind spot: any added field, reordered key, changed
+ * indent or clock read moves the digest. Updating one is the intended friction — it means the
+ * committed evidence format changed, which is exactly when a human should look.
+ */
+const GOLDEN = {
+  "pass/pass": {
+    outcome: "adopt-v2",
+    "DECISION.md": "1b06f9baf7784a9afef345e85cb6389a25674c4a366ecec4429596aadf12a2fb",
+    "decision.json": "8b2d93db3f364326e5ccac3a76e56d7f8515a65ce23d61289895eb0472051144",
+  },
+  "fail/fail": {
+    outcome: "blocked",
+    "DECISION.md": "394a6566fde9f08479cace2f5a03f26e05d6c39fd3dd13363db578dc82beafef",
+    "decision.json": "96d5c120a109e2b9a0e6fd83d32bf2fd27556afb33dd625c04cf6a31a7dad5bd",
+  },
+  "not-run/pass": {
+    outcome: "incomplete",
+    "attempt-report.json": "7d1f155ead571d2049cf2c6dc68420da0c41431b4314b10debaf7656b3aaf279",
+  },
+};
+
+test("the generators are deterministic, pinned against literals the generators did not compute", () => {
+  // Byte comparison is only honest if regeneration is stable. If any generator read the clock,
+  // an absolute path, or an unordered map, verification would fail on a CORRECT repository — and
+  // the predictable response to a check that cries wolf is to weaken it back to outcome-equality,
+  // which is what review round 12 removed the volatile-field allowlist to prevent (plan §14.1).
+  let pinned = 0;
+  for (const [key, expected] of Object.entries(GOLDEN)) {
+    const [v2, v1] = key.split("/");
+    const verified = verifiedFixture(v2, v1);
+    const decision = decide(verified);
+    assert.equal(decision.outcome, expected.outcome, `${key} no longer derives ${expected.outcome}`);
+    const produced = artifactsFor(verified, decision);
+    const names = Object.keys(expected).filter((k) => k !== "outcome");
+    // The artifact SET is pinned too, not just the bytes: an outcome that silently stopped
+    // writing one of its artifacts would otherwise pass on the ones it still wrote.
+    assert.deepEqual(Object.keys(produced).sort(), [...names].sort(), `${key} wrote a different artifact set`);
+    for (const name of names) {
+      assert.equal(sha256Hex(produced[name]), expected[name], `${key} ${name} does not match its pinned digest`);
+      pinned += 1;
+    }
+  }
+  // Non-vacuity: an empty GOLDEN table, or one whose entries carried no artifacts, would satisfy
+  // every assertion above without checking a single byte.
+  assert.equal(Object.keys(GOLDEN).length, 3, "the golden table lost an outcome");
+  assert.equal(pinned, 5, "the golden table lost an artifact");
+});
+
+test("the verify script itself runs the recorded-outcome check, not just input verification", () => {
+  // The WIRING, pinned separately from the behaviour — and it had to be, because it was not
+  // covered: reverting `main()` from verifyRecordedOutcome() back to verifyEvidence() left every
+  // other test in this file green, since they all call the function directly. That mutation
+  // survived. It is the §14.3 lesson stated as a mutation: an enforcer that `test:all` does not
+  // reach is a promise rather than a gate, and this file was proving the promise.
+  //
+  // Run as a SUBPROCESS, against the real evidence directory, exactly as
+  // `npm run verify:real-client-evidence` does.
+  const proc = spawnSync(process.execPath, [join(HERE, "verify-evidence.mjs")], { encoding: "utf8" });
+  assert.equal(proc.status, 2, `the verify script exited ${proc.status}; stderr: ${proc.stderr}`);
+  assert.match(
+    proc.stderr,
+    /evidence INVALID: DECISION\.md is present, but the derived outcome is 'incomplete'/,
+    "the verify script is not running the recorded-outcome check",
+  );
+  // Non-vacuity: a script that crashed on startup would also exit nonzero with something on
+  // stderr. It must have got far enough to print nothing on stdout AND to name the artifact.
+  assert.equal(proc.stdout, "", "the script emitted a verified result while refusing");
+});
+
+test("verifyRecordedOutcome refuses the repository as it actually stands", () => {
+  // The end-to-end path, against the real evidence directory rather than a fixture. Today the
+  // captures are stale, so the derived outcome is incomplete while DECISION.md and decision.json
+  // are still committed — the state §14.1 exists to refuse. This is the assertion that has to be
+  // revisited by the recapture, and it is deliberately specific about WHY it refuses so that a
+  // different failure cannot silently satisfy it.
+  assert.throws(
+    () => verifyRecordedOutcome(),
+    (error) =>
+      error instanceof EvidenceError &&
+      /DECISION\.md is present, but the derived outcome is 'incomplete'/.test(error.message),
+    "the committed decision artifacts are no longer being checked against the evidence",
+  );
 });
 
 test("a capture that executed a hostile configuration is refused, not qualified", () => {
