@@ -389,6 +389,30 @@ test("guarded-commit refuses a staged leak and commits a clean stage (fixture re
   });
 });
 
+test("per-commit enumeration catches a leak introduced and removed within one push", () => {
+  // The CI workflow scans EVERY commit in the push range with --mode=commit, because a
+  // two-commit push can leak in the first commit and scrub in the second: auditing the
+  // checked-out tip passes while the value sits in remote history permanently. This is that
+  // fixture: tip-only must pass (that is the trap), per-commit must fail.
+  withTempRepo((repo) => {
+    writeFileSync(join(repo, "doc.md"), `${REAL_SHAPED.email}\n`);
+    gitIn(repo, ["add", "-A"]);
+    gitIn(repo, ["commit", "-m", "leak"]);
+    writeFileSync(join(repo, "doc.md"), "scrubbed\n");
+    gitIn(repo, ["add", "-A"]);
+    gitIn(repo, ["commit", "-m", "scrub"]);
+
+    // The tip is clean — exactly why tip-auditing is insufficient.
+    assert.deepEqual(scan({ mode: "commit", rev: "HEAD", repo }).findings, []);
+
+    // The workflow's enumeration: every commit in the range, individually.
+    const commits = gitIn(repo, ["rev-list", "HEAD"]).trim().split("\n");
+    assert.equal(commits.length, 2);
+    const dirty = commits.filter((sha) => scan({ mode: "commit", rev: sha, repo }).findings.length > 0);
+    assert.equal(dirty.length, 1, "the intermediate leaking commit must be caught");
+  });
+});
+
 const readSelf = () => readFileSync(join(REPO, "tests-ts", "privacy-scan.test.mjs"), "utf8");
 
 function withTempDir(fn) {
