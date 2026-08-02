@@ -61,12 +61,57 @@ test("the scratch invariant rejects a path inside the repository and accepts tmp
 });
 
 // --- environment allowlist ---------------------------------------------------------------
+//
+// Both lists are written out HERE as literals, and the module's exports are asserted to equal
+// them. Every test below derived its expectation from the export, so the allowlist could not
+// be caught widening: adding "VAULT_TOKEN" to ENV_ALLOWLIST forwards the parent process's value
+// verbatim into the candidate server, and all 27 tests stayed green (measured, review round 2
+// chunk 16). The allowlist is the primary control here — FORBIDDEN_ENV is a finite denylist
+// backstop that by construction cannot name every credential — so widening it has to be a
+// deliberate edit to an expectation a reviewer reads, not a one-word change nothing observes.
+
+const EXPECTED_ENV_ALLOWLIST = ["PATH"];
+const EXPECTED_FORBIDDEN_ENV = [
+  "ANTHROPIC_API_KEY",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "OPENAI_API_KEY",
+  "CODEX_API_KEY",
+  "GITHUB_TOKEN",
+  "GH_TOKEN",
+  "NPM_TOKEN",
+  "NODE_AUTH_TOKEN",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+];
+
+test("the environment lists are the declared ones, and they do not contradict each other", () => {
+  assert.deepEqual(ENV_ALLOWLIST, EXPECTED_ENV_ALLOWLIST, "the environment allowlist changed");
+  assert.deepEqual(FORBIDDEN_ENV, EXPECTED_FORBIDDEN_ENV, "the forbidden-credential list changed");
+  // A name on both lists is a contradiction about the same variable. buildServerEnv throws on
+  // it, but only when that variable happens to be SET in the parent — so on a machine without
+  // it, the contradiction is silent.
+  const both = ENV_ALLOWLIST.filter((n) => FORBIDDEN_ENV.includes(n));
+  assert.deepEqual(both, [], "a variable is both allowlisted and forbidden");
+});
 
 test("the constructed environment contains only allowlisted names plus explicit extras", () => {
   const env = buildServerEnv({ resolveLog: "/tmp/x.ndjson", extra: { SPENDBAR_TEST: "1" } });
-  const permitted = new Set([...ENV_ALLOWLIST, "SPENDBAR_RESOLVE_LOG", "SPENDBAR_TEST"]);
+  // The LITERAL, not the export: computing `permitted` from ENV_ALLOWLIST made this test widen
+  // in lockstep with the thing it was checking.
+  const permitted = new Set([...EXPECTED_ENV_ALLOWLIST, "SPENDBAR_RESOLVE_LOG", "SPENDBAR_TEST"]);
   for (const name of Object.keys(env)) {
     assert.ok(permitted.has(name), `unexpected variable in constructed env: ${name}`);
+  }
+});
+
+test("a variable the allowlist does not name never reaches the child, even if the parent has it", () => {
+  // The direct statement of the control, independent of either list's contents.
+  process.env.VAULT_TOKEN = "synthetic-not-a-real-secret-0000";
+  try {
+    assert.ok(!("VAULT_TOKEN" in buildServerEnv({ unaudited: "allowlist-scope test" })));
+  } finally {
+    delete process.env.VAULT_TOKEN;
   }
 });
 
@@ -89,7 +134,10 @@ test("a forbidden credential variable present in the PARENT env never reaches th
 });
 
 test("mutation: adding a forbidden credential variable back makes the assertion throw", () => {
-  for (const name of FORBIDDEN_ENV) {
+  // Over the LITERAL. Looping the export meant emptying FORBIDDEN_ENV both removed the guard
+  // and emptied the loop that proves it, so the suite stayed green with nothing left to check.
+  assert.ok(EXPECTED_FORBIDDEN_ENV.length >= 11, "the forbidden-credential corpus shrank");
+  for (const name of EXPECTED_FORBIDDEN_ENV) {
     assert.throws(
       () => buildServerEnv({ unaudited: "env-construction test", extra: { [name]: "synthetic-0000" } }),
       new RegExp(name),
