@@ -729,6 +729,14 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       // satisfied, and `classify()` then re-derived a status from the edited assertions. The
       // receipt records the digest of the manifest it sanitized, taken while the bytes still
       // existed, and the committed file has to be that file (round 2, chunk 12).
+      // What this does NOT prove, stated here because the check reads stronger than it is. The
+      // expected digest lives in receipt.json, which is as editable as the manifest: an editor
+      // who rewrites both consistently — and the cell, and the regenerated artifacts — passes
+      // every check in this file. That is plan §6(b) exactly, and it was written about the trace
+      // digest before this binding existed; the binding is the same construct and inherits the
+      // same limit. It catches a PARTIAL edit, drift and staleness, which is what actually
+      // happens. It is not tamper resistance, and only an out-of-band anchor would be — this
+      // project's anchor is git history plus review, recorded as the anchor it is.
       if (sha256(manifestRead.bytes) !== receipt.manifestSha256) {
         refuse(`${what} committed manifest is not the file its receipt was written for — it has been edited since`);
       }
