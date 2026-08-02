@@ -94,10 +94,8 @@ Install weight: ~450 KB shim + ~3.1 MB platform binary.
 `CCUSAGE_CMD` overrides the command entirely (e.g. `CCUSAGE_CMD="ccusage"` for a global
 install); when set, the bundled dependency is not required at all.
 
-> **Known wording bug.** If `CCUSAGE_CMD` points at something that cannot be spawned, the error
-> says `Install Node.js (node + npx), or set CCUSAGE_CMD…`. That wording is inherited verbatim
-> from the Python tool this port must match byte-for-byte. **Installing npx is not the remedy** —
-> spendbar has no npx fallback. Fix `CCUSAGE_CMD`, or unset it to use the bundled copy.
+If `CCUSAGE_CMD` points at something that cannot be spawned, spendbar exits with a one-line
+error telling you to fix or unset the variable — unset it to use the bundled copy.
 
 ## Configure your project names (optional)
 

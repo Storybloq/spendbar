@@ -20,7 +20,12 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { POLICIES, NON_EXACT_POLICIES, SANCTIONED_STDOUT_REWRITE } from "./harness/policies.mjs";
+import {
+  POLICIES,
+  NON_EXACT_POLICIES,
+  SANCTIONED_STDOUT_REWRITE,
+  SANCTIONED_STDERR_REWRITE,
+} from "./harness/policies.mjs";
 import { rawCaseProblems, parseWaiverScopes } from "./harness/cases.mjs";
 
 const exit = (status) => ({ kind: "exit", status, signal: null, code: null });
@@ -153,19 +158,30 @@ describe("ts-diag: a waived stderr must still be the port's one-line diagnostic"
     );
   });
 
-  test("the two ts-diag policies do not accept each other's diagnostics", () => {
-    // Otherwise one pattern could be deleted and the other would cover for it.
-    const other = POLICIES["ts-diag:blocks-array-attr"];
-    const { py, ts } = pair(run("", pyErr), run("", goodTsErr));
-    rejects(other, py, ts, c, "invalid-date text under the blocks-array policy");
+  // One representative diagnostic per ts-diag policy, for the pairwise matrix below.
+  const TS_DIAG_SAMPLES = {
+    "ts-diag:invalid-date": goodTsErr,
+    "ts-diag:blocks-array-attr": "'list' object has no attribute 'get'\n",
+  };
+
+  test("the sample table names every registered ts-diag policy", () => {
+    // Self-enforcing scope: a new ts-diag policy that never joins the matrix would be the
+    // one policy whose pattern nothing cross-checks.
+    const registered = Object.keys(POLICIES).filter((id) => id.startsWith("ts-diag:")).sort();
+    assert.deepEqual(Object.keys(TS_DIAG_SAMPLES).sort(), registered);
   });
 
-  test("blocks-array-attr accepts its OWN diagnostic", () => {
-    // Without this the policy is only ever asked to reject, so an unsatisfiable pattern —
-    // or a handler that refused everything — would pass every test that names it.
-    const other = POLICIES["ts-diag:blocks-array-attr"];
-    const { py, ts } = pair(run("", pyErr), run("", "'list' object has no attribute 'get'\n"));
-    accepts(other, py, ts, c, "its own pattern must be reachable");
+  test("each ts-diag policy accepts its OWN diagnostic and rejects every OTHER's", () => {
+    // The accept half keeps every pattern reachable — an unsatisfiable pattern would pass
+    // any test that only asks it to reject. The reject half keeps the patterns disjoint —
+    // otherwise one could be deleted and another would cover for it.
+    for (const id of Object.keys(TS_DIAG_SAMPLES)) {
+      for (const otherId of Object.keys(TS_DIAG_SAMPLES)) {
+        const { py, ts } = pair(run("", pyErr), run("", TS_DIAG_SAMPLES[otherId]));
+        if (id === otherId) accepts(POLICIES[id], py, ts, c, `${id} must accept its own diagnostic`);
+        else rejects(POLICIES[id], py, ts, c, `${otherId} text under ${id}`);
+      }
+    }
   });
 });
 
@@ -274,6 +290,59 @@ describe("help-config-path: one sanctioned span, everything else byte-frozen", (
   test("rejects a stderr difference even though stdout is rewritten", () => {
     const { py, ts } = pair(run(`x ${from} y`, "", 0), run(`x ${to} y`, "unexpected\n", 0));
     rejects(policy, py, ts, c, "stderr diverged");
+  });
+});
+
+describe("ccusage-not-found-rewrite: the advice is rewritten, the quoted command is not", () => {
+  const policy = POLICIES["ccusage-not-found-rewrite"];
+  const c = { name: "synthetic", argv: ["alltime"], expectExit: 1 };
+  const { from, to } = SANCTIONED_STDERR_REWRITE;
+  const exe = "/nonexistent/ccusage-binary-xyz";
+  const pyMsg = (cmd = exe) => `'${cmd}' not found. ${from}\n`;
+  const tsMsg = (cmd = exe) => `'${cmd}' not found. ${to}\n`;
+
+  test("positive control: the rewritten advice under the same command is accepted", () => {
+    const { py, ts } = pair(run("", pyMsg()), run("", tsMsg()));
+    accepts(policy, py, ts, c, "control");
+  });
+
+  test("rejects the port keeping the oracle's install-npx wording", () => {
+    // The sanctioned reword's own guard: reverting src/ccusage.ts must fail parity.
+    const { py, ts } = pair(run("", pyMsg()), run("", pyMsg()));
+    rejects(policy, py, ts, c, "oracle wording survived in the port");
+  });
+
+  test("rejects a port that quotes a DIFFERENT command than python did", () => {
+    // The reason this is a rewrite and not a pattern: `'.*'` would accept any executable,
+    // but the quoted command is outside the rewritten span and stays byte-compared
+    // (codex review of ISS-024).
+    const { py, ts } = pair(run("", pyMsg()), run("", tsMsg("/some/other/binary")));
+    rejects(policy, py, ts, c, "quoted command diverged");
+  });
+
+  test("rejects python output that no longer contains the sanctioned advice", () => {
+    const { py, ts } = pair(run("", `'${exe}' not found. Something new entirely.\n`), run("", tsMsg()));
+    rejects(policy, py, ts, c, "advice span absent from the oracle");
+  });
+
+  test("rejects a duplicated advice span, where the rewrite would be ambiguous", () => {
+    // Same construction as help-config-path's duplicate test: the TS side carries the
+    // rewritten span first and the PYTHON span second, so the rewrite reproduces the TS
+    // bytes exactly and only the duplicate check objects.
+    const { py, ts } = pair(run("", `${from} mid ${from}\n`), run("", `${to} mid ${from}\n`));
+    rejects(policy, py, ts, c, "two occurrences");
+  });
+
+  test("rejects stdout on a failure path, from either side", () => {
+    const pyWrote = pair(run("partial\n", pyMsg()), run("", tsMsg()));
+    rejects(policy, pyWrote.py, pyWrote.ts, c, "python stdout");
+    const tsWrote = pair(run("", pyMsg()), run("half\n", tsMsg()));
+    rejects(policy, tsWrote.py, tsWrote.ts, c, "ts stdout");
+  });
+
+  test("rejects a disagreeing exit status even though stderr is rewritten", () => {
+    const { py, ts } = pair(run("", pyMsg(), 1), run("", tsMsg(), 2));
+    rejects(policy, py, ts, c, "exit 1 vs 2");
   });
 });
 

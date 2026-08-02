@@ -4,11 +4,7 @@
   "daily",
   "--instances",
   "--breakdown",
-  "--json",
-  "--since",
-  " 20260101",
-  "--until",
-  " 20260101"
+  "--json"
  ],
  "mode": "normal",
  "stderrBase64": "",

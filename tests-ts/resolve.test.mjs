@@ -254,8 +254,9 @@ test("no npx fallback or floating tag survives anywhere in src/", () => {
       if (e.isDirectory()) walk(p);
       else if (e.name.endsWith(".ts")) {
         // Strip comments first: prose explaining WHY the fallback was removed is fine, and
-        // so is the frozen parity message "Install Node.js (node + npx)" — that is advice
-        // text, not something we execute. Only a command-shaped literal is a finding.
+        // so is the spawn-failure diagnostic saying "has no npx fallback" (ALLOWLIST-25) —
+        // that is advice text, not something we execute. Only a command-shaped literal is a
+        // finding.
         const src = readFileSync(p, "utf8")
           .replace(/\/\*[\s\S]*?\*\//g, "")
           .replace(/(^|[^:])\/\/.*$/gm, "$1");

@@ -31,10 +31,13 @@ export function runCcusage(ctx: Ctx, args: string[]): unknown {
   const res = runner(ccusageExe, fullArgs);
 
   if (res.spawnError) {
-    // npx/node (or a custom CCUSAGE_CMD) not on PATH — clean exit, not a raw traceback.
+    // Reachable ONLY when CCUSAGE_CMD names something that cannot be spawned — without it
+    // the exe is process.execPath, which exists. Deliberate divergence from usage.py:117
+    // (ALLOWLIST-25): the oracle's advice to install npx is guaranteed-useless here, because
+    // this port has no npx fallback at all (ISS-024).
     throw new UsageError(
-      `'${ccusageExe}' not found. Install Node.js (node + npx), or set CCUSAGE_CMD to your ` +
-        `ccusage command (e.g. CCUSAGE_CMD='ccusage'). See README Requirements.`,
+      `'${ccusageExe}' not found. Fix or unset CCUSAGE_CMD — spendbar bundles its own ` +
+        `ccusage and has no npx fallback. See README: CCUSAGE_CMD.`,
     );
   }
 

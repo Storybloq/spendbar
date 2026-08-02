@@ -300,13 +300,29 @@
   },
   {
    "argv": [
+    "blocks",
+    "--json",
+    "--since",
+    "20260101"
+   ],
+   "file": "019.json",
+   "mode": "normal",
+   "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "stdoutSha256": "21dd68ff49876c6df8debd0b69e929b2cb883141c59546dcd62b756f55c53dcc",
+   "termination": {
+    "kind": "exit",
+    "status": 0
+   }
+  },
+  {
+   "argv": [
     "claude",
     "daily",
     "--instances",
     "--breakdown",
     "--json"
    ],
-   "file": "019.json",
+   "file": "020.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -327,7 +343,7 @@
     "--until",
     " 20260101"
    ],
-   "file": "020.json",
+   "file": "021.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -346,7 +362,7 @@
     "--since",
     ".5"
    ],
-   "file": "021.json",
+   "file": "022.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -367,7 +383,7 @@
     "--until",
     "0001W011"
    ],
-   "file": "022.json",
+   "file": "023.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -386,7 +402,7 @@
     "--since",
     "1"
    ],
-   "file": "023.json",
+   "file": "024.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -407,7 +423,7 @@
     "--until",
     "1d"
    ],
-   "file": "024.json",
+   "file": "025.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -428,7 +444,7 @@
     "--until",
     "20240229"
    ],
-   "file": "025.json",
+   "file": "026.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -447,7 +463,7 @@
     "--since",
     "20250103"
    ],
-   "file": "026.json",
+   "file": "027.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -466,7 +482,7 @@
     "--since",
     "20251231"
    ],
-   "file": "027.json",
+   "file": "028.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -487,25 +503,6 @@
     "--until",
     "2026001"
    ],
-   "file": "028.json",
-   "mode": "normal",
-   "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-   "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
-   "termination": {
-    "kind": "exit",
-    "status": 0
-   }
-  },
-  {
-   "argv": [
-    "claude",
-    "daily",
-    "--instances",
-    "--breakdown",
-    "--json",
-    "--since",
-    "20260101"
-   ],
    "file": "029.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -523,8 +520,6 @@
     "--breakdown",
     "--json",
     "--since",
-    "20260101",
-    "--until",
     "20260101"
    ],
    "file": "030.json",
@@ -546,9 +541,30 @@
     "--since",
     "20260101",
     "--until",
-    "20260102"
+    "20260101"
    ],
    "file": "031.json",
+   "mode": "normal",
+   "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
+   "termination": {
+    "kind": "exit",
+    "status": 0
+   }
+  },
+  {
+   "argv": [
+    "claude",
+    "daily",
+    "--instances",
+    "--breakdown",
+    "--json",
+    "--since",
+    "20260101",
+    "--until",
+    "20260102"
+   ],
+   "file": "032.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -569,7 +585,7 @@
     "--until",
     "20260101T00:00"
    ],
-   "file": "032.json",
+   "file": "033.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -588,7 +604,7 @@
     "--since",
     "20260102"
    ],
-   "file": "033.json",
+   "file": "034.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -609,7 +625,7 @@
     "--until",
     "20260103"
    ],
-   "file": "034.json",
+   "file": "035.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -630,7 +646,7 @@
     "--until",
     "20260229"
    ],
-   "file": "035.json",
+   "file": "036.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -651,7 +667,7 @@
     "--until",
     "20260230"
    ],
-   "file": "036.json",
+   "file": "037.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -672,7 +688,7 @@
     "--until",
     "202611"
    ],
-   "file": "037.json",
+   "file": "038.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -693,7 +709,7 @@
     "--until",
     "20261301"
    ],
-   "file": "038.json",
+   "file": "039.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -714,7 +730,7 @@
     "--until",
     "2026W01"
    ],
-   "file": "039.json",
+   "file": "040.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -735,7 +751,7 @@
     "--until",
     "2026W011"
    ],
-   "file": "040.json",
+   "file": "041.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -756,7 +772,7 @@
     "--until",
     "9999W527"
    ],
-   "file": "041.json",
+   "file": "042.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -777,7 +793,7 @@
     "--until",
     "bogus"
    ],
-   "file": "042.json",
+   "file": "043.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -796,7 +812,7 @@
     "--since",
     "\u0661"
    ],
-   "file": "043.json",
+   "file": "044.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -817,7 +833,7 @@
     "--until",
     "\u0662\u0660\u0662\u0666\u0660\u0661\u0660\u0661"
    ],
-   "file": "044.json",
+   "file": "045.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -836,7 +852,7 @@
     "--since",
     "\u0663.\u0665"
    ],
-   "file": "045.json",
+   "file": "046.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -855,7 +871,7 @@
     "--until",
     "20260101"
    ],
-   "file": "046.json",
+   "file": "047.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -874,7 +890,7 @@
     "--until",
     "20260102"
    ],
-   "file": "047.json",
+   "file": "048.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "007381c50eb4780731995957049d069bb551a04220e086ea7a3817e7688a1638",
@@ -889,7 +905,7 @@
     "daily",
     "--json"
    ],
-   "file": "048.json",
+   "file": "049.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "b238d1aa40f3ecd39dc2b5725382cda2cb65b6f4fa41983a5c7c5726df681dde",
@@ -906,7 +922,26 @@
     "--since",
     "20260101"
    ],
-   "file": "049.json",
+   "file": "050.json",
+   "mode": "normal",
+   "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "stdoutSha256": "b238d1aa40f3ecd39dc2b5725382cda2cb65b6f4fa41983a5c7c5726df681dde",
+   "termination": {
+    "kind": "exit",
+    "status": 0
+   }
+  },
+  {
+   "argv": [
+    "codex",
+    "daily",
+    "--json",
+    "--since",
+    "20260101",
+    "--until",
+    "20260102"
+   ],
+   "file": "051.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "b238d1aa40f3ecd39dc2b5725382cda2cb65b6f4fa41983a5c7c5726df681dde",
@@ -921,7 +956,7 @@
     "session",
     "--json"
    ],
-   "file": "050.json",
+   "file": "052.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "0fe3db88a9be98c12cfcdb1e724fe617b7a95d8b1e0e4f4a7eb0884b4a8527ae",
@@ -938,7 +973,7 @@
     "--since",
     "20260101"
    ],
-   "file": "051.json",
+   "file": "053.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "0fe3db88a9be98c12cfcdb1e724fe617b7a95d8b1e0e4f4a7eb0884b4a8527ae",
@@ -953,7 +988,7 @@
     "--breakdown",
     "--json"
    ],
-   "file": "052.json",
+   "file": "054.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "9729af26c1b2d9b890cb9220ca5a41257e55bd45c820f2dde4b55fcbac1a1725",
@@ -970,7 +1005,26 @@
     "--since",
     "20251228"
    ],
-   "file": "053.json",
+   "file": "055.json",
+   "mode": "normal",
+   "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "stdoutSha256": "9729af26c1b2d9b890cb9220ca5a41257e55bd45c820f2dde4b55fcbac1a1725",
+   "termination": {
+    "kind": "exit",
+    "status": 0
+   }
+  },
+  {
+   "argv": [
+    "daily",
+    "--breakdown",
+    "--json",
+    "--since",
+    "20251228",
+    "--until",
+    "20260102"
+   ],
+   "file": "056.json",
    "mode": "normal",
    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "stdoutSha256": "9729af26c1b2d9b890cb9220ca5a41257e55bd45c820f2dde4b55fcbac1a1725",

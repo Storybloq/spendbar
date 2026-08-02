@@ -6,9 +6,9 @@
   "--breakdown",
   "--json",
   "--since",
-  "bogus",
+  "9999W527",
   "--until",
-  "bogus"
+  "9999W527"
  ],
  "mode": "normal",
  "stderrBase64": "",

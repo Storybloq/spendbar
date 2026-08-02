@@ -6,9 +6,9 @@
   "--breakdown",
   "--json",
   "--since",
-  "2026W011",
+  "2026W01",
   "--until",
-  "2026W011"
+  "2026W01"
  ],
  "mode": "normal",
  "stderrBase64": "",

@@ -6,7 +6,9 @@
   "--breakdown",
   "--json",
   "--since",
-  "\u0661"
+  "bogus",
+  "--until",
+  "bogus"
  ],
  "mode": "normal",
  "stderrBase64": "",

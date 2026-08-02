@@ -6,7 +6,9 @@
   "--breakdown",
   "--json",
   "--since",
-  "20260101"
+  "2026001",
+  "--until",
+  "2026001"
  ],
  "mode": "normal",
  "stderrBase64": "",

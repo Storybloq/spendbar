@@ -42,6 +42,23 @@ export const SANCTIONED_STDOUT_REWRITE = {
   to: "(from ~/.config/spendbar/config.json,\nor $USAGE_CONFIG)",
 };
 
+/**
+ * ALLOWLIST 25's rewrite, applied to PYTHON's stderr before byte comparison.
+ *
+ * The span starts after `'{cmd[0]}' not found. `, so the quoted command is NOT part of the
+ * rewrite — it stays in the byte-compared prefix, and a port that quotes the wrong
+ * executable diverges there. A pattern policy could not promise that: `'.*'` accepts any
+ * command, and ts-diag policies waive the whole stderr (codex review of ISS-024).
+ */
+export const SANCTIONED_STDERR_REWRITE = {
+  from:
+    "Install Node.js (node + npx), or set CCUSAGE_CMD to your " +
+    "ccusage command (e.g. CCUSAGE_CMD='ccusage'). See README Requirements.",
+  to:
+    "Fix or unset CCUSAGE_CMD — spendbar bundles its own " +
+    "ccusage and has no npx fallback. See README: CCUSAGE_CMD.",
+};
+
 class PolicyError extends Error {}
 
 function fail(msg) {
@@ -246,6 +263,45 @@ export const POLICIES = {
       if (ts.termination.status !== c.expectExit) {
         fail(`typescript ${describeTermination(ts.termination)}, case requires exit ${c.expectExit}`);
       }
+    },
+  },
+
+  /**
+   * ALLOWLIST 25: rewrite the oracle's install-npx advice to the port's remedy, then demand
+   * byte equality for the rest of the run — including the `'{cmd[0]}' not found. ` prefix,
+   * which the entry keeps frozen. Byte comparison is what pins BOTH sides: the port
+   * reverting to the oracle wording fails (bytes differ from the rewrite), and the port
+   * quoting the wrong executable fails (the prefix is outside the rewrite).
+   */
+  "ccusage-not-found-rewrite": {
+    id: "ccusage-not-found-rewrite",
+    waiverId: "ALLOWLIST-25",
+    remeasure(py, c) {
+      pythonTerminatedAsTranscribed(py, c);
+      // The oracle half of the waiver: if usage.py stops emitting the install-npx advice,
+      // ALLOWLIST 25 describes a behaviour that no longer exists.
+      if (!py.stderr.toString("utf8").includes(SANCTIONED_STDERR_REWRITE.from)) {
+        fail("python no longer emits the install-npx advice ALLOWLIST 25 rewrites");
+      }
+      if (py.stdout.length !== 0) fail("a failure path wrote to stdout");
+    },
+    differential(py, ts, c) {
+      pythonTerminatedAsTranscribed(py, c);
+      const { from, to } = SANCTIONED_STDERR_REWRITE;
+      const pyText = py.stderr.toString("utf8");
+      const first = pyText.indexOf(from);
+      if (first === -1) fail(`case ${c.name} no longer contains the sanctioned advice`);
+      // Exactly one occurrence, for the same reason as help-config-path: `String.replace`
+      // rewrites only the first, so a second would surface as a divergence at a confusing
+      // offset instead of as the ambiguity it is.
+      if (pyText.indexOf(from, first + from.length) !== -1) {
+        fail(`case ${c.name} contains the sanctioned advice more than once; the rewrite is ambiguous`);
+      }
+      assertSame(
+        `case ${c.name} diverged outside the sanctioned rewrite`,
+        { ...py, stderr: Buffer.from(pyText.replace(from, to), "utf8") },
+        ts,
+      );
     },
   },
 

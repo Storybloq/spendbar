@@ -5,8 +5,8 @@
   "--instances",
   "--breakdown",
   "--json",
-  "--until",
-  "20260101"
+  "--since",
+  "\u0663.\u0665"
  ],
  "mode": "normal",
  "stderrBase64": "",

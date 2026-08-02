@@ -78,17 +78,21 @@
   "argv_unknown_option": "2026-01-03",
   "blocks_empty": "2026-01-03",
   "blocks_normal": "2026-01-03",
+  "blocks_since": "2026-01-03",
   "codex_bad_cost": "2026-01-03",
   "codex_empty": "2026-01-03",
   "codex_since": "2026-01-03",
+  "codex_since_until": "2026-01-03",
   "codex_unwindowed": "2026-01-03",
   "combined_empty": "2026-01-03",
   "combined_since": "2026-01-03",
+  "combined_since_until": "2026-01-03",
   "compare_empty": "2026-01-03",
   "compare_normal": "2026-01-03",
   "daily_both": "2026-01-03",
   "daily_empty": "2026-01-03",
   "daily_normal": "2026-01-03",
+  "daily_since_until": "2026-01-03",
   "daily_tokens": "2026-01-03",
   "err_bad_metric": "2026-01-03",
   "err_bad_reldate": "2026-01-03",
@@ -854,6 +858,17 @@
     "mode": "normal"
    }
   ],
+  "blocks_since": [
+   {
+    "argv": [
+     "blocks",
+     "--json",
+     "--since",
+     "20260101"
+    ],
+    "mode": "normal"
+   }
+  ],
   "codex_bad_cost": [
    {
     "argv": [
@@ -900,6 +915,30 @@
      "--json",
      "--since",
      "20260101"
+    ],
+    "mode": "normal"
+   }
+  ],
+  "codex_since_until": [
+   {
+    "argv": [
+     "codex",
+     "session",
+     "--json",
+     "--since",
+     "20260101"
+    ],
+    "mode": "normal"
+   },
+   {
+    "argv": [
+     "codex",
+     "daily",
+     "--json",
+     "--since",
+     "20260101",
+     "--until",
+     "20260102"
     ],
     "mode": "normal"
    }
@@ -984,6 +1023,44 @@
     "mode": "normal"
    }
   ],
+  "combined_since_until": [
+   {
+    "argv": [
+     "claude",
+     "daily",
+     "--instances",
+     "--breakdown",
+     "--json",
+     "--since",
+     "20260101",
+     "--until",
+     "20260102"
+    ],
+    "mode": "normal"
+   },
+   {
+    "argv": [
+     "codex",
+     "session",
+     "--json",
+     "--since",
+     "20260101"
+    ],
+    "mode": "normal"
+   },
+   {
+    "argv": [
+     "codex",
+     "daily",
+     "--json",
+     "--since",
+     "20260101",
+     "--until",
+     "20260102"
+    ],
+    "mode": "normal"
+   }
+  ],
   "compare_empty": [
    {
     "argv": [
@@ -1042,6 +1119,20 @@
      "daily",
      "--breakdown",
      "--json"
+    ],
+    "mode": "normal"
+   }
+  ],
+  "daily_since_until": [
+   {
+    "argv": [
+     "daily",
+     "--breakdown",
+     "--json",
+     "--since",
+     "20251228",
+     "--until",
+     "20260102"
     ],
     "mode": "normal"
    }
@@ -1329,17 +1420,21 @@
   "argv_unknown_option": 2,
   "blocks_empty": 0,
   "blocks_normal": 0,
+  "blocks_since": 0,
   "codex_bad_cost": 1,
   "codex_empty": 0,
   "codex_since": 0,
+  "codex_since_until": 0,
   "codex_unwindowed": 0,
   "combined_empty": 0,
   "combined_since": 0,
+  "combined_since_until": 0,
   "compare_empty": 0,
   "compare_normal": 0,
   "daily_both": 0,
   "daily_empty": 0,
   "daily_normal": 0,
+  "daily_since_until": 0,
   "daily_tokens": 0,
   "err_bad_metric": 2,
   "err_bad_reldate": 1,
@@ -1532,6 +1627,15 @@
    "argv": [
     "blocks",
     "--json"
+   ],
+   "mode": "normal"
+  },
+  {
+   "argv": [
+    "blocks",
+    "--json",
+    "--since",
+    "20260101"
    ],
    "mode": "normal"
   },
@@ -1938,6 +2042,18 @@
   {
    "argv": [
     "codex",
+    "daily",
+    "--json",
+    "--since",
+    "20260101",
+    "--until",
+    "20260102"
+   ],
+   "mode": "normal"
+  },
+  {
+   "argv": [
+    "codex",
     "session",
     "--json"
    ],
@@ -1968,6 +2084,18 @@
     "--json",
     "--since",
     "20251228"
+   ],
+   "mode": "normal"
+  },
+  {
+   "argv": [
+    "daily",
+    "--breakdown",
+    "--json",
+    "--since",
+    "20251228",
+    "--until",
+    "20260102"
    ],
    "mode": "normal"
   }

@@ -611,5 +611,26 @@ spawned, not from what the caller intended.
     guard that the fixture really does contain a tie and a re-measurement that CPython is
     still nondeterministic — if it ever stops being so, this entry needs revisiting.
 
+25. `[ALLOWLIST-25]` **The spawn-failure diagnostic gives the port's own remedy, not the
+    oracle's.** usage.py:117 answers a failed ccusage spawn with "Install Node.js (node +
+    npx), or set CCUSAGE_CMD to your ccusage command" — correct for a script that shells out
+    to `npx ccusage`. The port bundles ccusage and runs it with `process.execPath`, so this
+    branch is reachable **only** when `CCUSAGE_CMD` names something that cannot be spawned
+    (`src/ccusage.ts`); by construction the user has a broken `CCUSAGE_CMD`, and advice to
+    install npx is guaranteed-useless while never mentioning the one variable that is
+    actually wrong (ISS-024). The port says instead: fix or unset `CCUSAGE_CMD` — spendbar
+    bundles its own ccusage and has no npx fallback.
+
+    What is NOT sanctioned: everything but the advice. The comparison policy REWRITES the
+    oracle's install-npx advice to the port's remedy and then demands byte equality for the
+    whole run — so the `'{cmd[0]}' not found. ` prefix, the single stderr line, the empty
+    stdout, and exit 1 are all still compared, not pattern-matched. Byte comparison is what
+    pins both directions: the port reverting to the oracle's wording diverges from the
+    rewrite, and the port quoting a different executable than Python diverges in the
+    unrewritten prefix (the first draft used a `'.*'` pattern, which would have accepted
+    any command; codex review caught it).
+
+    **Cases covered by `[ALLOWLIST-25]`:** `err_missing_binary`
+
 - TTY variants: not yet captured (all goldens are pipe/non-TTY). Harness-level TODO
   noted in manifest; add before v0.2 exit if any TTY-conditional output is found.

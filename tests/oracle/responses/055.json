@@ -1,0 +1,16 @@
+{
+ "argv": [
+  "daily",
+  "--breakdown",
+  "--json",
+  "--since",
+  "20251228"
+ ],
+ "mode": "normal",
+ "stderrBase64": "",
+ "stdoutBase64": "eyJkYWlseSI6IFt7InBlcmlvZCI6ICIyMDI2LTAxLTAxIiwgInRvdGFsQ29zdCI6IDUuMCwgInRvdGFsVG9rZW5zIjogNTAsICJtb2RlbEJyZWFrZG93bnMiOiBbeyJtb2RlbE5hbWUiOiAiY2xhdWRlLWZhYmxlLTUiLCAiY29zdCI6IDMuMCwgImlucHV0VG9rZW5zIjogMTAsICJvdXRwdXRUb2tlbnMiOiA1LCAiY2FjaGVDcmVhdGlvblRva2VucyI6IDUsICJjYWNoZVJlYWRUb2tlbnMiOiAxMH0sIHsibW9kZWxOYW1lIjogImdwdC01LjUiLCAiY29zdCI6IDIuMCwgImlucHV0VG9rZW5zIjogNSwgIm91dHB1dFRva2VucyI6IDUsICJjYWNoZUNyZWF0aW9uVG9rZW5zIjogNSwgImNhY2hlUmVhZFRva2VucyI6IDV9XX0sIHsicGVyaW9kIjogIjIwMjYtMDEtMDIiLCAidG90YWxDb3N0IjogNC4wLCAidG90YWxUb2tlbnMiOiA0MCwgIm1vZGVsQnJlYWtkb3ducyI6IFt7Im1vZGVsTmFtZSI6ICJjbGF1ZGUtb3B1cy00LTgiLCAiY29zdCI6IDQuMCwgImlucHV0VG9rZW5zIjogMTAsICJvdXRwdXRUb2tlbnMiOiAxMCwgImNhY2hlQ3JlYXRpb25Ub2tlbnMiOiAxMCwgImNhY2hlUmVhZFRva2VucyI6IDEwfV19XSwgInRvdGFscyI6IHsidG90YWxDb3N0IjogOS4wLCAidG90YWxUb2tlbnMiOiA5MH19Cg==",
+ "termination": {
+  "kind": "exit",
+  "status": 0
+ }
+}

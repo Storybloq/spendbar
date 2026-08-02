@@ -3,7 +3,7 @@
  "capturedVia": "tests/harness/usage-wrapper.py",
  "caseRegistry": "tests/golden/cases.json",
  "pythonInterpreter": "3.11.6",
- "caseCount": 45,
+ "caseCount": 49,
  "captureAnchors": [
   "2026-01-03",
   "2026-01-04"

@@ -1455,8 +1455,8 @@
    "expectExit": 1,
    "storedGolden": true,
    "captureAnchor": "2026-01-03",
-   "comparisonPolicy": "exact",
-   "waiver": null
+   "comparisonPolicy": "ccusage-not-found-rewrite",
+   "waiver": "ALLOWLIST-25"
   },
   {
    "name": "err_no_subcommand",
@@ -1861,6 +1861,80 @@
    "mode": "normal",
    "extraEnv": {},
    "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "blocks_since",
+   "capability": "render:blocks",
+   "argv": [
+    "blocks",
+    "--since",
+    "20260101"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "daily_since_until",
+   "capability": "render:daily",
+   "argv": [
+    "daily",
+    "--since",
+    "20251228",
+    "--until",
+    "20260102"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": false,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "codex_since_until",
+   "capability": "render:codex",
+   "argv": [
+    "codex",
+    "--since",
+    "20260101",
+    "--until",
+    "20260102"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": true,
+   "expectExit": 0,
+   "storedGolden": true,
+   "captureAnchor": "2026-01-03",
+   "comparisonPolicy": "exact",
+   "waiver": null
+  },
+  {
+   "name": "combined_since_until",
+   "capability": "render:combined",
+   "argv": [
+    "combined",
+    "--since",
+    "20260101",
+    "--until",
+    "20260102"
+   ],
+   "mode": "normal",
+   "extraEnv": {},
+   "codexFixture": true,
    "expectExit": 0,
    "storedGolden": true,
    "captureAnchor": "2026-01-03",

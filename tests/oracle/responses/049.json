@@ -2,9 +2,7 @@
  "argv": [
   "codex",
   "daily",
-  "--json",
-  "--since",
-  "20260101"
+  "--json"
  ],
  "mode": "normal",
  "stderrBase64": "",

@@ -1,0 +1,17 @@
+{
+ "name": "combined_since_until",
+ "argv": [
+  "combined",
+  "--since",
+  "20260101",
+  "--until",
+  "20260102"
+ ],
+ "mode": "normal",
+ "codex_fixture": true,
+ "extra_env": {},
+ "capture_anchor": "2026-01-03",
+ "exit": 0,
+ "stdout": "Combined per-project usage (20260101 -> 20260102)\nClaude: [totals reconcile: OK]    Codex: [session-start $21.00 vs codex daily $31.70 (Δ $-10.70)]\ncaveat: Claude buckets by calendar day, Codex by session start date — Total is approximate at window edges and for multi-day sessions.\nnote: $4.00 of Codex is unattributed (2 sessions with no resolvable log).\nnote: $0.50 of Codex from 1 undated session(s) was excluded from the window.\n\nProject                     Claude$       Codex$       Total$   Share\n---------------------------------------------------------------------\nalpha                        $18.00       $12.00       $30.00   71.4%\nBeta Product                  $3.00        $5.00        $8.00   19.0%\nunknown (no session log)        $0.00        $4.00        $4.00    9.5%\n---------------------------------------------------------------------\nTOTAL                        $21.00       $21.00       $42.00  100.0%\n",
+ "stderr": ""
+}

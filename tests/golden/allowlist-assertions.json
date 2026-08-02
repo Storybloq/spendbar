@@ -63,6 +63,11 @@
       "mode": "policy",
       "policy": "partial-python-stdout",
       "why": "A mid-render failure produces no partial stdout; asserted on two cases."
+    },
+    "ALLOWLIST-25": {
+      "mode": "policy",
+      "policy": "ccusage-not-found-rewrite",
+      "why": "Spawn-failure advice names CCUSAGE_CMD instead of npx; asserted on err_missing_binary."
     }
   }
 }
