@@ -23,14 +23,25 @@ import {
   CAPTURE_ID,
   OWNER_MARKER,
   RETENTION_DAYS,
+  buildClientInvocation,
   ciIndicator,
+  codexConfigSuppressionWitness,
   disclosesEnvValue,
   parseCells,
+  preflight,
   sweepAbandonedIn,
+  validateFlags,
 } from "./capture.mjs";
 import { exitCodeFor } from "./capture-wrapper.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+
+/** A named subdirectory, so each fixture gets its own PATH entry. */
+function mkdirIn(parent, name) {
+  const d = join(parent, name);
+  mkdirSync(d, { recursive: true });
+  return d;
+}
 const DAY_MS = 24 * 3600 * 1000;
 
 /** A retained-directory fixture, with `sweepAbandoned` rebound to it. */
@@ -282,4 +293,241 @@ test("only the variables named as non-identifying are exempt, and not for being 
   // TMPDIR is short-ish and NOT exempt: it is a path into the operator's filesystem.
   assert.equal(disclosesEnvValue({ TMPDIR: "/tmp/x" }, "wrote /tmp/x/f"), true);
   assert.equal(disclosesEnvValue({ USER: "" }, "anything at all"), false, "an empty value is not a disclosure");
+});
+
+// ---------- user-configuration isolation (ISS-047) --------------------------------------------
+//
+// The premise these tests exist to keep honest: for four paid captures, `userConfigIsolated` was
+// computed as `client === "claude-code"`, on the stated ground that codex had no equivalent of
+// --strict-mcp-config. That was never checked against the installed binary, and it was false —
+// `codex exec --ignore-user-config` is documented as "do not load $CODEX_HOME/config.toml; auth
+// still uses CODEX_HOME". Once the isolation gate landed, that unchecked claim would have forced
+// a contract decision (drop Codex, or accept non-isolated evidence) that the facts did not
+// require. Nothing pinned any of it.
+
+/**
+ * The isolation flags each client's invocation must carry, as an INDEPENDENT literal.
+ *
+ * Deliberately NOT imported from capture.mjs and deliberately not shared with the preflight's
+ * own list. An expectation read out of the module under test agrees with that module by
+ * construction — the defect this review round keeps finding. Removing a flag from the
+ * invocation has to fail here, which it cannot do if this list moves with it.
+ */
+const REQUIRED_ISOLATION_FLAGS = {
+  "claude-code": ["--strict-mcp-config", "--mcp-config", "--settings"],
+  codex: ["--ignore-user-config", "--ignore-rules", "--ephemeral"],
+};
+
+test("every client invocation carries its user-configuration isolation flags", () => {
+  const scratch = mkdtempSync(join(tmpdir(), "t009-inv-"));
+  try {
+    const wrapperCmd = [process.execPath, "/nonexistent/wrapper.mjs", "/nonexistent/root", scratch];
+    for (const [client, flags] of Object.entries(REQUIRED_ISOLATION_FLAGS)) {
+      const { binary, args } = buildClientInvocation(client, "the prompt", wrapperCmd, scratch);
+      assert.equal(binary, client === "claude-code" ? "claude" : "codex");
+      for (const flag of flags) {
+        assert.ok(args.includes(flag), `${client} invocation is missing ${flag}`);
+      }
+      // The probe server must still be the only MCP server declared, or "isolated" would mean
+      // isolated from the thing being measured.
+      assert.ok(
+        args.some((a) => String(a).includes("spendbar-probe")),
+        `${client} invocation declares no probe server`,
+      );
+    }
+    // Non-vacuity: an empty flag table would satisfy every loop above.
+    assert.equal(Object.keys(REQUIRED_ISOLATION_FLAGS).length, 2);
+    assert.equal(Object.values(REQUIRED_ISOLATION_FLAGS).flat().length, 6);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("the preflight refuses a client that does not advertise its isolation flags", () => {
+  // validateFlags is what stands between "the flag was in the plan" and "this binary has it".
+  // Driven against a stub whose --help output is controlled, so the discrimination is visible
+  // rather than dependent on whichever CLI happens to be installed.
+  const dir = mkdtempSync(join(tmpdir(), "t009-help-"));
+  try {
+    const stub = join(dir, "stub.mjs");
+    const advertise = (flags) => {
+      writeFileSync(stub, `process.stdout.write(${JSON.stringify(flags.join("\n"))});\n`);
+      return [process.execPath, [stub]];
+    };
+    const wanted = REQUIRED_ISOLATION_FLAGS.codex;
+
+    const [bin, helpArgs] = advertise(wanted);
+    assert.equal(validateFlags(bin, helpArgs, wanted).ok, true, "a binary advertising every flag was refused");
+
+    for (const dropped of wanted) {
+      const [b2, h2] = advertise(wanted.filter((f) => f !== dropped));
+      const result = validateFlags(b2, h2, wanted);
+      assert.equal(result.ok, false, `a binary missing ${dropped} was accepted`);
+      assert.ok(result.missing.includes(dropped), `the refusal does not name ${dropped}`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A stand-in `codex` whose config-loading behaviour is controlled.
+ *
+ * `honoursFlag: true` emulates a real codex: it reads $CODEX_HOME/config.toml and dies on a
+ * malformed one UNLESS --ignore-user-config is present. `false` emulates a codex that advertises
+ * the flag and ignores it — the case the witness exists to catch, and the one no amount of
+ * --help parsing can detect.
+ */
+function fakeCodex(dir, name, { honoursFlag }) {
+  const path = join(dir, `${name}.mjs`);
+  writeFileSync(
+    path,
+    `import { readFileSync } from "node:fs";\n` +
+      `import { join } from "node:path";\n` +
+      `const args = process.argv.slice(2);\n` +
+      `const ignore = ${honoursFlag ? 'args.includes("--ignore-user-config")' : "false"};\n` +
+      `if (!ignore) {\n` +
+      `  const text = readFileSync(join(process.env.CODEX_HOME, "config.toml"), "utf8");\n` +
+      // A TOML line is well-formed here only as \`bare.key = value\`. The witness's fixture
+      // (\`this is [not valid toml ===\`) fails that; a real config would not.
+      `  const lines = text.split("\\n").filter((l) => l.trim() !== "" && !l.trim().startsWith("#"));\n` +
+      `  if (lines.some((l) => !/^[A-Za-z0-9_.-]+\\s*=/.test(l.trim()))) {\n` +
+      `    process.stdout.write("Error loading config.toml:\\n");\n` +
+      `    process.exit(1);\n` +
+      `  }\n` +
+      `}\n` +
+      `process.stdout.write("OpenAI Codex v0.144.0\\n");\n`,
+  );
+  return path;
+}
+
+test("the codex isolation witness is a demonstration, not a claim", () => {
+  const dir = mkdtempSync(join(tmpdir(), "t009-witness-"));
+  try {
+    // codexConfigSuppressionWitness(binary) execs `binary exec ...`, so each stand-in needs to
+    // BE an executable. A one-line shell wrapper with the script pre-bound gives it that shape.
+    const runWitness = (name, opts) => {
+      const script = fakeCodex(dir, name, opts);
+      const wrapper = join(dir, `bin-${name}`);
+      writeFileSync(wrapper, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} "$@"\n`, {
+        mode: 0o755,
+      });
+      return codexConfigSuppressionWitness(wrapper);
+    };
+
+    const good = runWitness("honest", { honoursFlag: true });
+    assert.equal(good.witnessed, true, `an honest codex failed the witness: ${good.detail}`);
+
+    const bad = runWitness("liar", { honoursFlag: false });
+    assert.equal(bad.witnessed, false, "a codex that ignores --ignore-user-config passed the witness");
+    assert.match(bad.detail, /still reported the config error|--ignore-user-config did not exclude/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the witness refuses when its own control does not fire", () => {
+  // The differential proves nothing if control A passes: a binary that never reads config.toml
+  // would then look isolated for the wrong reason. This is the positive control on the control.
+  const dir = mkdtempSync(join(tmpdir(), "t009-witness-null-"));
+  try {
+    const script = join(dir, "never-reads.mjs");
+    writeFileSync(script, `process.stdout.write("OpenAI Codex v0.144.0\\n");\n`);
+    const wrapper = join(dir, "bin-never");
+    writeFileSync(wrapper, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} "$@"\n`, {
+      mode: 0o755,
+    });
+    const result = codexConfigSuppressionWitness(wrapper);
+    assert.equal(result.witnessed, false, "a binary that never reads config.toml was certified as isolating");
+    assert.match(result.detail, /control A did not fail/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A complete stand-in `codex` on PATH, answering all three shapes preflight uses: `--version`,
+ * `exec --help`, and a real `exec` run whose config-loading behaviour is controlled.
+ *
+ * This exists because testing the PARTS left the wiring unpinned, which mutation testing found:
+ * narrowing preflight's validated flag list, and reverting `userConfigIsolated` to
+ * `client === "claude-code"`, BOTH survived a suite that exercised validateFlags and the witness
+ * directly. Each part worked; nothing asserted preflight used them. That is the same shape as
+ * the verify-script wiring gap in decide.test.mjs — a correct component the entry point does not
+ * call is a promise, not a gate.
+ */
+function fakeCodexOnPath(dir, { advertises, honoursFlag }) {
+  const script = join(dir, "codex-impl.mjs");
+  writeFileSync(
+    script,
+    `import { readFileSync } from "node:fs";\n` +
+      `import { join } from "node:path";\n` +
+      `const args = process.argv.slice(2);\n` +
+      `if (args.includes("--version")) { process.stdout.write("codex-cli 0.144.0\\n"); process.exit(0); }\n` +
+      `if (args[0] === "exec" && args.includes("--help")) {\n` +
+      `  process.stdout.write(${JSON.stringify(advertises.join("\n") + "\n")});\n` +
+      `  process.exit(0);\n` +
+      `}\n` +
+      `const ignore = ${honoursFlag ? 'args.includes("--ignore-user-config")' : "false"};\n` +
+      `if (!ignore) {\n` +
+      `  const text = readFileSync(join(process.env.CODEX_HOME, "config.toml"), "utf8");\n` +
+      `  const lines = text.split("\\n").filter((l) => l.trim() !== "" && !l.trim().startsWith("#"));\n` +
+      `  if (lines.some((l) => !/^[A-Za-z0-9_.-]+\\s*=/.test(l.trim()))) {\n` +
+      `    process.stdout.write("Error loading config.toml:\\n");\n` +
+      `    process.exit(1);\n` +
+      `  }\n` +
+      `}\n` +
+      `process.stdout.write("OpenAI Codex v0.144.0\\n");\n`,
+  );
+  const bin = join(dir, "codex");
+  writeFileSync(bin, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} "$@"\n`, {
+    mode: 0o755,
+  });
+  return dir;
+}
+
+/** Run `fn` with PATH pointing at `dir` (plus node's own directory, which the shim needs). */
+function withPath(dir, fn) {
+  const saved = process.env.PATH;
+  process.env.PATH = `${dir}:${dirname(process.execPath)}`;
+  try {
+    return fn();
+  } finally {
+    process.env.PATH = saved;
+  }
+}
+
+test("preflight certifies codex isolation only when the flags are advertised AND demonstrated", () => {
+  const FULL = ["--config", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--ephemeral"];
+  const dir = mkdtempSync(join(tmpdir(), "t009-preflight-"));
+  try {
+    // 1. Advertised and honoured -> isolation certified, and REPORTED as a fact the manifest
+    //    will carry. `userConfigIsolated` used to be computed from the client's name here.
+    const ok = withPath(fakeCodexOnPath(mkdirIn(dir, "good"), { advertises: FULL, honoursFlag: true }), () =>
+      preflight("codex"),
+    );
+    assert.equal(ok.ok, true, `preflight refused an isolating codex: ${JSON.stringify(ok.environmental)}`);
+    assert.equal(ok.userConfigIsolated, true, "preflight did not report the isolation it just demonstrated");
+
+    // 2. Advertised but IGNORED -> refused. No --help parsing can catch this; only the
+    //    differential can, and preflight must consult it.
+    const liar = withPath(fakeCodexOnPath(mkdirIn(dir, "liar"), { advertises: FULL, honoursFlag: false }), () =>
+      preflight("codex"),
+    );
+    assert.equal(liar.ok, false, "a codex that ignores --ignore-user-config was certified as isolating");
+    assert.equal(liar.environmental.condition, "isolation-unavailable");
+
+    // 3. Not advertised -> refused before any run, naming the missing flag.
+    for (const missing of ["--ignore-user-config", "--ignore-rules", "--ephemeral"]) {
+      const sub = mkdirIn(dir, `no${missing.replace(/-/g, "")}`);
+      const result = withPath(
+        fakeCodexOnPath(sub, { advertises: FULL.filter((f) => f !== missing), honoursFlag: true }),
+        () => preflight("codex"),
+      );
+      assert.equal(result.ok, false, `preflight accepted a codex not advertising ${missing}`);
+      assert.ok(result.environmental.detail.includes(missing), `the refusal does not name ${missing}`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

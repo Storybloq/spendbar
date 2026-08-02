@@ -1629,14 +1629,16 @@ test("the isolation total must follow from the per-case records", () => {
 });
 
 test("which clients can isolate their user configuration is a literal, not a manifest claim", () => {
-  // The integration path — a codex manifest asserting userConfigIsolated:true — cannot be
-  // exercised while the real cells are not-run pending recapture, because the manifest is never
-  // read. What IS pinned now is the table the check consults, so a silent edit of it fails here.
-  // The end-to-end refusal is covered once the captures are retaken.
-  assert.deepEqual(CAN_ISOLATE_USER_CONFIG, { "claude-code": true, codex: false });
-  assert.equal(
-    CAN_ISOLATE_USER_CONFIG.codex,
-    false,
-    "codex exec -c has no equivalent of --strict-mcp-config plus --settings; claiming otherwise drops the qualification",
-  );
+  // Pinned as an exact table so a silent edit fails here. Both entries are true, and each is
+  // backed by a NAMED mechanism rather than an assumption: Claude Code by --strict-mcp-config
+  // plus --settings, Codex by `codex exec --ignore-user-config` (auth still uses CODEX_HOME) —
+  // preflight-validated and demonstrated by the malformed-config differential in capture.mjs.
+  //
+  // This pin previously asserted codex:false on the ground that no equivalent flag existed.
+  // That premise was measured false on codex-cli 0.144.0, after the isolation gate (ISS-047)
+  // had turned it into "codex cells can never count", which would have forced either dropping
+  // Codex from the mandatory set or accepting non-isolated evidence — a contract decision
+  // manufactured by an unchecked factual claim. If a future codex removes the flag, the
+  // capture preflight is what reports it (isolation-unavailable), not this table.
+  assert.deepEqual(CAN_ISOLATE_USER_CONFIG, { "claude-code": true, codex: true });
 });

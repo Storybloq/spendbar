@@ -91,16 +91,25 @@ export const BOUND_INPUTS = [
 ];
 
 /**
- * Which real clients CAN take their user configuration out of a capture — a property of the
- * CLIENT, not something a capture manifest is trusted to report about itself.
+ * Which real clients HAVE a user-configuration isolation mechanism the capture harness can use —
+ * a property of the CLIENT, not something a capture manifest is trusted to report about itself.
  *
- * Claude Code accepts --strict-mcp-config plus --settings, so its user configuration is provably
- * out of the run. `codex exec -c` has no equivalent. A codex manifest claiming isolation is
- * claiming something the tool cannot do, and the effect of believing it was that the
- * `user-config-not-isolated` qualification silently disappeared — a conditional pass presented
- * as an unconditional one (review round 2, chunk 12).
+ * Claude Code: --strict-mcp-config plus --settings. Codex: `codex exec --ignore-user-config`
+ * ("do not load $CODEX_HOME/config.toml; auth still uses CODEX_HOME") plus --ignore-rules and
+ * --ephemeral — validated against `codex exec --help` in preflight and DEMONSTRATED by a
+ * malformed-config differential before any quota is spent (capture.mjs,
+ * codexConfigSuppressionWitness).
+ *
+ * History, kept because the wrong version of this table cost four paid captures: this said
+ * `codex: false` on the stated ground that "codex exec -c has no equivalent" and that isolating
+ * via CODEX_HOME would remove the credentials. Both claims were measured false on codex-cli
+ * 0.144.0 — the flag exists and its own help text separates config from auth. The capture
+ * harness meanwhile hardcoded `userConfigIsolated: client === "claude-code"`, so every codex
+ * capture was born unisolated, and once the isolation gate landed (ISS-047) those cells could
+ * only ever publish as not-run. Plan §9 had prescribed the flags all along; the premise was
+ * never re-checked against the installed binary.
  */
-export const CAN_ISOLATE_USER_CONFIG = { "claude-code": true, codex: false };
+export const CAN_ISOLATE_USER_CONFIG = { "claude-code": true, codex: true };
 
 const HEX64 = /^[0-9a-f]{64}$/;
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");

@@ -367,7 +367,7 @@ export function parseCells(argv) {
 // ---------- preflights ----------------------------------------------------------------------
 
 /** A required CLI flag is VALIDATED against --help, never assumed (plan §9 isolation). */
-function validateFlags(binary, helpArgs, flags) {
+export function validateFlags(binary, helpArgs, flags) {
   const help = spawnSync(binary, helpArgs, { encoding: "utf8", timeout: 30_000 });
   if (help.error || help.status !== 0) return { ok: false, missing: flags, detail: `${binary} ${helpArgs.join(" ")} failed` };
   const text = help.stdout + help.stderr;
@@ -375,7 +375,66 @@ function validateFlags(binary, helpArgs, flags) {
   return { ok: missing.length === 0, missing, detail: missing.length ? `flags not advertised: ${missing.join(", ")}` : "" };
 }
 
-function preflight(client) {
+/**
+ * The codex user-config isolation WITNESS: `--ignore-user-config` is demonstrated, not read off
+ * a help page. Free, unauthenticated, and it never touches the operator's real ~/.codex.
+ *
+ * The mechanism is a malformed-config differential against a scratch CODEX_HOME whose
+ * config.toml is deliberately unparseable:
+ *
+ *   control A (no flag):    startup MUST fail on the malformed config — proving codex reads
+ *                           $CODEX_HOME/config.toml at startup, so the scratch home is a real
+ *                           stand-in for the user's;
+ *   control B (with flag):  the same startup MUST NOT report a config error and MUST progress
+ *                           past the config phase (the version banner is the progress marker) —
+ *                           proving the flag excludes the file.
+ *
+ * Auth never comes into it: the scratch home holds no credentials, control A dies at the config
+ * error, and control B needs only to reach its banner — whatever it does afterwards is killed at
+ * a short deadline and irrelevant to the witness. The paid capture then runs with the REAL
+ * CODEX_HOME, because `--ignore-user-config` is documented as "auth still uses CODEX_HOME":
+ * config suppressed, credentials via their documented path, nothing copied, nothing modified.
+ *
+ * This function replaces a comment that asserted the opposite — "codex has no equivalent"
+ * (measured false on codex-cli 0.144.0) and "isolating the config would remove the credentials"
+ * (the flag's own help text contradicts it). Plan §9 prescribed these flags all along; the
+ * capture harness had hardcoded `userConfigIsolated: client === "claude-code"` instead, which is
+ * why the Codex cells could never satisfy the isolation gate (ISS-047).
+ */
+export function codexConfigSuppressionWitness(binary) {
+  const home = mkdtempSync(join(tmpdir(), "t009-codex-iso-"));
+  try {
+    writeFileSync(join(home, "config.toml"), "this is [not valid toml ===\n");
+    const env = { ...buildClientEnv(), CODEX_HOME: home };
+    const run = (extra) =>
+      spawnSync(binary, ["exec", "--skip-git-repo-check", ...extra, "isolation witness"], {
+        encoding: "utf8",
+        timeout: 30_000,
+        input: "",
+        env,
+        cwd: home,
+      });
+    const configError = (r) => /Error loading config\.toml/.test(r.stdout + r.stderr);
+    const banner = (r) => /OpenAI Codex v/.test(r.stdout + r.stderr);
+
+    const without = run([]);
+    if (!configError(without)) {
+      return { witnessed: false, detail: "control A did not fail on a malformed scratch config.toml, so the differential proves nothing" };
+    }
+    const withFlag = run(["--ignore-user-config"]);
+    if (configError(withFlag)) {
+      return { witnessed: false, detail: "control B still reported the config error — --ignore-user-config did not exclude the file" };
+    }
+    if (!banner(withFlag)) {
+      return { witnessed: false, detail: "control B never reached the startup banner, so nothing shows it progressed past the config phase" };
+    }
+    return { witnessed: true, detail: "malformed-config differential observed" };
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+export function preflight(client) {
   const binary = client === "claude-code" ? "claude" : "codex";
   const version = spawnSync(binary, ["--version"], { encoding: "utf8", timeout: 30_000 });
   if (version.error || version.status !== 0) {
@@ -384,17 +443,31 @@ function preflight(client) {
   const flags =
     client === "claude-code"
       ? validateFlags(binary, ["--help"], ["--strict-mcp-config", "--mcp-config", "--settings", "-p"])
-      : validateFlags(binary, ["exec", "--help"], ["--config", "--skip-git-repo-check"]);
+      : validateFlags(
+          binary,
+          ["exec", "--help"],
+          ["--config", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--ephemeral"],
+        );
   if (!flags.ok) {
     // Isolation cannot be established with this binary: a positively observed condition.
     return { ok: false, environmental: { condition: "binary-missing", detail: flags.detail } };
   }
-  return { ok: true, clientVersion: version.stdout.trim().split("\n")[0] };
+  // Claude Code's isolation mechanism is the validated flag set itself (--strict-mcp-config +
+  // --settings), witnessed at run time by the hostile-config canary. Codex's is demonstrated
+  // here, before any quota is spent: a cell that cannot prove isolation must not run, because
+  // the verifier will publish it as not-run regardless and the spend would buy nothing.
+  if (client === "codex") {
+    const witness = codexConfigSuppressionWitness(binary);
+    if (!witness.witnessed) {
+      return { ok: false, environmental: { condition: "isolation-unavailable", detail: witness.detail } };
+    }
+  }
+  return { ok: true, clientVersion: version.stdout.trim().split("\n")[0], userConfigIsolated: true };
 }
 
 // ---------- per-cell capture ----------------------------------------------------------------
 
-function buildClientInvocation(client, prompt, wrapperCmd, scratchCwd) {
+export function buildClientInvocation(client, prompt, wrapperCmd, scratchCwd) {
   if (client === "claude-code") {
     // --strict-mcp-config: ONLY the servers in --mcp-config exist. Scratch cwd keeps project
     // settings/hooks out; --settings pins an explicit, empty settings source.
@@ -406,19 +479,22 @@ function buildClientInvocation(client, prompt, wrapperCmd, scratchCwd) {
       args: ["-p", prompt, "--strict-mcp-config", "--mcp-config", JSON.stringify(mcpConfig), "--settings", settingsPath],
     };
   }
-  // Codex: MCP servers via -c config overrides. These are ADDITIVE — Codex still loads the
-  // user's ~/.codex configuration, rules and any MCP servers declared there, so this cell does
-  // NOT have the fresh-state isolation the Claude Code cell has. Relocating it with CODEX_HOME
-  // would isolate the config and simultaneously remove the credentials, and copying those is
-  // forbidden. The limitation is therefore recorded as a fact on every manifest
-  // (`isolation.userConfigIsolated: false`) rather than described in a comment and forgotten;
-  // closing it needs an owner decision about an isolated authentication path.
+  // Codex, isolated per plan §9: --ignore-user-config keeps ~/.codex/config.toml (and any MCP
+  // servers declared there) out of the run while auth still resolves through CODEX_HOME's
+  // documented path — no credential copied, nothing modified. --ignore-rules keeps rules files
+  // out; --ephemeral keeps the run from persisting session state. The -c overrides then declare
+  // the ONLY MCP server the run can see. Every one of these flags is validated by preflight
+  // against `codex exec --help`, and --ignore-user-config is additionally DEMONSTRATED by the
+  // malformed-config differential before any quota is spent (codexConfigSuppressionWitness).
   const argsJson = JSON.stringify(wrapperCmd.slice(1));
   return {
     binary: "codex",
     args: [
       "exec",
       "--skip-git-repo-check",
+      "--ignore-user-config",
+      "--ignore-rules",
+      "--ephemeral",
       "-c", `mcp_servers.spendbar-probe.command=${JSON.stringify(wrapperCmd[0])}`,
       "-c", `mcp_servers.spendbar-probe.args=${argsJson}`,
       prompt,
@@ -426,7 +502,7 @@ function buildClientInvocation(client, prompt, wrapperCmd, scratchCwd) {
   };
 }
 
-async function captureCell(client, candidate, clientVersion, attempt) {
+async function captureCell(client, candidate, clientVersion, userConfigIsolated, attempt) {
   const captureId = `${client}-${candidate}-${randomBytes(4).toString("hex")}`;
   const rawDir = join(RETAINED_DIR, captureId);
   mkdirSync(rawDir, { recursive: true });
@@ -485,8 +561,11 @@ async function captureCell(client, candidate, clientVersion, attempt) {
     environmental: null,
     // The hostile-config canary, recorded as a fact independently of any environmental claim:
     // the classifier admits a fresh-state-isolation claim only against this witness.
-    // `userConfigIsolated` is the honest counterpart — see buildClientInvocation.
-    isolation: { hostileConfigExecuted: false, userConfigIsolated: client === "claude-code" },
+    // `userConfigIsolated` comes from preflight, where it was VALIDATED (flag set) and, for
+    // codex, DEMONSTRATED (malformed-config differential) — never inferred from the client's
+    // name, which is how the codex cells spent quota on captures the verifier could only ever
+    // publish as not-run (ISS-047).
+    isolation: { hostileConfigExecuted: false, userConfigIsolated },
     timedOut: false,
     // Whether the post-SIGKILL wait for the pipes to close ran out. A capture where this is
     // true was still being written by something when its bytes were read, so its digests are
@@ -687,7 +766,7 @@ async function captureCell(client, candidate, clientVersion, attempt) {
   // a witness FIRST and separately: the classifier will not honor the claim without it.
   raw.isolation = {
     hostileConfigExecuted: existsSync(hostileCanary),
-    userConfigIsolated: client === "claude-code",
+    userConfigIsolated,
   };
   if (raw.isolation.hostileConfigExecuted) {
     raw.environmental = { condition: "fresh-state-isolation-failure", detail: "hostile project config executed" };
@@ -784,11 +863,11 @@ async function main() {
         writeFileAtomic(cellsPath, JSON.stringify(recorded, null, 2) + "\n", 0o644);
       };
 
-      attempts.push(await captureCell(client, candidate, pre.clientVersion, 0));
+      attempts.push(await captureCell(client, candidate, pre.clientVersion, pre.userConfigIsolated, 0));
       noteAttempts();
       if (attempts[0].classified.outcome === "infrastructure-unavailable") {
         process.stderr.write(`  environmental (${attempts[0].classified.reasons.join("; ")}) — one retry\n`);
-        attempts.push(await captureCell(client, candidate, pre.clientVersion, 1));
+        attempts.push(await captureCell(client, candidate, pre.clientVersion, pre.userConfigIsolated, 1));
         noteAttempts();
       }
       const capture = attempts[attempts.length - 1];
