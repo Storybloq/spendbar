@@ -174,6 +174,12 @@ const DIGEST_SET_SPEC = {
 };
 
 export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HERE, "..", "..") } = {}) {
+  // 0. A present attempt marker means the last matrix run crashed or failed after this
+  //    evidence was written — whatever is on disk is an OLDER generation and must not be
+  //    consumed as current (review round 1).
+  if (existsSync(join(evidenceDir, "matrix-attempt.json"))) {
+    refuse("matrix-attempt.json is present — the last scripted-evidence run did not complete; regenerate before deciding");
+  }
   const inputs = readJson(join(evidenceDir, "inputs.json"), "inputs.json");
   const scripted = readJson(join(evidenceDir, "scripted.json"), "scripted.json");
   const supplyChain = readJson(join(evidenceDir, "supply-chain.json"), "supply-chain.json");
@@ -268,7 +274,13 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
 
     const sc = checkShape(
       supplyChain[candidate],
-      { packages: { type: "number" }, verified: { type: "number" }, violations: { type: "array" } },
+      {
+        packages: { type: "number" },
+        verified: { type: "number" },
+        violations: { type: "array" },
+        install: { type: "object" },
+        installedRescan: { type: "object" },
+      },
       `supply-chain.json ${candidate}`,
     );
     if (sc.violations.length > 0) {
@@ -276,6 +288,26 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
     }
     if (!(sc.packages > 0) || sc.verified !== sc.packages) {
       refuse(`${candidate} supply chain did not verify its whole closure (${sc.verified}/${sc.packages})`);
+    }
+    // The tree the cases ran against: freshly installed with scripts off, then rescanned by
+    // path — a candidate whose installed tree was never verified proves nothing (review
+    // round 1).
+    const install = checkShape(
+      sc.install,
+      { args: { type: "array" }, ok: { type: "boolean" } },
+      `supply-chain.json ${candidate}.install`,
+    );
+    if (install.ok !== true || !install.args.includes("--ignore-scripts") || !install.args.includes("ci")) {
+      refuse(`${candidate} was not installed with npm ci --ignore-scripts`);
+    }
+    const rescan = checkShape(
+      sc.installedRescan,
+      { packagesScanned: { type: "number" }, violations: { type: "array" } },
+      `supply-chain.json ${candidate}.installedRescan`,
+    );
+    if (!(rescan.packagesScanned > 0)) refuse(`${candidate} installed-tree rescan scanned zero packages`);
+    if (rescan.violations.length > 0) {
+      refuse(`${candidate} installed tree has violations — the no-hooks precondition fails`);
     }
   }
 

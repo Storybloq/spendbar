@@ -43,8 +43,10 @@ const check = (cond, msg) => {
 // diagnostic can say how much was discarded.
 const MAX_STREAM_BYTES = 5_000_000;
 
-/** Newline-JSON scripted client around a spawned server process. */
-class Harness {
+/** Newline-JSON scripted client around a spawned server process. Exported so OTHER
+ *  scripted exchanges (the matrix's token measurement) reuse its stream caps, error
+ *  handling and awaited disposal instead of re-growing the defects it fixed. */
+export class Harness {
   constructor(child) {
     this.child = child;
     this.stdoutRaw = "";
@@ -215,7 +217,7 @@ class Harness {
 }
 
 let nextId = 100;
-async function initialize(h) {
+export async function initialize(h) {
   const init = await h.request(1, "initialize", {
     protocolVersion: "2025-06-18",
     capabilities: {},

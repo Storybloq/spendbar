@@ -71,6 +71,10 @@ export function decide(verified) {
   return { outcome, aggregates: { v2, v1 } };
 }
 
+/** The canonical resolution-ticket title. Locate uses EXACT equality on this — substring
+ *  matching could reuse an unrelated ticket that merely mentions the key (review round 1). */
+export const resolutionTicketTitle = (dedupeKey) => `No supported MCP SDK (${dedupeKey})`;
+
 export class TransitionError extends Error {
   constructor(step, message) {
     super(`act1 step '${step}' failed: ${message}`);
@@ -138,12 +142,16 @@ export function renderDecisionDoc(verified, decision) {
 /**
  * Act 1 — branch by outcome:
  *   blocked    -> idempotent resolution ticket by semantic dedupe key, attach to T-013,
- *                 TRUST THE READ-BACK, then the decision document; exit nonzero.
- *   adopt-*    -> decision document only. No ticket, no blocker — a supported SDK exists.
- *   incomplete -> typed attempt report only. No decision document, no graph mutation.
+ *                 TRUST THE READ-BACK, then the decision document AND machine record.
+ *   adopt-*    -> decision document and machine record. No ticket, no blocker.
+ *   incomplete -> stale verdict artifacts cleared, then the typed attempt report — the two
+ *                 kinds of artifact are mutually exclusive: a run that reached no verdict
+ *                 must not leave an older verdict visible to packaging (review round 1).
  *
- * Graph and filesystem effects are injected so every branch and every step failure is
- * testable; the live graph implementation is the storybloq toolchain.
+ * ALL artifacts are written inside the step wrapper, so a failed write surfaces as that
+ * step's TransitionError instead of escaping after the graph already mutated (review
+ * round 1). Graph and filesystem effects are injected so every branch and every step
+ * failure is testable; the live implementations are in gate.mjs.
  */
 export async function act1(decision, verified, deps) {
   const step = async (name, fn) => {
@@ -168,7 +176,14 @@ export async function act1(decision, verified, deps) {
     );
   }
 
+  const decisionRecord = () => ({
+    outcome: decision.outcome,
+    aggregates: decision.aggregates,
+    versions: verified.versions,
+  });
+
   if (decision.outcome === "incomplete") {
+    await step("clear-stale-verdict", () => deps.removeDecisionArtifacts());
     await step("attempt-report", () =>
       deps.writeAttemptReport({
         type: "t009-attempt-report",
@@ -181,7 +196,8 @@ export async function act1(decision, verified, deps) {
 
   if (decision.outcome === "adopt-v2" || decision.outcome === "adopt-v1") {
     await step("decision-doc", () => deps.writeDecisionDoc(renderDecisionDoc(verified, decision)));
-    return { exitCode: EXIT_CODES[decision.outcome], wrote: ["decision-doc"] };
+    await step("decision-record", () => deps.writeDecisionRecord(decisionRecord()));
+    return { exitCode: EXIT_CODES[decision.outcome], wrote: ["decision-doc", "decision-record"] };
   }
 
   // blocked — the dedupe key is SEMANTIC (versions only): evidence hashes belong in the ticket
@@ -200,10 +216,10 @@ export async function act1(decision, verified, deps) {
   if (!back || typeof back !== "object") {
     throw new TransitionError("read-back-resolution-ticket", `ticket ${ticket.id} could not be read back`);
   }
-  if (typeof back.title !== "string" || !back.title.includes(dedupeKey)) {
+  if (back.title !== resolutionTicketTitle(dedupeKey)) {
     throw new TransitionError(
       "read-back-resolution-ticket",
-      `ticket ${ticket.id} does not carry dedupe key '${dedupeKey}' in its title`,
+      `ticket ${ticket.id} title ${JSON.stringify(back.title)} is not the canonical dedupe title`,
     );
   }
   if (["done", "cancelled"].includes(back.status)) {
@@ -215,5 +231,10 @@ export async function act1(decision, verified, deps) {
     throw new TransitionError("read-back-t013", `T-013.blockedBy does not contain ${ticket.id}`);
   }
   await step("decision-doc", () => deps.writeDecisionDoc(renderDecisionDoc(verified, decision)));
-  return { exitCode: EXIT_CODES.blocked, wrote: ["resolution-ticket", "decision-doc"], ticketId: ticket.id };
+  await step("decision-record", () => deps.writeDecisionRecord(decisionRecord()));
+  return {
+    exitCode: EXIT_CODES.blocked,
+    wrote: ["resolution-ticket", "decision-doc", "decision-record"],
+    ticketId: ticket.id,
+  };
 }

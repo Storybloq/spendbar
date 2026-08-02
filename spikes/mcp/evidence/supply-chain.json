@@ -1,10 +1,32 @@
 {
   "v1": {
+    "install": {
+      "args": [
+        "ci",
+        "--ignore-scripts"
+      ],
+      "ok": true
+    },
+    "installedRescan": {
+      "packagesScanned": 93,
+      "violations": []
+    },
     "packages": 93,
     "verified": 93,
     "violations": []
   },
   "v2": {
+    "install": {
+      "args": [
+        "ci",
+        "--ignore-scripts"
+      ],
+      "ok": true
+    },
+    "installedRescan": {
+      "packagesScanned": 3,
+      "violations": []
+    },
     "packages": 3,
     "verified": 3,
     "violations": []

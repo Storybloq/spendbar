@@ -31,6 +31,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   writeFileSync,
   rmSync,
   existsSync,
@@ -264,6 +265,49 @@ export async function inspectClosure(lockfilePath, { fetchTarball, extract } = {
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+/**
+ * Rescan an INSTALLED tree by path (plan step 4): every package.json anywhere under
+ * node_modules — nested copies included, which is why the walk is by path and never keyed by
+ * name — checked with the same forbidden-hook/native-build predicate as the fetched tarballs.
+ * This is what binds the tree the conformance cases actually execute against to the same
+ * no-hooks contract the tarball inspection proved about the lockfile's content.
+ */
+export function scanInstalledTree(workspaceDir) {
+  const rootModules = join(workspaceDir, "node_modules");
+  if (!existsSync(rootModules)) {
+    throw new Error(`no node_modules under ${workspaceDir} — nothing was installed`);
+  }
+  const violations = [];
+  let packagesScanned = 0;
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith(".")) continue;
+      const child = join(dir, entry.name);
+      if (entry.name.startsWith("@")) {
+        walk(child);
+        continue;
+      }
+      const manifestPath = join(child, "package.json");
+      if (existsSync(manifestPath)) {
+        packagesScanned++;
+        const label = manifestPath.slice(workspaceDir.length + 1);
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+        for (const hook of FORBIDDEN_SCRIPTS) {
+          if (manifest.scripts?.[hook] !== undefined) violations.push({ package: label, kind: `script:${hook}` });
+        }
+        if (manifest.gypfile) violations.push({ package: label, kind: "gypfile-flag" });
+        if (existsSync(join(child, "binding.gyp"))) violations.push({ package: label, kind: "binding.gyp" });
+      }
+      const nested = join(child, "node_modules");
+      if (existsSync(nested)) walk(nested);
+    }
+  };
+  walk(rootModules);
+  if (packagesScanned === 0) throw new Error(`installed-tree rescan found zero packages under ${rootModules}`);
+  return { packagesScanned, violations };
 }
 
 async function main() {

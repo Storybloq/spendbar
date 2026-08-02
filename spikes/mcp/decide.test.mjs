@@ -137,10 +137,22 @@ function spyDeps({
     calls,
     docs: [],
     reports: [],
+    records: [],
+    cleared: 0,
     writeDecisionDoc(doc) {
       calls.push("decision-doc");
       fail("decision-doc");
       this.docs.push(doc);
+    },
+    writeDecisionRecord(record) {
+      calls.push("decision-record");
+      fail("decision-record");
+      this.records.push(record);
+    },
+    removeDecisionArtifacts() {
+      calls.push("clear-stale-verdict");
+      fail("clear-stale-verdict");
+      this.cleared++;
     },
     writeAttemptReport(report) {
       calls.push("attempt-report");
@@ -191,7 +203,8 @@ test("act1 on incomplete: typed attempt report, no decision document, no graph m
   assert.equal(deps.reports[0].type, "t009-attempt-report");
   assert.ok(deps.reports[0].unavailable.length > 0);
   assert.ok(deps.reports[0].unavailable.every((u) => u.cell && u.candidate && u.cause));
-  assert.ok(deps.calls.every((c) => c === "attempt-report"), `graph was touched: ${deps.calls}`);
+  assert.equal(deps.cleared, 1, "stale verdict artifacts were not cleared");
+  assert.deepEqual(deps.calls, ["clear-stale-verdict", "attempt-report"], `graph was touched: ${deps.calls}`);
 });
 
 test("act1 on adopt-v2: decision document only — no ticket, no blocker", async () => {
@@ -202,7 +215,10 @@ test("act1 on adopt-v2: decision document only — no ticket, no blocker", async
   assert.equal(deps.docs.length, 1);
   assert.ok(deps.docs[0].includes("adopt-v2"));
   assert.ok(deps.docs[0].includes("open question 3, an owner decision"));
-  assert.deepEqual(deps.calls, ["decision-doc"]);
+  assert.deepEqual(deps.calls, ["decision-doc", "decision-record"]);
+  assert.deepEqual(deps.records, [
+    { outcome: "adopt-v2", aggregates: { v2: "pass", v1: "pass" }, versions: { v2: "2.0.0", v1: "1.30.0" } },
+  ]);
 });
 
 test("act1 on blocked: dedupe-keyed ticket, attach, read-back, then the document, exit 3", async () => {
@@ -217,8 +233,11 @@ test("act1 on blocked: dedupe-keyed ticket, attach, read-back, then the document
     "attach:T-013:T-900",
     "read:T-013",
     "decision-doc",
+    "decision-record",
   ]);
   assert.equal(deps.docs.length, 1);
+  assert.equal(deps.records.length, 1);
+  assert.equal(deps.records[0].outcome, "blocked");
 });
 
 test("act1 on blocked is idempotent: an existing open ticket is reused, never duplicated", async () => {
@@ -293,6 +312,7 @@ test("act1: an injected failure at each step surfaces as that step's transition 
     "attach-blocker",
     "read-back-t013",
     "decision-doc",
+    "decision-record",
   ]) {
     const deps = spyDeps({ failAt: step });
     await assert.rejects(
@@ -301,6 +321,16 @@ test("act1: an injected failure at each step surfaces as that step's transition 
       `step ${step}`,
     );
   }
+});
+
+test("act1 on incomplete: a failing stale-verdict clear is that step's transition error", async () => {
+  const verified = verifiedFixture("pass", "not-run");
+  const deps = spyDeps({ failAt: "clear-stale-verdict" });
+  await assert.rejects(
+    () => act1(decide(verified), verified, deps),
+    (e) => e instanceof TransitionError && e.step === "clear-stale-verdict",
+  );
+  assert.equal(deps.reports.length, 0, "attempt report written despite failed clear");
 });
 
 test("evidence-controlled strings cannot corrupt the decision document's markdown", () => {
@@ -521,6 +551,16 @@ test("an inconsistent failed count on a candidate record is refused", () => {
   withFixture(({ evidenceDir, repoRoot, mutate }) => {
     mutate("scripted.json", (s) => (s.v1.failed = 7));
     assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /inconsistent/);
+  });
+});
+
+test("a present matrix attempt marker makes the whole evidence set unconsumable", () => {
+  withFixture(({ evidenceDir, repoRoot }) => {
+    writeFileSync(
+      join(evidenceDir, "matrix-attempt.json"),
+      JSON.stringify({ status: "failed", failures: [{ candidate: "v1", stage: "install", cause: "x" }] }),
+    );
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /did not complete; regenerate/);
   });
 });
 

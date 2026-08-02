@@ -12,11 +12,11 @@
 // 3 (and 2 on adopt-*), and a command that closed the ticket would be encoding those answers.
 
 import { execFileSync } from "node:child_process";
-import { writeFileSync, rmSync } from "node:fs";
+import { writeFileSync, renameSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { decide, act1, EXIT_CODES, TransitionError } from "./decide.mjs";
+import { decide, act1, EXIT_CODES, TransitionError, resolutionTicketTitle } from "./decide.mjs";
 import { verifyEvidence, EVIDENCE_DIR, EvidenceError } from "./verify-evidence.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -38,13 +38,14 @@ const sbJson = (args) => JSON.parse(sb([...args, "--format", "json", "--raw"]));
 // step loudly (TransitionError), never silently: the read-back is the trust anchor.
 const cliGraph = {
   findOpenTicketByDedupeKey(key) {
+    // EXACT equality with the canonical title — substring matching could reuse an unrelated
+    // ticket that merely mentions the key (review round 1). `ticket list` returns the full
+    // unpaginated set for this CLI; a wrong assumption there surfaces as a duplicate whose
+    // creation act1's read-back then validates against the same canonical title.
     const tickets = sbJson(["ticket", "list"]);
     const rows = Array.isArray(tickets) ? tickets : tickets.tickets ?? [];
-    return (
-      rows.find(
-        (t) => typeof t.title === "string" && t.title.includes(key) && !["done", "cancelled"].includes(t.status),
-      ) ?? null
-    );
+    const canonical = resolutionTicketTitle(key);
+    return rows.find((t) => t.title === canonical && !["done", "cancelled"].includes(t.status)) ?? null;
   },
   createResolutionTicket(key, decision, verified) {
     const description = [
@@ -58,7 +59,7 @@ const cliGraph = {
       "ticket",
       "create",
       "--title",
-      `No supported MCP SDK (${key})`,
+      resolutionTicketTitle(key),
       "--type",
       "task",
       "--description",
@@ -74,13 +75,30 @@ const cliGraph = {
   },
 };
 
+/** Write-then-rename so a crash mid-write never leaves a torn artifact behind. */
+function writeAtomic(path, content) {
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, content);
+  renameSync(tmp, path);
+}
+
 const deps = {
   graph: cliGraph,
   writeDecisionDoc(doc) {
-    writeFileSync(join(EVIDENCE_DIR, "DECISION.md"), doc);
+    writeAtomic(join(EVIDENCE_DIR, "DECISION.md"), doc);
+  },
+  // The machine-readable record packaging keys off (§10) — written INSIDE act1's transaction,
+  // and mutually exclusive with the attempt report (review round 1).
+  writeDecisionRecord(record) {
+    writeAtomic(join(EVIDENCE_DIR, "decision.json"), JSON.stringify(record, null, 2) + "\n");
+    rmSync(join(EVIDENCE_DIR, "attempt-report.json"), { force: true });
+  },
+  removeDecisionArtifacts() {
+    rmSync(join(EVIDENCE_DIR, "DECISION.md"), { force: true });
+    rmSync(join(EVIDENCE_DIR, "decision.json"), { force: true });
   },
   writeAttemptReport(report) {
-    writeFileSync(join(EVIDENCE_DIR, "attempt-report.json"), JSON.stringify(report, null, 2) + "\n");
+    writeAtomic(join(EVIDENCE_DIR, "attempt-report.json"), JSON.stringify(report, null, 2) + "\n");
   },
 };
 
@@ -102,19 +120,6 @@ process.stderr.write(
 
 try {
   const result = await act1(decision, verified, deps);
-  if (decision.outcome !== "incomplete") {
-    // decision.json is the machine-readable record the packaging contract keys off (§10).
-    writeFileSync(
-      join(EVIDENCE_DIR, "decision.json"),
-      JSON.stringify(
-        { outcome: decision.outcome, aggregates: decision.aggregates, versions: verified.versions },
-        null,
-        2,
-      ) + "\n",
-    );
-    // A verdict supersedes any earlier attempt report.
-    rmSync(join(EVIDENCE_DIR, "attempt-report.json"), { force: true });
-  }
   process.stderr.write(`gate: wrote ${result.wrote.join(", ")}\n`);
   process.exit(result.exitCode);
 } catch (error) {
