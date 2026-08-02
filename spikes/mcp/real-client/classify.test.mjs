@@ -94,7 +94,25 @@ test("a record satisfying all seven clauses classifies as pass", () => {
   assert.deepEqual(classify(passingRecord(), EXPECTED), { outcome: "pass", reasons: [] });
 });
 
+test("the timeout clause fails on its own, with nothing else broken", () => {
+  // Isolation matters here: the older fixture also emptied the frames and changed the phase, so
+  // it passed even for a classifier that ignored `timedOut` entirely — the missing frames failed
+  // conformance by themselves.
+  const r = passingRecord();
+  r.timedOut = true;
+  const c = classify(r, EXPECTED);
+  assert.equal(c.outcome, "conformance-fail");
+  assert.deepEqual(
+    c.reasons,
+    [`timed out after spawn (last phase: called) — conformance-fail by default`],
+    "the timeout must be the ONLY reason, so nothing else in the fixture is doing the work",
+  );
+});
+
 test("a post-spawn pre-handshake timeout is conformance-fail, never environmental", () => {
+  // The internally consistent version of the same scenario: the deadline fired before the
+  // handshake, so there are genuinely no frames. This is the classification BOUNDARY — a
+  // harness that ran and failed, not one that could not run.
   const r = passingRecord();
   r.timedOut = true;
   r.lastPhase = "spawned";
@@ -427,6 +445,128 @@ test("every declared transformation is from the allowlist", () => {
   assert.ok(!TRANSFORM_NAMES.includes("copy"), "an unrestricted pass-through transformation exists again");
 });
 
+/**
+ * The field-to-transformation mapping, restated INDEPENDENTLY. "Every transformation is in the
+ * allowlist" is satisfied by mapping a sensitive field to a preserving transformation that
+ * happens to be allowlisted — so the mapping itself, not just its vocabulary, is pinned.
+ */
+const EXPECTED_FIELD_MAP = {
+  captureId: "token",
+  client: "enum",
+  candidate: "enum",
+  clientVersion: "version-line",
+  promptSha256: "sha256",
+  promptInstanceSha256: "sha256",
+  nonce: "token",
+  executablePath: "placeholder-path",
+  executableIdentity: "token",
+  commandLine: "argv",
+  env: "env-names",
+  cwd: "placeholder-path",
+  captureInputs: "digest-map",
+  spawn: "spawn",
+  environmental: "environmental",
+  isolation: "isolation",
+  timedOut: "boolean",
+  lastPhase: "enum",
+  clientExit: "exit",
+  serverTermination: "termination",
+  wrapper: "wrapper",
+  frames: "frames",
+  clientToServer: "stream-stats",
+  serverStdout: "stream-stats",
+  serverStderr: "flags",
+  clientStdout: "flags",
+  digests: "digest-set",
+  retries: "retries",
+};
+
+test("the field-to-transformation mapping equals an independent literal", () => {
+  assert.deepEqual(FIELD_MAP, EXPECTED_FIELD_MAP);
+  // Both path-bearing fields must be placeholdered, stated separately from the table above so
+  // a careless edit to one does not silently agree with the other.
+  assert.equal(FIELD_MAP.executablePath, "placeholder-path");
+  assert.equal(FIELD_MAP.cwd, "placeholder-path");
+  assert.equal(FIELD_MAP.env, "env-names");
+});
+
+/** One value per transformation that it MUST refuse — so no transformation is untested. */
+const TRANSFORM_REJECTS = {
+  token: ["captureId", "Not A Valid Token!"],
+  enum: ["client", "emacs"],
+  "version-line": ["clientVersion", 42],
+  sha256: ["promptSha256", "not-a-digest"],
+  "placeholder-path": ["cwd", 42],
+  argv: ["commandLine", "-p --strict-mcp-config"],
+  "env-names": ["env", ["PATH"]],
+  "digest-map": ["captureInputs", {}],
+  spawn: ["spawn", { client: { ok: "yes" }, server: { ok: true } }],
+  environmental: ["environmental", { condition: "felt-slow" }],
+  isolation: ["isolation", { hostileConfigExecuted: true }],
+  boolean: ["timedOut", "false"],
+  exit: ["clientExit", { code: "0", signal: null }],
+  termination: ["serverTermination", { signal: "KILL" }],
+  wrapper: ["wrapper", { spawned: true, closed: true, forwardErrors: -1 }],
+  frames: ["frames", [{ type: "request", method: "initialize" }]],
+  "stream-stats": ["serverStdout", { bytes: -1 }],
+  flags: ["serverStderr", { hasReadyLine: "yes", containsFrames: false }],
+  "digest-set": ["digests", { derivationDigest: "short" }],
+  retries: ["retries", "none"],
+};
+
+test("EVERY transformation has a value it refuses — none is a silent pass-through", () => {
+  assert.deepEqual(
+    Object.keys(TRANSFORM_REJECTS).sort(),
+    [...TRANSFORM_NAMES].sort(),
+    "a transformation exists with no falsifying fixture",
+  );
+  for (const [kind, [field, bad]] of Object.entries(TRANSFORM_REJECTS)) {
+    const raw = rawManifest();
+    raw[field] = bad;
+    assert.throws(() => sanitize(raw), SanitizeError, `transformation '${kind}' accepted a value it must refuse`);
+  }
+});
+
+/**
+ * What must become a placeholder, decided by a LITERAL TABLE rather than by re-running the
+ * sanitizer's own path test. sanitize and checkPreservation share `PATHISH`, so a shared
+ * mistake — a Windows path or an attached flag value not recognised as a path — would be
+ * emitted verbatim by one and expected verbatim by the other, and both would agree.
+ */
+const ARGV_ORACLE = [
+  [cat("/Users", "/jdoe/notes.txt"), "<arg0:path>", "POSIX absolute"],
+  [cat("C:\\", "Users\\jdoe\\notes.txt"), "<arg0:path>", "Windows absolute"],
+  [cat("\\\\server", "\\share\\notes.txt"), "<arg0:path>", "UNC"],
+  ["~/notes.txt", "<arg0:path>", "home-relative"],
+  ["./relative/notes.txt", "<arg0:path>", "relative"],
+  ["--settings=" + cat("/Users", "/jdoe/s.json"), "--settings=<arg0:path>", "attached path value"],
+  ["--mcp-config=" + cat("C:\\", "Users\\jdoe\\m.json"), "--mcp-config=<arg0:path>", "attached Windows value"],
+  ["--verbose=true", "--verbose=true", "attached non-path value survives"],
+  ["-p", "-p", "bare flag survives"],
+  ["fixed prompt", "fixed prompt", "path-free argument survives"],
+];
+
+test("the argv oracle is a literal table, not the sanitizer's own opinion of what a path is", () => {
+  for (const [input, expected, label] of ARGV_ORACLE) {
+    const raw = rawManifest();
+    raw.commandLine = [input];
+    assert.equal(sanitize(raw).commandLine[0], expected, label);
+  }
+});
+
+test("the preservation check rejects a path emitted verbatim, whatever the sanitizer believes", () => {
+  // Built by hand, WITHOUT calling sanitize for the field under test: this is the independence
+  // the two functions are supposed to have and could not demonstrate while every fixture came
+  // from the sanitizer itself.
+  for (const [input, expected, label] of ARGV_ORACLE) {
+    if (!expected.includes("<arg0:path>")) continue;
+    const raw = rawManifest();
+    raw.commandLine = [input];
+    const forged = { ...sanitize(raw), commandLine: [input] }; // the path, shipped as-is
+    assert.ok(checkPreservation(raw, forged).length > 0, `a verbatim ${label} was accepted`);
+  }
+});
+
 test("an attached flag value that is a path is placeholdered, and the flag NAME survives", () => {
   // `--name=<path>` used to short-circuit on `startsWith("-")` and ship the path verbatim.
   const raw = rawManifest();
@@ -585,6 +725,65 @@ test("the client environment is an allowlist, and the manifest records what was 
   assert.deepEqual(checkPreservation(raw, sanitize(raw)), []);
 });
 
+/**
+ * Every free-text-bearing site in the schema, paired with how a leak planted there must be
+ * stopped. Two mechanisms are legitimate — the field's own pattern REDACTS it, or the privacy
+ * backstop REFUSES the whole manifest — and both are accepted here, because what matters is
+ * that the value cannot reach committed evidence. A site where neither fires is the bug.
+ */
+const LEAK_SITES = {
+  "frames[].text": (raw, value) => {
+    raw.frames = [{ type: "response", method: "tools/call", structuredNonce: EXPECTED.nonce, text: value, isError: false }];
+  },
+  "frames[].toolNames": (raw, value) => {
+    raw.frames = [{ type: "response", method: "tools/list", toolNames: [value] }];
+  },
+  "frames[].protocolVersion": (raw, value) => {
+    raw.frames = [{ type: "response", method: "initialize", protocolVersion: value }];
+  },
+  clientVersion: (raw, value) => (raw.clientVersion = value),
+  "environmental.detail": (raw, value) => (raw.environmental = { condition: "auth-failure", detail: value }),
+  retries: (raw, value) => (raw.retries = [value]),
+  "commandLine[]": (raw, value) => (raw.commandLine = ["-p", value]),
+  "spawn.client.error": (raw, value) => (raw.spawn.client = { ok: false, error: value }),
+};
+
+/** One real-shaped value per scanner class, assembled at runtime so this file stays clean. */
+const LEAK_VALUES = {
+  "macos-home": cat("/Users", "/jdoe/Developer/x"),
+  "linux-home": cat("/home", "/jdoe/x"),
+  "windows-home": cat("C:\\", "Users\\jdoe\\x"),
+  "mangled-home": cat("-Users", "-jdoe-Developer-x"),
+  email: cat("jdoe", "@", "example.org"),
+  "session-id": cat("3f2504e0-4f89", "-11d3-9a0c-0305e82c3301"),
+  "workflow-id": cat("wf_a1b2c3", "-9f8e"),
+};
+
+test("no scanner class reaches committed evidence through ANY free-text site", () => {
+  // The backstop test used to plant one macOS path in one field, which a sanitizer that
+  // scanned only `frames` and only that class would have satisfied.
+  let refusals = 0;
+  for (const [site, plant] of Object.entries(LEAK_SITES)) {
+    for (const [className, value] of Object.entries(LEAK_VALUES)) {
+      const raw = rawManifest();
+      plant(raw, value);
+      let output = null;
+      try {
+        output = sanitize(raw);
+      } catch (error) {
+        assert.ok(error instanceof SanitizeError, `${site}/${className}: ${error}`);
+        assert.ok(!error.message.includes("jdoe"), `${site}/${className}: the refusal quoted the value`);
+        refusals += 1;
+        continue; // refused outright — the strongest outcome
+      }
+      const findings = scanText(JSON.stringify(output, null, 2), site);
+      assert.deepEqual(findings, [], `${site}: a ${className} value survived into the sanitized manifest`);
+    }
+  }
+  // And the backstop is not dead code: some site relies on it rather than on a field pattern.
+  assert.ok(refusals > 0, "no site exercised the privacy backstop — it may be unreachable");
+});
+
 test("the capture-input pin is exactly the declared set — no additions, no omissions", () => {
   const short = rawManifest();
   delete short.captureInputs[CAPTURE_INPUTS[0]];
@@ -593,6 +792,25 @@ test("the capture-input pin is exactly the declared set — no additions, no omi
   const padded = rawManifest();
   padded.captureInputs["scripts/something-else.mjs"] = "a".repeat(64);
   assert.throws(() => sanitize(padded), SanitizeError);
+});
+
+test("the capture-input list itself equals an independent literal", () => {
+  // Both the fixture and the schema derive from CAPTURE_INPUTS, so an OMISSION from that list
+  // leaves every test above self-consistently green while the missing file's bytes go
+  // unpinned. This is the only assertion that can catch that.
+  assert.deepEqual([...CAPTURE_INPUTS].sort(), [
+    "scripts/privacy-scan.mjs",
+    "scripts/privacy-synthetic.json",
+    "spikes/mcp/candidates/v1/package-lock.json",
+    "spikes/mcp/candidates/v1/server.mjs",
+    "spikes/mcp/candidates/v2/package-lock.json",
+    "spikes/mcp/candidates/v2/server.mjs",
+    "spikes/mcp/probe-def.mjs",
+    "spikes/mcp/real-client/capture-wrapper.mjs",
+    "spikes/mcp/real-client/capture.mjs",
+    "spikes/mcp/real-client/normalize.mjs",
+    "spikes/mcp/real-client/sanitize.mjs",
+  ]);
 });
 
 test("the T-024 scanner catches a real-shaped path planted in a committed-manifest fixture", () => {
