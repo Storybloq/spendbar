@@ -2,22 +2,22 @@
   "v2": {
     "claude-code": {
       "status": "pass",
-      "traceDigest": "e7394dd546d021e5506885639a63921f03fbed1afbec9d83159de7a96e185e38",
+      "traceDigest": "7ba90c4336b923112173b9bf37b57647d770ce39f116a2f7cbc13cff5dfc98e2",
       "clientVersion": "2.1.220 (Claude Code)",
       "attempts": [
         {
-          "captureId": "claude-code-v2-3e9aff5a",
+          "captureId": "claude-code-v2-c5d74695",
           "outcome": "pass"
         }
       ]
     },
     "codex": {
       "status": "pass",
-      "traceDigest": "cb75361967b5d05b7dfc9ee545b92c2327f7d973c46d37d1ecc7082b0cc58f99",
+      "traceDigest": "ae0ec717bed7a34a8833edf151a60f9cec5f0d0bec1e61207d7cde2b36b77504",
       "clientVersion": "codex-cli 0.144.0",
       "attempts": [
         {
-          "captureId": "codex-v2-2c6c6394",
+          "captureId": "codex-v2-01728e46",
           "outcome": "pass"
         }
       ]
@@ -26,22 +26,22 @@
   "v1": {
     "claude-code": {
       "status": "pass",
-      "traceDigest": "10d6821650689b17f230b3a45c70159c35e7caa55abe0e220b2b0ecf829ac998",
+      "traceDigest": "2928b57b84c817df9123b574d71e1bd2398e86b2499a6384884db0d769d3165a",
       "clientVersion": "2.1.220 (Claude Code)",
       "attempts": [
         {
-          "captureId": "claude-code-v1-19b44bc5",
+          "captureId": "claude-code-v1-bd96ad6e",
           "outcome": "pass"
         }
       ]
     },
     "codex": {
       "status": "pass",
-      "traceDigest": "7f103abe105f7ce19336c6806b4809db80fdbb6dc413a2f7fde3ea2242858eb1",
+      "traceDigest": "23828e4744e03da6115f08970a497e607a0909dcdb26731fac8f5b1a25752eb4",
       "clientVersion": "codex-cli 0.144.0",
       "attempts": [
         {
-          "captureId": "codex-v1-b4cd97f0",
+          "captureId": "codex-v1-35c0d29d",
           "outcome": "pass"
         }
       ]

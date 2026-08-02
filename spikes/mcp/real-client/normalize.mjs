@@ -51,19 +51,29 @@ function splitLines(buf) {
 }
 
 /**
- * JSON-RPC 2.0 shape check, exact. Returns a typed message or `null` for "not a well-formed
- * JSON-RPC message" — which the caller counts as a protocol error rather than ignoring.
+ * Message shape check, exact. Returns a typed message or `null` for "not a well-formed
+ * message" — which the caller counts as a protocol error rather than ignoring.
+ *
+ * The standard applied is MCP's, not bare JSON-RPC 2.0, and the difference is deliberate in
+ * exactly two places (review round 1, chunk 11 was right that JSON-RPC alone permits both):
+ * JSON-RPC says a request id MUST be a String, Number or NULL and merely DISCOURAGES null and
+ * fractional numbers, while MCP's base protocol requires a string or integer id and states
+ * that it MUST NOT be null. This is an MCP transport, so MCP's rule is the one in force.
+ *
+ * Where neither standard imposes a rule, none is invented: an empty method name is a legal
+ * string and is accepted, because pinning a stricter rule than the protocol into the judge of
+ * a third-party client is how a conformant client gets recorded as a protocol violation.
  */
 export function classifyMessage(value) {
   if (!isPlainObject(value)) return null;
   if (value.jsonrpc !== "2.0") return null;
 
   if ("method" in value) {
-    if (typeof value.method !== "string" || value.method.length === 0) return null;
+    if (typeof value.method !== "string") return null;
     if ("params" in value && !isPlainObject(value.params) && !Array.isArray(value.params)) return null;
     if ("result" in value || "error" in value) return null; // a request is not also a response
     if (!("id" in value)) return { kind: "notification", method: value.method, value };
-    if (!isValidId(value.id)) return null; // including a null id, which only error responses may carry
+    if (!isValidId(value.id)) return null; // MCP: a request id is a string or integer, never null
     return { kind: "request", id: value.id, method: value.method, value };
   }
 
@@ -99,7 +109,15 @@ function scanDirection(buf) {
   const messages = [];
 
   for (const raw of lines) {
-    if (raw.length === 0) continue; // blank framing line, not a message
+    // A blank or whitespace-only TERMINATED line is stray output, not framing: newline-delimited
+    // framing never produces one (a trailing newline ends the last line, it does not begin an
+    // empty one), so "\n\n" on a stream whose purity is being asserted is unaccounted-for
+    // content. Skipping it silently let bytes onto the protocol stream with every counter at
+    // zero — the exact thing the stdout-purity oracle claims cannot happen (review round 1).
+    if (raw.length === 0) {
+      stats.protocolErrors += 1;
+      continue;
+    }
     let text;
     try {
       text = DECODER.decode(raw);
@@ -107,7 +125,10 @@ function scanDirection(buf) {
       stats.encodingErrors += 1;
       continue;
     }
-    if (text.trim() === "") continue; // whitespace-only framing line
+    if (text.trim() === "") {
+      stats.protocolErrors += 1;
+      continue;
+    }
     let value;
     try {
       value = JSON.parse(text);

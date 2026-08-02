@@ -1,17 +1,17 @@
 [
   {
     "schemaVersion": "receipt/2",
-    "captureId": "claude-code-v1-19b44bc5",
+    "captureId": "claude-code-v1-bd96ad6e",
     "client": "claude-code",
     "candidate": "v1",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "0381354051b8698f6c36898933358a65bb8dc5dbad01e34adc54aaa3e118c32e",
-      "serverStdoutSha256": "d8cd5e7cf6f196e611494e09466f4ea3703387781ae23c17f41145d8a8fe1e3d",
-      "serverStderrSha256": "e91c4089a28225ca604db8e6223bc294e9468b263b66d71278c4fc97352c1ad1",
+      "clientToServerSha256": "24a023c694785ee21544fa3c0af9b2712ff48515dab3e4a6e46f3ee442916859",
+      "serverStdoutSha256": "d879aca148c1015828579e56165b96fab3ea749698b235e2f6389dc817dfae12",
+      "serverStderrSha256": "0621126d97c9184da748481fa9fe3705cfaff7a785fe554fc16ca5763a48ebc4",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
       "clientStderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "derivationDigest": "10d6821650689b17f230b3a45c70159c35e7caa55abe0e220b2b0ecf829ac998"
+      "derivationDigest": "2928b57b84c817df9123b574d71e1bd2398e86b2499a6384884db0d769d3165a"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -42,7 +42,7 @@
       "spikes/mcp/real-client/capture.mjs": "39e670cf87cf734f11f5cb9c4d81e7636d8fa150081072956210b45f83c7f03d",
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
       "spikes/mcp/real-client/sanitize.mjs": "7d954a2f12ecb656736944e1438669905d31ec1264c54bbec5945249f2f1e9f7",
-      "spikes/mcp/real-client/normalize.mjs": "5e0d80235c8b6ed3a985c6cd80dd1aa2b60ae503a72314284cc7575694ec5269",
+      "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
       "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
       "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
     },
@@ -50,17 +50,17 @@
   },
   {
     "schemaVersion": "receipt/2",
-    "captureId": "claude-code-v2-3e9aff5a",
+    "captureId": "claude-code-v2-c5d74695",
     "client": "claude-code",
     "candidate": "v2",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "25e5f6ff140b7a6b0563bb3eaad3a1f80bb8f2b2de0b295cf45ed15a0e776e1b",
-      "serverStdoutSha256": "643422cc2ce6533cfb5ead7f17f57e5511f7bc0b0427b5097b8b1f21084a5d8c",
-      "serverStderrSha256": "623e2eeb8623b87f1e32e7d0ccd7c239e884c2613c6f5cc195066dd2075c4534",
+      "clientToServerSha256": "0ebfb4042ffe7029154e1ab1be39d6aa7b10eb8925ac9cd0d0c07d3f8b99944a",
+      "serverStdoutSha256": "6f110fc9851eadfc6c24316c5f846607be4eeb7e24bc7ed35a69a89565db8418",
+      "serverStderrSha256": "2036470070008314d70de6d3fbf0f458c8dc23ca57ae5f37475669b7a60453f0",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
       "clientStderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "derivationDigest": "e7394dd546d021e5506885639a63921f03fbed1afbec9d83159de7a96e185e38"
+      "derivationDigest": "7ba90c4336b923112173b9bf37b57647d770ce39f116a2f7cbc13cff5dfc98e2"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -91,7 +91,7 @@
       "spikes/mcp/real-client/capture.mjs": "39e670cf87cf734f11f5cb9c4d81e7636d8fa150081072956210b45f83c7f03d",
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
       "spikes/mcp/real-client/sanitize.mjs": "7d954a2f12ecb656736944e1438669905d31ec1264c54bbec5945249f2f1e9f7",
-      "spikes/mcp/real-client/normalize.mjs": "5e0d80235c8b6ed3a985c6cd80dd1aa2b60ae503a72314284cc7575694ec5269",
+      "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
       "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
       "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
     },
@@ -99,17 +99,17 @@
   },
   {
     "schemaVersion": "receipt/2",
-    "captureId": "codex-v1-b4cd97f0",
+    "captureId": "codex-v1-35c0d29d",
     "client": "codex",
     "candidate": "v1",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "2b67dd65898a10d941573dafb9954544b7d490d19d37175564c5b108cbc407ab",
-      "serverStdoutSha256": "812d73c157053890d9c8d10948e47663df2cd72587cec3a3c66d08b7be15d580",
-      "serverStderrSha256": "8efecdc92f23d1dfc20d513e734be150ac314372841eacc331c3e685fb217fb3",
+      "clientToServerSha256": "96523601059053ebe23c96e5e20bb32324c16aa81060e94fdfc725fcb15797a0",
+      "serverStdoutSha256": "ad47883816d61549183ae8d2321efc327871a899e2d41f794895eda530a289da",
+      "serverStderrSha256": "770afae2f9dbfe977afd81b35d388770739f31e127ebe1635413f0a718043357",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
-      "clientStderrSha256": "01727b74fcf0550bcd36764a169071e88bf77dae1d88aeb07af865474bbef029",
-      "derivationDigest": "7f103abe105f7ce19336c6806b4809db80fdbb6dc413a2f7fde3ea2242858eb1"
+      "clientStderrSha256": "0d7506c3229477744f71f991a47e50101b50e7c820e1366a470b88a46ccf8a29",
+      "derivationDigest": "23828e4744e03da6115f08970a497e607a0909dcdb26731fac8f5b1a25752eb4"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -140,7 +140,7 @@
       "spikes/mcp/real-client/capture.mjs": "39e670cf87cf734f11f5cb9c4d81e7636d8fa150081072956210b45f83c7f03d",
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
       "spikes/mcp/real-client/sanitize.mjs": "7d954a2f12ecb656736944e1438669905d31ec1264c54bbec5945249f2f1e9f7",
-      "spikes/mcp/real-client/normalize.mjs": "5e0d80235c8b6ed3a985c6cd80dd1aa2b60ae503a72314284cc7575694ec5269",
+      "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
       "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
       "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
     },
@@ -148,17 +148,17 @@
   },
   {
     "schemaVersion": "receipt/2",
-    "captureId": "codex-v2-2c6c6394",
+    "captureId": "codex-v2-01728e46",
     "client": "codex",
     "candidate": "v2",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "80222f2ac94560186a21bd827c11dcd28775f111830c90565bf3d3b6fde5f358",
-      "serverStdoutSha256": "a08184960ffa9fb4267ddcc4be5bfd50b5152a2a1a690a06f50eaca9f9f0152d",
-      "serverStderrSha256": "66d4c79c2d7b9a5bbb9be9f9870941e2508e00cabba119deaf3d666070c374a6",
+      "clientToServerSha256": "2bc7d9204799be1640cad89f5ccb07a6f3e6cf514e627b7ea72d565a23e290f7",
+      "serverStdoutSha256": "bc0581cb4cd1aa52e6fe67576ffe93cdfc3e0accc1e6e91fd4cb2755a370cae8",
+      "serverStderrSha256": "80fce5d7d2534db43d4ac7d67078eb096fa6288061efa554db6e77890215e2c5",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
-      "clientStderrSha256": "bc8ef31c6e56ddb36d0493ecfa8f0c542e447b5279222b58a16e414f94b3e90e",
-      "derivationDigest": "cb75361967b5d05b7dfc9ee545b92c2327f7d973c46d37d1ecc7082b0cc58f99"
+      "clientStderrSha256": "6581b5779153a5c5a03cde14d5675cc4616c273a67c3fc8a3ae2f11deb4e5e8f",
+      "derivationDigest": "ae0ec717bed7a34a8833edf151a60f9cec5f0d0bec1e61207d7cde2b36b77504"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -189,7 +189,7 @@
       "spikes/mcp/real-client/capture.mjs": "39e670cf87cf734f11f5cb9c4d81e7636d8fa150081072956210b45f83c7f03d",
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
       "spikes/mcp/real-client/sanitize.mjs": "7d954a2f12ecb656736944e1438669905d31ec1264c54bbec5945249f2f1e9f7",
-      "spikes/mcp/real-client/normalize.mjs": "5e0d80235c8b6ed3a985c6cd80dd1aa2b60ae503a72314284cc7575694ec5269",
+      "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
       "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
       "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
     },

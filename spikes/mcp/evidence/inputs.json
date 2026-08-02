@@ -25,7 +25,7 @@
     "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
     "spikes/mcp/real-client/capture.mjs": "39e670cf87cf734f11f5cb9c4d81e7636d8fa150081072956210b45f83c7f03d",
     "spikes/mcp/real-client/classify.mjs": "ae15f1562b68c840ef80ff34c2b7f902a91a78275428d7316d25934f73e67cc1",
-    "spikes/mcp/real-client/normalize.mjs": "5e0d80235c8b6ed3a985c6cd80dd1aa2b60ae503a72314284cc7575694ec5269",
+    "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
     "spikes/mcp/real-client/provenance.mjs": "29ca816811614cbb5e2e32b320a1f41dc6c312cb92df8f6227d95dbec0daca51",
     "spikes/mcp/real-client/receipt.mjs": "e2f826f6270ebb3da029062dc0f99fe3861120b8f4a08a55415e19a3cebe6b48",
     "spikes/mcp/real-client/sanitize.mjs": "7d954a2f12ecb656736944e1438669905d31ec1264c54bbec5945249f2f1e9f7",
