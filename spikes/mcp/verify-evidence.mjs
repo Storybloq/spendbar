@@ -279,6 +279,10 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
         builtins: { type: "number" },
         insidePrefix: { type: "number" },
         violations: { type: "array" },
+        // Child processes and Workers the candidate created. Their resolutions happened where
+        // the instrument was never loaded, so a non-empty list means the enumeration is
+        // incomplete — unknown, not clean (review round 1, chunk 16).
+        descendants: { type: "array" },
         perCase: { type: "object" },
         everyCaseInstrumented: { type: "boolean" },
         oppositeSdkProbe: { type: "string" },
@@ -286,7 +290,13 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       },
       `scripted.json ${candidate}.isolation`,
     );
-    if (!iso.ok || iso.violations.length > 0 || iso.oppositeSdkProbe !== "not-found" || !iso.everyCaseInstrumented) {
+    if (
+      !iso.ok ||
+      iso.violations.length > 0 ||
+      iso.descendants.length > 0 ||
+      iso.oppositeSdkProbe !== "not-found" ||
+      !iso.everyCaseInstrumented
+    ) {
       refuse(`${candidate} isolation is broken — its scripted results prove nothing about the SDK`);
     }
     if (!(iso.resolutionsTotal > 0)) refuse(`${candidate} isolation enumerated zero resolutions`);

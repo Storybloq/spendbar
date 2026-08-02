@@ -30,40 +30,49 @@
     "failed": 0,
     "isolation": {
       "builtins": 8,
+      "descendants": [],
       "everyCaseInstrumented": true,
       "insidePrefix": 4280,
       "ok": true,
       "oppositeSdkProbe": "not-found",
       "perCase": {
         "broken-framing": {
+          "descendants": 0,
           "total": 536,
           "violations": 0
         },
         "cancellation": {
+          "descendants": 0,
           "total": 536,
           "violations": 0
         },
         "client-eof": {
+          "descendants": 0,
           "total": 536,
           "violations": 0
         },
         "initialize": {
+          "descendants": 0,
           "total": 536,
           "violations": 0
         },
         "schema-violation": {
+          "descendants": 0,
           "total": 536,
           "violations": 0
         },
         "stdout-purity": {
+          "descendants": 0,
           "total": 536,
           "violations": 0
         },
         "tools-call": {
+          "descendants": 0,
           "total": 536,
           "violations": 0
         },
         "tools-list": {
+          "descendants": 0,
           "total": 536,
           "violations": 0
         }
@@ -105,40 +114,49 @@
     "failed": 0,
     "isolation": {
       "builtins": 8,
+      "descendants": [],
       "everyCaseInstrumented": true,
       "insidePrefix": 1624,
       "ok": true,
       "oppositeSdkProbe": "not-found",
       "perCase": {
         "broken-framing": {
+          "descendants": 0,
           "total": 204,
           "violations": 0
         },
         "cancellation": {
+          "descendants": 0,
           "total": 204,
           "violations": 0
         },
         "client-eof": {
+          "descendants": 0,
           "total": 204,
           "violations": 0
         },
         "initialize": {
+          "descendants": 0,
           "total": 204,
           "violations": 0
         },
         "schema-violation": {
+          "descendants": 0,
           "total": 204,
           "violations": 0
         },
         "stdout-purity": {
+          "descendants": 0,
           "total": 204,
           "violations": 0
         },
         "tools-call": {
+          "descendants": 0,
           "total": 204,
           "violations": 0
         },
         "tools-list": {
+          "descendants": 0,
           "total": 204,
           "violations": 0
         }

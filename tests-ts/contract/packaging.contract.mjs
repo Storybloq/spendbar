@@ -88,8 +88,17 @@ const EXPECTED_TARBALL_PATHS = [
   "dist/unicode-tables.js",
 ];
 
+/**
+ * Every npm invocation this suite makes, recorded AT THE BOUNDARY — the argument vector handed
+ * to spawnSync, not one the caller built and kept a copy of. The --ignore-scripts assertion used
+ * to read the caller's copy, which stayed green if the call site passed something else entirely
+ * (review round 1, chunk 16).
+ */
+const npmInvocations = [];
+
 /** npm is chatty on stderr; only a non-zero status is a failure. */
 function npm(args, cwd, extraEnv = {}) {
+  npmInvocations.push({ args: [...args], cwd });
   const r = spawnSync("npm", args, {
     cwd,
     encoding: "utf8",
@@ -264,38 +273,49 @@ describe("the tarball", () => {
     }
   });
 
-  test("carries no maintainer identity, checked against local git config, never a literal", () => {
-    // The old bare-name grep caught a surname ANYWHERE in shipped bytes — a shape no
-    // semantic class can express, because "some human surname" has no syntax. What it
-    // protected against is publishing this machine's identity, and this machine knows its
-    // identity: git config. Tokens are derived at runtime, so the repository carries no
-    // name literal, and the check still bites wherever a human actually packs — which is
-    // the only place publishing happens, since T-007 forbids autonomous publish.
-    const identity = ["user.name", "user.email"]
-      .map((k) => {
-        try {
-          return execFileSync("git", ["config", k], { encoding: "utf8" }).trim();
-        } catch {
-          return "";
-        }
-      })
-      .join(" ");
-    const tokens = [
-      ...new Set(
-        identity
-          .toLowerCase()
-          .split(/[^a-z0-9]+/)
-          .filter((t) => t.length >= 4 && !["gmail", "icloud", "outlook"].includes(t)),
-      ),
-    ];
-    if (tokens.length === 0) {
-      // No local identity to check against (fresh CI container). The semantic scan above
-      // still ran; this is a loud record that THIS check found nothing to do, not a pass.
-      assert.ok(true, "no local git identity — token check had nothing to enforce");
+  test("carries no maintainer identity, checked against this machine's, never a literal", (t) => {
+    // The old bare-name grep caught a surname ANYWHERE in shipped bytes — a shape no semantic
+    // class can express, because "some human surname" has no syntax. What it protected against
+    // is publishing this machine's identity, and this machine knows its identity. Tokens are
+    // derived at runtime, so the repository carries no name literal, and the check still bites
+    // wherever a human actually packs — the only place publishing happens, since T-007 forbids
+    // autonomous publish.
+    //
+    // Two round-1 chunk-16 corrections. The identity DOMAIN is no longer tokenized: it produced
+    // tokens like the organization's own name, which then matched the repository URL in
+    // package.json and failed the contract for a reason that had nothing to do with attribution.
+    // And an absent identity is now a reported SKIP rather than `assert.ok(true)`, which was a
+    // pass whose message nobody ever saw.
+    const gitValue = (args) => {
+      try {
+        return execFileSync("git", args, { cwd: REPO, encoding: "utf8" }).trim();
+      } catch {
+        return "";
+      }
+    };
+    // Configured identity first; the last commit's author is the fallback for a container that
+    // has none. A repository always has one of the two once anything has been committed.
+    const name = gitValue(["config", "user.name"]) || gitValue(["log", "-1", "--format=%an"]);
+    const email = gitValue(["config", "user.email"]) || gitValue(["log", "-1", "--format=%ae"]);
+    const localPart = email.includes("@") ? email.slice(0, email.indexOf("@")) : email;
+
+    const words = (s) => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const needles = new Set();
+    // The full name as a phrase, and each of its components that is long enough to identify
+    // somebody. The mail DOMAIN is deliberately absent — it names an organization, not a person.
+    if (name) {
+      needles.add(words(name).join(" "));
+      for (const w of words(name)) if (w.length >= 4) needles.add(w);
+    }
+    for (const w of words(localPart)) if (w.length >= 4) needles.add(w);
+    needles.delete("");
+
+    if (needles.size === 0) {
+      t.skip("no git identity on this machine and no commit author to fall back on — nothing to enforce");
       return;
     }
-    const hits = tokens.flatMap((t) =>
-      scanContents(new RegExp(`^.*${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*$`, "gim")),
+    const hits = [...needles].flatMap((needle) =>
+      scanContents(new RegExp(`^.*\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b.*$`, "gim")),
     );
     assert.deepEqual(hits, [], `maintainer identity token in shipped content:\n${hits.join("\n")}`);
   });
@@ -325,17 +345,14 @@ describe("the manifest", () => {
 
 describe("installing the tarball", () => {
   let prefix;
-  // T-009 §10 / ISS-042: the consumer install runs with --ignore-scripts, and the flag is
-  // asserted by ARGUMENT CAPTURE below — with a clean dependency tree the flag changes
-  // nothing observable, so only capturing what was actually passed makes its removal fail.
-  const INSTALL_ARGS = ["install", "--no-save", "--ignore-scripts"];
-  let capturedInstallArgs;
 
   before(() => {
     prefix = mkdtempSync(join(tmpdir(), "spendbar-install-"));
     npm(["init", "-y"], prefix);
-    capturedInstallArgs = [...INSTALL_ARGS, tarball];
-    npm(capturedInstallArgs, prefix);
+    // T-009 §10 / ISS-042: the consumer install runs with --ignore-scripts. With a clean
+    // dependency tree the flag changes nothing observable, so the assertion below reads what
+    // the npm() helper actually spawned.
+    npm(["install", "--no-save", "--ignore-scripts", tarball], prefix);
   });
 
   after(() => {
@@ -369,38 +386,50 @@ describe("installing the tarball", () => {
   });
 
   test("the consumer install actually ran with --ignore-scripts (argument capture)", () => {
-    // The mutation this kills: removing the flag from the install call. Nothing in a clean
-    // tree reveals that mutant — only the captured arguments do (T-009 §10, ISS-042).
+    // The mutation this kills: removing the flag from the install call. Nothing in a clean tree
+    // reveals that mutant — only the arguments do. And they are read from the recording the
+    // npm() helper makes as it spawns, because an array the test built and then asserted about
+    // is a test asserting about itself (review round 1, chunk 16).
+    const installs = npmInvocations.filter((i) => i.args[0] === "install" && i.args.includes(tarball));
+    assert.equal(installs.length, 1, `expected exactly one tarball install, saw ${installs.length}`);
     assert.ok(
-      capturedInstallArgs.includes("--ignore-scripts"),
-      `tarball install args lost --ignore-scripts: ${capturedInstallArgs.join(" ")}`,
+      installs[0].args.includes("--ignore-scripts"),
+      `tarball install args lost --ignore-scripts: ${installs[0].args.join(" ")}`,
     );
-    assert.equal(capturedInstallArgs.at(-1), tarball, "capture is not the tarball install");
   });
 
-  test("the selected MCP SDK loads from the installed package — or skips loudly against the recorded decision", () => {
-    // T-009 §10: keyed off the RECORDED decision, never off this test's own ability to find
-    // a module — a missing adapter must fail the adopt path, not skip it.
+  test("the selected MCP SDK loads from the installed package — or skips loudly against the recorded decision", (t) => {
+    // T-009 §10: keyed off the RECORDED decision, never off this test's own ability to find a
+    // module — a missing adapter must fail the adopt path, not skip it.
+    //
+    // Every state that checks nothing reports itself as SKIPPED, with a reason. `assert.ok(true,
+    // "…")` was reported as a pass and its message never printed, so a suite in which this test
+    // had verified nothing was indistinguishable from one in which it had (review round 1,
+    // chunk 16).
     const decisionPath = join(REPO, "spikes", "mcp", "evidence", "decision.json");
     if (!existsSync(decisionPath)) {
-      // A loud, reasoned skip: T-009's gate has not recorded a verdict, so there is no
-      // selected SDK to smoke-test yet. This line is the record that nothing was checked.
-      assert.ok(true, "no recorded T-009 decision yet (gate not run to a verdict) — nothing to smoke-test");
+      t.skip("no recorded T-009 decision yet (the gate has not run to a verdict) — nothing to smoke-test");
       return;
     }
     const decision = JSON.parse(readFileSync(decisionPath, "utf8"));
     if (decision.outcome === "blocked") {
-      // Explicitly against the record: under blocked there IS no adapter, by decision.
-      assert.equal(decision.outcome, "blocked", "skipping adapter smoke because the recorded decision is 'blocked'");
+      t.skip("the recorded decision is 'blocked' — by that decision there is no adapter to smoke-test");
       return;
     }
     assert.match(decision.outcome, /^adopt-(v1|v2)$/, `unrecognized recorded outcome ${decision.outcome}`);
-    const selectedSdk = decision.outcome === "adopt-v2" ? "@modelcontextprotocol/server" : "@modelcontextprotocol/sdk";
-    if (MANIFEST.dependencies?.[selectedSdk] === undefined) {
+    // The specifier the ADAPTER would import, not the package root. v1 ships no working root
+    // export — its own `.` maps to absent files, which isolate.test.mjs pins — so resolving the
+    // bare package name would fail a correctly installed v1 (review round 1, chunk 16). These
+    // are the specifiers the candidate servers import; see spikes/mcp/candidates/*/server.mjs.
+    const SPECIFIER = {
+      "adopt-v1": { pkg: "@modelcontextprotocol/sdk", entry: "@modelcontextprotocol/sdk/server/mcp.js" },
+      "adopt-v2": { pkg: "@modelcontextprotocol/server", entry: "@modelcontextprotocol/server" },
+    }[decision.outcome];
+    if (MANIFEST.dependencies?.[SPECIFIER.pkg] === undefined) {
       // Adopt is recorded, but adding the root dependency is owner-gated: open question 2
       // (pinning syntax) is not this test's to answer. Keyed off the SHIPPED manifest — a
       // recorded fact — not off this test's ability to resolve a module.
-      assert.ok(true, `decision is ${decision.outcome} but ${selectedSdk} is not yet a root dependency — waiting on open question 2`);
+      t.skip(`decision is ${decision.outcome} but ${SPECIFIER.pkg} is not yet a root dependency — waiting on open question 2`);
       return;
     }
     // Once the owner has answered and the dependency ships, it must actually resolve where
@@ -408,8 +437,8 @@ describe("installing the tarball", () => {
     const installedPkg = join(prefix, "node_modules", "spendbar", "package.json");
     const resolveFromInstalled = createRequire(installedPkg).resolve;
     assert.doesNotThrow(
-      () => resolveFromInstalled(selectedSdk),
-      `the shipped manifest declares ${selectedSdk} but it does not resolve from the installed package`,
+      () => resolveFromInstalled(SPECIFIER.entry),
+      `the shipped manifest declares ${SPECIFIER.pkg} but ${SPECIFIER.entry} does not resolve from the installed package`,
     );
   });
 });

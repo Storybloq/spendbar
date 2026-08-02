@@ -17,9 +17,11 @@ reviews.db-wal
 # Owner's personal working notes at the repo root (T-024 class D). They carry the owner's real
 # account name and were one `git add -A` away from becoming tracked; ignoring them is the
 # disposition that neither destroys them nor publishes them. Deliberately named, not globbed —
-# a glob would silently swallow future notes that should get their own decision.
-git-activity-review-2026-07-01-to-2026-07-15.md
-westworld-investigation-2026-07-15.md
+# a glob would silently swallow future notes that should get their own decision. Leading slash:
+# a pattern with no slash matches that BASENAME in any directory, so these said "root files" and
+# meant "anywhere" (review round 1, chunk 16).
+/git-activity-review-2026-07-01-to-2026-07-15.md
+/westworld-investigation-2026-07-15.md
 
 # macOS
 .DS_Store

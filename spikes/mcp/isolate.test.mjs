@@ -37,6 +37,7 @@ import {
   resolveFromRoot,
   treeDigest,
 } from "./isolate.mjs";
+import { descendantsFor } from "./conformance.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -136,6 +137,64 @@ test("checkResolutions flags CJS and ESM resolutions outside the root, allows bu
       ["evil-dep", "evil-esm"],
     );
   });
+});
+
+test("a descendant execution context is recorded, and it is an isolation violation", async () => {
+  // Everything the enumeration claims is about THIS process. A child or a Worker resolves its
+  // own modules where the instrument was never loaded, so treating its absence from the log as
+  // cleanliness would be reading "unobserved" as "observed nothing" (review round 1, chunk 16).
+  await withTempDir(async (dir) => {
+    const script = join(dir, "spawner.mjs");
+    const log = join(dir, "resolve.ndjson");
+    writeFileSync(
+      script,
+      'import cp from "node:child_process";\ncp.spawnSync("/usr/bin/true", []);\n' +
+        'import wt from "node:worker_threads";\n' +
+        'const w = new wt.Worker("", { eval: true });\nawait new Promise((r) => w.on("exit", r));\n',
+    );
+    const child = spawn(process.execPath, ["--import", join(HERE, "instrument.mjs"), script], {
+      env: { SPENDBAR_RESOLVE_LOG: log, PATH: process.env.PATH },
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d));
+    const closed = await awaitClose(child, 15_000);
+    assert.equal(closed.code, 0, `spawner fixture failed (${closed.code}): ${stderr}`);
+
+    assert.deepEqual(
+      descendantsFor(log).map((d) => d.api).sort(),
+      ["child_process.spawnSync", "worker_threads.Worker"],
+      "the instrument did not record the execution contexts it cannot see into",
+    );
+    // And the resolution log itself stays a log of resolutions — no foreign record type in it,
+    // which is why the descendant records go to a sidecar instead.
+    const kinds = new Set(
+      readFileSync(log, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l).kind),
+    );
+    assert.ok(kinds.size > 0, "the instrument recorded no resolutions at all");
+    for (const kind of kinds) assert.ok(["cjs", "esm"].includes(kind), `foreign record kind '${kind}' in the log`);
+  });
+});
+
+test("the live candidate runs recorded zero violations and created no descendant", () => {
+  // The positive side of the rule above, taken from the recorded matrix rather than restated:
+  // every scripted case ran under the instrument, none resolved outside its root, and none
+  // spawned anything — so the clause is a live invariant, and a breach of it already fails the
+  // candidate's evidence (decide.test: "broken isolation invalidates the candidate's evidence
+  // outright").
+  const scripted = JSON.parse(readFileSync(join(HERE, "evidence", "scripted.json"), "utf8"));
+  for (const candidate of ["v1", "v2"]) {
+    const isolation = scripted[candidate].isolation;
+    assert.equal(isolation.everyCaseInstrumented, true, `${candidate}: a case ran uninstrumented`);
+    assert.deepEqual(isolation.descendants, [], `${candidate}: a case created an unobserved context`);
+    const cases = Object.entries(isolation.perCase);
+    assert.ok(cases.length > 0, `${candidate}: no instrumented cases recorded`);
+    for (const [name, rec] of cases) {
+      assert.ok(rec.total > 0, `${candidate}/${name}: instrumented but recorded no resolutions`);
+      assert.equal(rec.violations, 0, `${candidate}/${name}: recorded ${rec.violations} violation(s)`);
+      assert.equal(rec.descendants, 0, `${candidate}/${name}: recorded ${rec.descendants} descendant(s)`);
+    }
+  }
 });
 
 test("an empty resolution log is an error, not a pass", async () => {
@@ -425,4 +484,70 @@ test("positive control: a child that DOES move the canary is recorded by the sam
   } finally {
     await mock.close();
   }
+});
+
+test("positive control: DNS-only and descendant egress paths are recorded too", async () => {
+  // Both were unobserved until review round 1, chunk 16. A TXT lookup puts a caller-chosen name
+  // on the wire without any socket the old patches touched; a child process or a Worker leaves
+  // this process's API surface altogether. Each needs its own control, because an empty attempt
+  // log is only evidence if the path being claimed clean is a path the observer can see.
+  await withTempDir(async (dir) => {
+    const cases = [
+      {
+        name: "dns.resolveTxt",
+        source:
+          'import { promises as dns } from "node:dns";\n' +
+          'try { await dns.resolveTxt(`${process.env.SPENDBAR_TEST_CANARY}.invalid`); } catch {}\n',
+        expect: /"dns\.promises\.resolveTxt"/,
+      },
+      {
+        name: "dns.Resolver",
+        source:
+          'import { Resolver } from "node:dns";\n' +
+          'new Resolver().resolve4(`${process.env.SPENDBAR_TEST_CANARY}.invalid`, () => {});\n',
+        expect: /"dns\.Resolver\.resolve4"/,
+      },
+      {
+        // A NAMED import, which holds the original function and never touches the patched
+        // module property — the async funnel is what catches it.
+        name: "child_process-named-import",
+        source:
+          'import { spawn } from "node:child_process";\n' +
+          'const c = spawn("/usr/bin/true", []);\nawait new Promise((r) => c.on("close", r));\n',
+        expect: /"child_process\.ChildProcess\.spawn"/,
+      },
+      {
+        name: "child_process-namespace",
+        source: 'import cp from "node:child_process";\ncp.spawnSync("/usr/bin/true", []);\n',
+        expect: /"child_process\.spawnSync"/,
+      },
+      {
+        // Namespace access, which is what the property patch covers. A named-import `Worker`
+        // holds the original constructor and has no funnel to patch — net-observe.mjs records
+        // that gap, and Node's permission model is the only thing that closes it.
+        name: "worker_threads",
+        source:
+          'import wt from "node:worker_threads";\n' +
+          'const w = new wt.Worker("", { eval: true });\nawait new Promise((r) => w.on("exit", r));\n',
+        expect: /"worker_threads\.Worker"/,
+      },
+    ];
+
+    for (const c of cases) {
+      const script = join(dir, `${c.name.replace(/\W/g, "-")}.mjs`);
+      const netLog = join(dir, `net-${c.name.replace(/\W/g, "-")}.ndjson`);
+      writeFileSync(script, c.source);
+      const child = spawn(process.execPath, ["--import", NET_OBSERVE, script], {
+        env: { SPENDBAR_TEST_CANARY: CANARY, SPENDBAR_NET_LOG: netLog, PATH: process.env.PATH },
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+      let stderr = "";
+      child.stderr.on("data", (d) => (stderr += d));
+      const closed = await awaitClose(child, 15_000);
+      assert.equal(closed.timedOut, false, `${c.name}: control child hung`);
+      assert.equal(closed.code, 0, `${c.name}: control child failed (${closed.code}): ${stderr}`);
+      const attempts = netAttempts(netLog).join("\n");
+      assert.match(attempts, c.expect, `${c.name}: the observer recorded nothing for this path`);
+    }
+  });
 });

@@ -14,7 +14,7 @@
 // its two mutants (`framing-wrong-code`, `framing-dies`) prove both rejections fire.
 
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -401,6 +401,24 @@ export function spawnMutant(mutant) {
 }
 
 /**
+ * Execution contexts a case's server created — a child process or a Worker, recorded by
+ * instrument.mjs into a sidecar beside the resolution log.
+ *
+ * It is a separate file on purpose: a descendant is not a resolution, and every line of the
+ * resolution log is one. Reading it here rather than inside checkResolutions also keeps the
+ * clause in the layer that owns the run, which matters because isolate.mjs is pinned as a
+ * capture input and this check has nothing to do with what a real-client capture observed.
+ */
+export function descendantsFor(logPath) {
+  const sidecar = `${logPath}.descendants`;
+  if (!existsSync(sidecar)) return [];
+  return readFileSync(sidecar, "utf8")
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.parse(line));
+}
+
+/**
  * The per-candidate runner: assemble the isolated root once, run all eight cases against
  * fresh server processes, then attach the §2 isolation evidence (complete resolution
  * enumeration + the opposite-SDK probe). Isolation failure fails the candidate — a case
@@ -423,12 +441,18 @@ export async function runCandidate(candidate) {
     const cases = {};
     const perCase = {};
     const resolutions = { total: 0, builtins: 0, inside: 0, violations: [] };
+    const descendants = [];
     let everyCaseInstrumented = true;
     for (const def of CASES) {
       cases[def.name] = await runCase(def, spawnFn); // every case runs; failures accumulate
+      // A child process or Worker resolves its modules where the instrument was never loaded,
+      // so its closure is UNKNOWN rather than clean; counting it as a violation is the only
+      // reading that does not overstate what was enumerated (review round 1, chunk 16).
+      const spawned = descendantsFor(logFor(def.name)).map((d) => ({ ...d, case: def.name }));
+      descendants.push(...spawned);
       try {
         const r = checkResolutions(logFor(def.name), root);
-        perCase[def.name] = { total: r.total, violations: r.violations.length };
+        perCase[def.name] = { total: r.total, violations: r.violations.length, descendants: spawned.length };
         resolutions.total += r.total;
         resolutions.builtins += r.builtins;
         resolutions.inside += r.inside;
@@ -454,7 +478,10 @@ export async function runCandidate(candidate) {
     ).version;
 
     const isolationOk =
-      everyCaseInstrumented && resolutions.violations.length === 0 && oppositeSdkProbe === "not-found";
+      everyCaseInstrumented &&
+      resolutions.violations.length === 0 &&
+      descendants.length === 0 &&
+      oppositeSdkProbe === "not-found";
     const failedCases = Object.values(cases).filter((c) => c.status === "fail").length;
     return {
       candidate,
@@ -466,6 +493,7 @@ export async function runCandidate(candidate) {
         builtins: resolutions.builtins,
         insidePrefix: resolutions.inside,
         violations: resolutions.violations,
+        descendants,
         perCase,
         everyCaseInstrumented,
         oppositeSdkProbe,
