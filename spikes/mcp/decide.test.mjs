@@ -714,7 +714,11 @@ test("a changed capture input makes the real cells not-run — captures are neve
       for (const client of REAL_CLIENTS) {
         const cell = verified.cells[c][`real:${client}`];
         assert.equal(cell.status, "not-run", `${c}/${client} survived a changed capture input`);
-        assert.match(cell.cause, /sanitize\.mjs changed since these captures were taken/);
+        // The file this test changed must be NAMED. Matching the whole message pinned it to
+        // being the only stale input, which stopped being true the moment another capture input
+        // was edited in the same review.
+        assert.match(cell.cause, /sanitize\.mjs/);
+        assert.match(cell.cause, /changed since these captures were taken/);
         assert.ok(!/[0-9a-f]{64}/.test(cell.cause), "the cause leaked a digest value instead of naming the file");
       }
     }

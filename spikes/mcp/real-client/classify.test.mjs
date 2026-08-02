@@ -69,6 +69,7 @@ function passingRecord() {
     environmental: null,
     isolation: { hostileConfigExecuted: false, userConfigIsolated: true },
     timedOut: false,
+    drainTimedOut: false,
     lastPhase: "called",
     clientExit: { code: 0, signal: null },
     serverTermination: { signal: null },
@@ -190,6 +191,13 @@ function witnessedRecord(condition) {
   if (condition === "fresh-state-isolation-failure") {
     r.isolation.hostileConfigExecuted = true;
     return r; // the one condition whose meaning survives a run that otherwise went fine
+  }
+  if (condition === "capture-derivation-failed") {
+    // The witness is the digest record derivation never got to fill in. It has to be the empty
+    // OBJECT the skeleton carries, not an absent field: a record that simply never had digests
+    // must not be able to claim its derivation failed.
+    r.digests = {};
+    return r; // also survives protocol progress — nothing can be concluded either way
   }
   // Every other condition means the run did not happen: no protocol progress, no completion.
   r.frames = [];
@@ -427,6 +435,7 @@ function rawManifest() {
     environmental: null,
     isolation: { hostileConfigExecuted: false, userConfigIsolated: true },
     timedOut: false,
+    drainTimedOut: false,
     lastPhase: "called",
     clientExit: { code: 0, signal: null },
     serverTermination: { signal: null },
@@ -511,6 +520,7 @@ const EXPECTED_FIELD_MAP = {
   environmental: "environmental",
   isolation: "isolation",
   timedOut: "boolean",
+  drainTimedOut: "boolean",
   lastPhase: "enum",
   clientExit: "exit",
   serverTermination: "termination",

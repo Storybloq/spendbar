@@ -411,6 +411,9 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
   // today's bytes to yesterday's paid captures. A mismatch does not refuse outright — it
   // makes the real cells not-run with a cause, which routes the decision to `incomplete` and
   // forces a recapture, exactly as a missing capture would.
+  // EVERY changed capture input, not the first one found. Naming one file told a reader to
+  // recapture and left them to discover the rest a run at a time; it also made the test for
+  // this behaviour depend on which file happened to sort first (review round 2, chunk 4).
   let captureInputsStale = null;
   if (real !== null) {
     const ciPath = join(evidenceDir, "real-clients", "capture-inputs.json");
@@ -420,14 +423,13 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
     if (JSON.stringify(recorded) !== JSON.stringify([...CAPTURE_INPUTS].sort())) {
       refuse(`real-clients/capture-inputs.json pins [${recorded.join(", ")}], expected exactly the capture-input set`);
     }
+    const changed = [];
     for (const rel of CAPTURE_INPUTS) {
       const abs = join(repoRoot, rel);
       if (!existsSync(abs)) refuse(`capture input ${rel} is missing from the repository`);
-      if (sha256(readFileSync(abs)) !== ci.files[rel]) {
-        captureInputsStale = rel; // name the FILE, never the digest values
-        break;
-      }
+      if (sha256(readFileSync(abs)) !== ci.files[rel]) changed.push(rel); // the FILE, never the digest
     }
+    if (changed.length) captureInputsStale = changed.join(", ");
   }
   if (real !== null && captureInputsStale === null) {
     checkExactKeys(real, ["v1", "v2"], "real-clients/cells.json");
@@ -470,7 +472,7 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       if (captureInputsStale !== null) {
         cells[candidate][`real:${client}`] = {
           status: "not-run",
-          cause: `capture input ${captureInputsStale} changed since these captures were taken — recapture required`,
+          cause: `capture input(s) ${captureInputsStale} changed since these captures were taken — recapture required`,
         };
         continue;
       }

@@ -48,7 +48,7 @@ import { classify, toCellStatus, InvalidRecordError } from "./classify.mjs";
 import { normalize } from "./normalize.mjs";
 import { CAPTURE_INPUTS, RECEIPT_SCHEMA_VERSION, staleCaptureInputs } from "./provenance.mjs";
 import { sanitize, assertNoPersonalData } from "./sanitize.mjs";
-import { RETAINED_DIR, PROMPT_TEMPLATE, PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER } from "./capture.mjs";
+import { RETAINED_DIR, PROMPT_TEMPLATE, PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER, OWNER_MARKER } from "./capture.mjs";
 import { isDirectEntry } from "../../../scripts/direct-entry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -81,6 +81,10 @@ export const RECEIPT_NOTE =
 
 /** Exactly the files a complete retained capture holds. Anything else is a refusal. */
 const REQUIRED_FILES = [
+  // The ownership marker capture.mjs writes first. It is what lets the abandonment sweep prove
+  // a directory in the operator's home is one this tool created before recursively deleting it
+  // (review round 2, chunk 4), so it is part of the roster rather than an unexpected extra.
+  OWNER_MARKER,
   "raw-manifest.json",
   "client-to-server.raw",
   "server-stdout.raw",

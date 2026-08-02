@@ -53,7 +53,7 @@ import { candidateTreeDigest } from "../isolate.mjs";
 import { normalize } from "./normalize.mjs";
 import { sanitize } from "./sanitize.mjs";
 import { captureInputDigests } from "./provenance.mjs";
-import { PROMPT_TEMPLATE, PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER } from "./capture.mjs";
+import { PROMPT_TEMPLATE, PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER, OWNER_MARKER } from "./capture.mjs";
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 const NONCE = "t009-0011223344556677";
@@ -113,6 +113,7 @@ function rawFor(streamBytes, { id = CAPTURE_ID, client = "claude-code", candidat
     environmental: null,
     isolation: { hostileConfigExecuted: false, userConfigIsolated: client === "claude-code" },
     timedOut: false,
+    drainTimedOut: false,
     lastPhase: "called",
     clientExit: { code: 0, signal: null },
     serverTermination: { signal: null },
@@ -144,6 +145,9 @@ function writeCapture(retainedDir, raw, streamBytes) {
     chmodSync(join(dir, name), 0o600);
   };
   for (const [name, bytes] of Object.entries(streamBytes)) write(name, bytes);
+  // The ownership marker the capture command writes first, so the abandonment sweep can prove
+  // a directory under the operator's home is one of ours before deleting it recursively.
+  write(OWNER_MARKER, `${raw.captureId}\n`);
   write("raw-manifest.json", JSON.stringify(raw, null, 2));
   write("wrapper-status.json", JSON.stringify({ spawned: true, closed: false, forwardErrors: 0 }) + "\n");
   return dir;

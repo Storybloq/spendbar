@@ -39,10 +39,14 @@ export const ENVIRONMENTAL_CONDITIONS = [
   "network-outage",
   "spawn-failure",
   "fresh-state-isolation-failure",
+  // The run happened and was paid for, but deriving the record from the retained bytes threw.
+  // Nothing about the candidate can be concluded, so the cell is not-run rather than a failure
+  // charged to the server (review round 2, chunk 4).
+  "capture-derivation-failed",
 ];
 
 /** Conditions whose meaning survives protocol progress: the run is void regardless of how it went. */
-const PROGRESS_IMMUNE = ["fresh-state-isolation-failure"];
+const PROGRESS_IMMUNE = ["fresh-state-isolation-failure", "capture-derivation-failed"];
 
 const isPlainObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 const isBool = (v) => v === true || v === false;
@@ -73,7 +77,26 @@ const ENVIRONMENTAL_WITNESS = {
     r.isolation?.hostileConfigExecuted === true
       ? null
       : "no hostile-config canary was observed",
+  // The witness has to be a POSITIVE fact, not an absent field. Derivation writes all six
+  // digests as its last act, so a capture whose derivation died carries the digest OBJECT it
+  // was initialised with and no digests in it. Requiring that object to be present is what
+  // stops the claim from sticking to any record that simply never had digests — a classifier
+  // record carries none, and would otherwise have satisfied an absence test trivially.
+  "capture-derivation-failed": (r) =>
+    isPlainObject(r.digests) && DIGEST_NAMES.some((name) => typeof r.digests[name] !== "string")
+      ? null
+      : "the record carries a complete digest set, or no digest record at all, so no derivation failure is witnessed",
 };
+
+/** The digests derivation writes; their completeness is the witness above. */
+const DIGEST_NAMES = [
+  "clientToServerSha256",
+  "serverStdoutSha256",
+  "serverStderrSha256",
+  "clientStdoutSha256",
+  "clientStderrSha256",
+  "derivationDigest",
+];
 
 /** Structural requirements. A record failing these is invalid evidence, never an outcome. */
 function requireWellFormed(record) {
