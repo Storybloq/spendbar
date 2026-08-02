@@ -73,6 +73,9 @@ export function decide(verified) {
 
 /** The canonical resolution-ticket title. Locate uses EXACT equality on this — substring
  *  matching could reuse an unrelated ticket that merely mentions the key (review round 1). */
+/** An injective encoding of the version pair: length-prefixed, so no separator can be forged. */
+export const versionTuple = ({ v2, v1 }) => `${String(v2).length}:${v2}/${String(v1).length}:${v1}`;
+
 export const resolutionTicketTitle = (dedupeKey) => `No supported MCP SDK (${dedupeKey})`;
 
 export class TransitionError extends Error {
@@ -100,7 +103,17 @@ function collectNotRun(verified) {
  *  an embedded newline or table pipe must not make the document visually disagree with the
  *  structured evidence it was generated from (review round 1). */
 const md = (value) => {
-  const s = String(value).replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
+  const s = String(value)
+    // EVERY line terminator, not just CRLF and LF: a bare CR and the Unicode separators
+    // U+2028/U+2029 all break a Markdown table row, and all three survived (round 2, chunk 11).
+    .replace(/[\n\r\u2028\u2029]/g, " ")
+    // Other C0/C1 controls and the bidi overrides, which can make rendered text read in a
+    // different order from the bytes the evidence actually holds.
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "")
+    // Backslash FIRST. Escaping the pipe alone turned an input containing a literal `\|` into
+    // `\\|` — an escaped backslash followed by a LIVE table delimiter, so the cell still split.
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|");
   return s.length > 500 ? `${s.slice(0, 500)}…` : s;
 };
 
@@ -177,7 +190,10 @@ export async function act1(decision, verified, deps) {
   // The supplied decision is never trusted (review round 1): recompute it from the verified
   // evidence and refuse any disagreement — otherwise an inconsistent or unknown outcome
   // would fall through to the blocked branch and mutate the ticket graph.
-  const expected = decide(verified);
+  // Inside `step`: `aggregate` throws a plain Error for an absent or malformed cell, which
+  // escaped Act 1 as an uncaught exception with an undocumented exit code rather than the
+  // TransitionError this function promises for every way it can refuse (round 2, chunk 11).
+  const expected = await step("decision-recompute", () => decide(verified));
   if (
     decision.outcome !== expected.outcome ||
     JSON.stringify(decision.aggregates) !== JSON.stringify(expected.aggregates)
@@ -217,7 +233,12 @@ export async function act1(decision, verified, deps) {
 
   // blocked — the dedupe key is SEMANTIC (versions only): evidence hashes belong in the ticket
   // body, never its identity, or a legitimate recapture would duplicate the ticket.
-  const dedupeKey = `T-009:no-supported-sdk:${verified.versions.v2}+${verified.versions.v1}`;
+  // The version pair is length-prefixed rather than joined with `+`, which is legal INSIDE a
+  // SemVer build-metadata suffix: `1.0.0+2.0.0` with `3.0.0` and `1.0.0` with `2.0.0+3.0.0`
+  // produced the same key, so a later blocked decision would have reused the wrong resolution
+  // ticket (round 2, chunk 11). Still semantic — versions only, no evidence hashes, or a
+  // legitimate recapture would duplicate the ticket.
+  const dedupeKey = `T-009:no-supported-sdk:${versionTuple(verified.versions)}`;
   let ticket = await step("locate-resolution-ticket", () => deps.graph.findOpenTicketByDedupeKey(dedupeKey));
   if (!ticket) {
     ticket = await step("create-resolution-ticket", () =>
@@ -228,8 +249,17 @@ export async function act1(decision, verified, deps) {
   // exists, is open, and carries the semantic dedupe key before it touches T-013 (review
   // round 1) — a stale or malformed result must fail closed, not attach.
   const back = await step("read-back-resolution-ticket", () => deps.graph.readTicket(ticket.id));
-  if (!back || typeof back !== "object") {
+  if (!back || typeof back !== "object" || Array.isArray(back)) {
     throw new TransitionError("read-back-resolution-ticket", `ticket ${ticket.id} could not be read back`);
+  }
+  // The read-back must be OF THIS TICKET. Without the identity check the graph could answer
+  // with a different ticket that happens to carry the canonical title, and the original,
+  // never-verified id was the one attached to T-013 (round 2, chunk 11).
+  if (back.id !== ticket.id) {
+    throw new TransitionError(
+      "read-back-resolution-ticket",
+      `read-back returned ${JSON.stringify(back.id)}, not the ${JSON.stringify(ticket.id)} that was located or created`,
+    );
   }
   if (back.title !== resolutionTicketTitle(dedupeKey)) {
     throw new TransitionError(
@@ -237,12 +267,37 @@ export async function act1(decision, verified, deps) {
       `ticket ${ticket.id} title ${JSON.stringify(back.title)} is not the canonical dedupe title`,
     );
   }
+  // A MISSING status used to pass this: `["done","cancelled"].includes(undefined)` is false, so
+  // a ticket whose state was never reported read as open. The status must be present and be a
+  // string before the terminal set is consulted. It is not checked against an allowlist of
+  // active states, deliberately — this file does not own storybloq's status vocabulary, and
+  // inventing one here would reject a legitimate state the day a new one is added, which is the
+  // mirror of the bug being fixed.
+  if (typeof back.status !== "string" || back.status === "") {
+    throw new TransitionError(
+      "read-back-resolution-ticket",
+      `ticket ${ticket.id} read back with no usable status (${JSON.stringify(back.status)}) — unknown is not open`,
+    );
+  }
   if (["done", "cancelled"].includes(back.status)) {
     throw new TransitionError("read-back-resolution-ticket", `ticket ${ticket.id} is ${back.status}, not open`);
   }
   await step("attach-blocker", () => deps.graph.attachBlocker("T-013", ticket.id));
   const t013 = await step("read-back-t013", () => deps.graph.readTicket("T-013"));
-  if (!(t013.blockedBy ?? []).includes(ticket.id)) {
+  // Shape-checked before it is questioned. `(t013.blockedBy ?? []).includes(id)` on a STRING
+  // does substring matching, so a `blockedBy` of "T-1234" reported that it contained "T-12" and
+  // the transaction completed cleanly having never seen a blocker list at all; and a null ticket
+  // threw a TypeError from outside `step` (round 2, chunk 11).
+  if (!t013 || typeof t013 !== "object" || Array.isArray(t013)) {
+    throw new TransitionError("read-back-t013", "T-013 could not be read back");
+  }
+  if (!Array.isArray(t013.blockedBy)) {
+    throw new TransitionError(
+      "read-back-t013",
+      `T-013.blockedBy is ${Array.isArray(t013.blockedBy) ? "an array" : typeof t013.blockedBy}, not an array — the blocker list was never observed`,
+    );
+  }
+  if (!t013.blockedBy.some((id) => id === ticket.id)) {
     throw new TransitionError("read-back-t013", `T-013.blockedBy does not contain ${ticket.id}`);
   }
   await step("decision-doc", () => deps.writeDecisionDoc(renderDecisionDoc(verified, decision)));

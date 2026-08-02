@@ -20,6 +20,7 @@ import {
   decide,
   act1,
   renderDecisionDoc,
+  versionTuple,
   TransitionError,
 } from "./decide.mjs";
 import { verifyEvidence, BOUND_INPUTS, EVIDENCE_DIR, EvidenceError } from "./verify-evidence.mjs";
@@ -195,7 +196,10 @@ function spyDeps({
           return (
             resolutionTicketBack ?? {
               id,
-              title: "No supported MCP SDK (T-009:no-supported-sdk:2.0.0+1.30.0)",
+              // Still a hand-written literal rather than a call to resolutionTicketTitle: an
+              // oracle computed by the code under test cannot catch that code changing. The
+              // version tuple is length-prefixed so no separator can be forged (round 2, c11).
+              title: "No supported MCP SDK (T-009:no-supported-sdk:5:2.0.0/6:1.30.0)",
               status: "open",
             }
           );
@@ -292,8 +296,8 @@ test("act1 on blocked: dedupe-keyed ticket, attach, read-back, then the document
   const r = await act1(decide(verified), verified, deps);
   assert.equal(r.exitCode, EXIT_CODES.blocked);
   assert.deepEqual(deps.calls, [
-    "locate:T-009:no-supported-sdk:2.0.0+1.30.0",
-    "create:T-009:no-supported-sdk:2.0.0+1.30.0",
+    "locate:T-009:no-supported-sdk:5:2.0.0/6:1.30.0",
+    "create:T-009:no-supported-sdk:5:2.0.0/6:1.30.0",
     "read:T-900",
     "attach:T-013:T-900",
     "read:T-013",
@@ -312,7 +316,7 @@ test("act1 on blocked is idempotent: an existing ticket is reused AND the rest o
   const deps = spyDeps({ existingTicket: { id: "T-900" } });
   const r = await act1(decide(verified), verified, deps);
   assert.deepEqual(deps.calls, [
-    "locate:T-009:no-supported-sdk:2.0.0+1.30.0",
+    "locate:T-009:no-supported-sdk:5:2.0.0/6:1.30.0",
     "read:T-900",
     "attach:T-013:T-900",
     "read:T-013",
@@ -390,7 +394,7 @@ test("act1 on blocked refuses a resolution ticket that read back closed", async 
   const deps = spyDeps({
     resolutionTicketBack: {
       id: "T-900",
-      title: "No supported MCP SDK (T-009:no-supported-sdk:2.0.0+1.30.0)",
+      title: "No supported MCP SDK (T-009:no-supported-sdk:5:2.0.0/6:1.30.0)",
       status: "done",
     },
   });
@@ -931,4 +935,117 @@ test("the byte count is UTF-8 bytes, not code units — a non-ASCII vector with 
 test("REAL_CLIENTS and EvidenceError are the exported shapes act2 tooling will rely on", () => {
   assert.deepEqual(REAL_CLIENTS, ["claude-code", "codex"]);
   assert.ok(new EvidenceError("x") instanceof Error);
+});
+
+// ---------------------------------------------------------------------------
+// Review round 2, chunk 11: read-backs that reported success without having
+// observed the thing they claim to check.
+// ---------------------------------------------------------------------------
+
+test("a blocker list that is a STRING is refused, not substring-matched", async () => {
+  const verified = verifiedFixture("fail", "fail");
+  const deps = spyDeps();
+  const inner = deps.graph.readTicket;
+  deps.graph.readTicket = (id) => {
+    // `("T-9001").includes("T-900")` is true, so the transaction used to complete cleanly
+    // having never seen a blocker LIST at all — T-013 was not blocked by anything.
+    if (id === "T-013") return { id, blockedBy: "T-9001" };
+    return inner(id);
+  };
+  await assert.rejects(() => act1(decide(verified), verified, deps), (e) => {
+    assert.equal(e.step, "read-back-t013");
+    assert.match(e.message, /not an array/);
+    return true;
+  });
+});
+
+test("a blocker list that merely contains the id as a substring is refused", async () => {
+  const verified = verifiedFixture("fail", "fail");
+  const deps = spyDeps();
+  const inner = deps.graph.readTicket;
+  deps.graph.readTicket = (id) => (id === "T-013" ? { id, blockedBy: ["T-9001"] } : inner(id));
+  await assert.rejects(() => act1(decide(verified), verified, deps), /does not contain T-900/);
+});
+
+test("a T-013 read-back that is not an object is a transition error, not a TypeError", async () => {
+  for (const bad of [null, "T-013", ["T-013"], 7]) {
+    const verified = verifiedFixture("fail", "fail");
+    const deps = spyDeps();
+    const inner = deps.graph.readTicket;
+    deps.graph.readTicket = (id) => (id === "T-013" ? bad : inner(id));
+    await assert.rejects(
+      () => act1(decide(verified), verified, deps),
+      (e) => {
+        assert.equal(e.constructor.name, "TransitionError", `${JSON.stringify(bad)} escaped as ${e.constructor.name}`);
+        return true;
+      },
+    );
+  }
+});
+
+test("a resolution ticket read back with no status is not treated as open", async () => {
+  const verified = verifiedFixture("fail", "fail");
+  // `["done","cancelled"].includes(undefined)` is false, so a ticket whose state was never
+  // reported used to read as open and get attached as T-013's blocker.
+  const deps = spyDeps({
+    resolutionTicketBack: { id: "T-900", title: "No supported MCP SDK (T-009:no-supported-sdk:5:2.0.0/6:1.30.0)" },
+  });
+  await assert.rejects(() => act1(decide(verified), verified, deps), /no usable status/);
+});
+
+test("a read-back for a DIFFERENT ticket is refused even when its title is canonical", async () => {
+  const verified = verifiedFixture("fail", "fail");
+  const deps = spyDeps({
+    resolutionTicketBack: {
+      id: "T-901",
+      title: "No supported MCP SDK (T-009:no-supported-sdk:5:2.0.0/6:1.30.0)",
+      status: "open",
+    },
+  });
+  // The id that gets attached to T-013 is the located/created one, so a read-back of some
+  // other ticket verified nothing about it.
+  await assert.rejects(() => act1(decide(verified), verified, deps), /not the "T-900" that was located or created/);
+});
+
+test("malformed evidence refuses as a transition error, not an uncaught Error", async () => {
+  const verified = verifiedFixture("fail", "fail");
+  delete verified.cells.v2["scripted:initialize"];
+  await assert.rejects(
+    () => act1({ outcome: "blocked", aggregates: { v2: "fail", v1: "fail" } }, verified, spyDeps()),
+    (e) => {
+      assert.equal(e.constructor.name, "TransitionError");
+      assert.equal(e.step, "decision-recompute");
+      return true;
+    },
+  );
+});
+
+test("the dedupe key cannot be forged by a version that contains the separator", () => {
+  // `+` is legal inside SemVer build metadata, so joining the pair with it was ambiguous:
+  // (1.0.0+2.0.0, 3.0.0) and (1.0.0, 2.0.0+3.0.0) produced the same key, and a later blocked
+  // decision would have reused the wrong resolution ticket.
+  assert.notEqual(
+    versionTuple({ v2: "1.0.0+2.0.0", v1: "3.0.0" }),
+    versionTuple({ v2: "1.0.0", v1: "2.0.0+3.0.0" }),
+  );
+  assert.notEqual(versionTuple({ v2: "1/2", v1: "3" }), versionTuple({ v2: "1", v1: "2/3" }));
+  assert.equal(versionTuple({ v2: "2.0.0", v1: "1.30.0" }), "5:2.0.0/6:1.30.0");
+});
+
+test("every line terminator and a literal backslash-pipe are neutralised in the document", () => {
+  const verified = verifiedFixture("fail", "fail");
+  verified.report.notes = [
+    "carriage\rreturn",
+    "line separator",
+    "paragraph separator",
+    "a\\|b split",
+    "bidi‮override",
+  ];
+  const doc = renderDecisionDoc(verified, decide(verified));
+  for (const [name, ch] of [["CR", "\r"], ["U+2028", " "], ["U+2029", " "], ["bidi", "‮"]]) {
+    assert.ok(!doc.includes(ch), `${name} survived into the decision document`);
+  }
+  // The backslash is escaped FIRST, so what follows is a literal pipe inside the cell rather
+  // than an escaped backslash followed by a live table delimiter.
+  assert.ok(doc.includes("a\\\\\\|b split"), `backslash-pipe was not neutralised: ${JSON.stringify(doc.slice(-400))}`);
 });
