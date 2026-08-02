@@ -42,6 +42,7 @@ after(() => {
 
 test("the scratch invariant rejects a path inside the repository and accepts tmpdir", () => {
   assert.throws(() => assertOutsideRepo(join(REPO, ".story")), /inside the repository/);
+  assert.throws(() => assertOutsideRepo(REPO), /inside the repository/, "the repo root itself must be rejected");
   assert.doesNotThrow(() => assertOutsideRepo(tmpdir()));
 });
 
@@ -222,6 +223,34 @@ test("mutation: anchoring the probe at the in-repo workspace resolves the SDK �
 });
 
 // --- tree digest --------------------------------------------------------------------------
+
+test("a data: URL resolution is a violation, never a builtin", async () => {
+  // Executable code from nowhere on disk — the checker must not wave it through.
+  await withTempDir((dir) => {
+    const log = join(dir, "log.ndjson");
+    writeFileSync(log, JSON.stringify({ kind: "esm", request: "x", resolved: "data:text/javascript,export default 1" }) + "\n");
+    const r = checkResolutions(log, dir);
+    assert.equal(r.builtins, 0);
+    assert.equal(r.violations.length, 1);
+  });
+});
+
+test("mutation: treeDigest's record encoding is unambiguous — one mimicking file vs two files differ", async () => {
+  // With raw concatenation, a single file whose CONTENTS contain bytes shaped like a
+  // following record could collide with a tree where that record is a real second file.
+  // JSON-per-entry encoding (with the file's own sha256, not its bytes) kills that.
+  await withTempDir((dir) => {
+    const a = join(dir, "a");
+    const b = join(dir, "b");
+    mkdirSync(a);
+    mkdirSync(b);
+    const mimic = '\n["F","y.txt","' + "0".repeat(64) + '"]';
+    writeFileSync(join(a, "x.txt"), `payload${mimic}`);
+    writeFileSync(join(b, "x.txt"), "payload");
+    writeFileSync(join(b, "y.txt"), "different");
+    assert.notEqual(treeDigest(a), treeDigest(b));
+  });
+});
 
 test("treeDigest is order-stable and byte-sensitive", async () => {
   await withTempDir((dir) => {

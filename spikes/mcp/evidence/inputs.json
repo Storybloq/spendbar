@@ -17,7 +17,7 @@
     "spikes/mcp/conformance.mjs": "0adc4676a75dcc848b67be76652d36b374e1ad37aa28582a3e819edf5795db3d",
     "spikes/mcp/instrument-hooks.mjs": "c95368d3454a7bfa4d1c8d87921727524cf73f458054fd7a5c7d6b0f9c222911",
     "spikes/mcp/instrument.mjs": "bf574b1710dd1227bb3dda1614cfe014e4f35f629be37abe47d60e133eece33d",
-    "spikes/mcp/isolate.mjs": "f076241462e35fcf02aedf873f31473797b1fb2518801dcbece870d17b991fae",
+    "spikes/mcp/isolate.mjs": "2b29a9011ccba7651f9c2cb6e4485dfd589757dc8f1f0bcdad2b720c2d105473",
     "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
     "spikes/mcp/token-cost.mjs": "0932a60bc8327fb3d62adea7455f72676adff7f30c5e041395181b1a5fe7eee6"
   },

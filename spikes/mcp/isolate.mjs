@@ -56,14 +56,19 @@ export const FORBIDDEN_ENV = [
 
 /** The mutation-tested scratch invariant: temporary roots never resolve inside the repo. */
 export function assertOutsideRepo(path, repo = REPO) {
-  if (realpathSync(path).startsWith(realpathSync(repo) + sep)) {
+  const pathReal = realpathSync(path);
+  const repoReal = realpathSync(repo);
+  if (pathReal === repoReal || pathReal.startsWith(repoReal + sep)) {
     throw new Error(`scratch resolved inside the repository: refusing`);
   }
 }
 
 /**
- * Deterministic digest of a directory tree: sorted relative paths, file bytes, symlink
- * targets. This is what "the copy is a copy, not a re-resolution" means operationally — the
+ * Deterministic digest of a directory tree: one JSON record per entry (type, path, and the
+ * file's own sha256 or symlink target), newline-delimited. JSON escaping is what makes the
+ * stream UNAMBIGUOUS: raw concatenation of paths and file bytes would let a single file whose
+ * contents mimic a record collide with two separate files (review round 1 caught exactly
+ * that). This is what "the copy is a copy, not a re-resolution" means operationally — the
  * assembled root's node_modules must digest identically to the integrity-verified install.
  */
 export function treeDigest(dir) {
@@ -77,14 +82,13 @@ export function treeDigest(dir) {
       const relPath = rel ? `${rel}/${name}` : name;
       const st = lstatSync(join(dir, relPath));
       if (st.isSymbolicLink()) {
-        hash.update(`L ${relPath} ${readlinkSync(join(dir, relPath))}\n`);
+        hash.update(JSON.stringify(["L", relPath, readlinkSync(join(dir, relPath))]) + "\n");
       } else if (st.isDirectory()) {
-        hash.update(`D ${relPath}\n`);
+        hash.update(JSON.stringify(["D", relPath]) + "\n");
         walk(relPath);
       } else {
-        hash.update(`F ${relPath} `);
-        hash.update(readFileSync(join(dir, relPath)));
-        hash.update("\n");
+        const fileHash = createHash("sha256").update(readFileSync(join(dir, relPath))).digest("hex");
+        hash.update(JSON.stringify(["F", relPath, fileHash]) + "\n");
       }
     }
   };
@@ -122,22 +126,28 @@ export function assembleCandidateRoot(candidate, { repo = REPO } = {}) {
   const candidateDir = join(HERE, "candidates", candidate);
   installReapHandlers();
 
-  const root = mkdtempSync(join(tmpdir(), `mcp-iso-${candidate}-`));
-  const scratch = mkdtempSync(join(tmpdir(), `mcp-iso-${candidate}-log-`));
-  for (const dir of [root, scratch]) {
-    chmodSync(dir, 0o700);
-    liveScratch.add(dir);
-    assertOutsideRepo(dir, repo);
-  }
-
+  // Everything from the first mkdtemp onward is guarded: a failure in the SECOND creation,
+  // a chmod, or an invariant check must still remove whatever was already created.
+  const made = [];
   const cleanup = () => {
-    for (const dir of [root, scratch]) {
+    for (const dir of made) {
       rmSync(dir, { recursive: true, force: true });
       liveScratch.delete(dir);
     }
   };
 
   try {
+    const makeDir = (suffix) => {
+      const dir = mkdtempSync(join(tmpdir(), `mcp-iso-${candidate}${suffix}-`));
+      made.push(dir);
+      liveScratch.add(dir);
+      chmodSync(dir, 0o700);
+      assertOutsideRepo(dir, repo);
+      return dir;
+    };
+    const root = makeDir("");
+    const scratch = makeDir("-log");
+
     for (const f of WORKSPACE_FILES) copyFileSync(join(candidateDir, f), join(root, f));
     for (const f of SHARED_FILES) copyFileSync(join(HERE, f), join(root, f));
     cpSync(join(candidateDir, "node_modules"), join(root, "node_modules"), {
@@ -195,7 +205,10 @@ export function checkResolutions(logPath, root) {
     const entry = JSON.parse(line); // malformed log lines are a hard error, deliberately
     let filePath = null;
     if (entry.kind === "esm") {
-      if (entry.resolved.startsWith("node:") || entry.resolved.startsWith("data:")) {
+      // Only node: builtins are permitted. A data: URL is executable code from nowhere on
+      // disk — not a builtin and not inside the root — so it is a violation like any other
+      // non-file scheme (review round 1).
+      if (entry.resolved.startsWith("node:")) {
         builtins++;
         continue;
       }
