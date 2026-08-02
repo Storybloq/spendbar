@@ -1,0 +1,23 @@
+{
+  "components": [
+    "mcp"
+  ],
+  "createdBy": "T-009 real-client capture (autonomous session b707987e)",
+  "dedupeKey": "T-009:codex-mcp-tool-approval-required",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-055",
+  "impact": "Discovered while fixing T-009's real-client capture, and it is a property of the CLIENT rather than of our code, so it will reach users of the v0.2 MCP server (T-013).\n\nMeasured on codex-cli 0.144.0. When `codex exec` runs without the operator's `~/.codex/config.toml` (via --ignore-user-config), a tool call to a `-c`-declared MCP server is CANCELLED BY THE CLIENT before the request is ever sent:\n\n  client -> server : initialize, notifications/initialized, tools/list        (and nothing more)\n  server -> client : correct initialize result, correct tools/list result\n  client stderr    : mcp: spendbar-probe/spendbar_probe started\n                     mcp: spendbar-probe/spendbar_probe (failed)\n                     user cancelled MCP tool call\n  client stdout    : \"The MCP tool call was canceled and did not succeed.\"\n\nThe server is blameless — it answered both requests correctly and never received tools/call.\n\nThe governing setting is per-server: `mcp_servers.<name>.default_tools_approval_mode`, whose accepted values are `auto`, `prompt`, `writes`, `approve`. The default (`auto`) cancels in a non-interactive `codex exec` run with no prior approval on record. `approve` fixes it.\n\nWhat did NOT fix it, each measured rather than assumed: a `projects.\"<cwd>\".trust_level=\"trusted\"` override for the run's scratch cwd; dropping `--ephemeral`. What DID also work and was rejected: `--dangerously-bypass-approvals-and-sandbox`, which disables the sandbox for everything the model might run in order to solve one server's tool approval.\n\nWHY THIS MATTERS BEYOND THE SPIKE. A user who adds spendbar's MCP server to Codex and drives it non-interactively can see their tool calls cancelled with an error that names spendbar and looks like our server failed (\"(failed)\"), when nothing on our side went wrong. T-013 should decide what to do about it: at minimum document the required approval setting in the Codex setup instructions, and consider whether the registration snippet we tell users to paste should include `default_tools_approval_mode`.\n\nAlso worth recording as evidence hygiene: the previous Codex captures in this repo passed only because the operator's own config.toml had entries that approved the call. That is precisely the contamination ISS-047 was filed about, now demonstrated rather than suspected — isolating the config is what made the requirement visible at all.",
+  "location": [
+    "spikes/mcp/real-client/capture.mjs"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-009",
+    "T-013"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "Codex cancels an MCP tool call unless the server is approved in config — affects how spendbar's MCP server is documented for Codex users"
+}

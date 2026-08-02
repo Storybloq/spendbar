@@ -27,6 +27,7 @@
     "gen:unicode": "python3 scripts/gen-unicode.py > src/unicode-tables.ts",
     "matrix": "node scripts/install-matrix.mjs",
     "parity": "node tests-ts/parity.mjs",
+    "hooks:install": "git config core.hooksPath .githooks",
     "prepack": "npm run build",
     "prepare": "npm run build",
     "spike:rounding": "node spikes/rounding/spike.mjs",

@@ -190,6 +190,16 @@ def check(inventory, traces):
                 f"`unexercised` still exempts {u['shape']}/{u['arg']}, but cases now exercise "
                 f"it. Delete the entry (and close {u.get('issue', 'the linked issue')}).")
 
+    # An entry naming a shape or arg nothing declares exempts NOTHING: the staleness check
+    # above reads it through `.get(..., set())` and never objects, so a typo'd or leftover
+    # entry would sit in the file looking load-bearing forever (ISS-059).
+    for u in inventory.get("unexercised", []):
+        shape = inventory["shapes"].get(u["shape"])
+        if shape is None or u["arg"] not in shape["windowArgs"]:
+            fails.append(
+                f"`unexercised` entry {u['shape']}/{u['arg']} names a shape/arg no shape "
+                f"declares, so it exempts nothing. Delete or fix the entry.")
+
     # The prefix rule above is the one loose place in this check, so prove it is not doing all
     # the work: if EVERY non-zero-exit case observed nothing, the rule would be equivalent to
     # "error cases are unchecked" and the inventory would be untested on that whole half.

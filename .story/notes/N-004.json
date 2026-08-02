@@ -1,0 +1,13 @@
+{
+  "content": "T-009's implementation is done and its gate reaches a verdict. `npm run verify:real-client-evidence` exits 0, the gate derives **adopt-v2** with all twenty cells present, and all four real-client cells pass under isolation that is preflight-validated and demonstrated rather than assumed. test:mcp-spike and test:spikes are both green.\n\nIt is not \"finished\" in the sense of being closeable, and it was never designed to be. Three decisions are the owner's, and none can be self-approved.\n\n**1. Root SDK pinning syntax** (pre-existing, plan §11). How the adopted candidate's dependency is pinned in the root package.json. Unchanged from earlier sessions.\n\n**2. Token-cost acceptance threshold** (pre-existing, plan §7). Criterion 6 has no threshold, so the gate measures token cost and reports it rather than judging it. The plan deliberately does not encode a preferred answer.\n\n**3. NEW — fund a third four-cell recapture, or accept the capture harness as it stands.** This one arrived with ISS-058 and is the one that most needs a human.\n\nAn independent review of capture.mjs returned seven findings, one critical (a swallowed write error can silently truncate the retained transcript while the digest still authenticates the truncated file). All seven are real. None is fixed, because capture.mjs is a CAPTURE INPUT: its digest is bound into every manifest and receipt, so editing one character invalidates all four committed captures, the gate refuses, and the outcome reverts from adopt-v2 to incomplete. Fixing them costs a paid recapture. ISS-057 is in the same position and should ride along in the same batch.\n\n**The structural point worth carrying past this ticket:** the capture-input binding is exactly what makes the evidence honest — it is why a stale capture cannot pass as current — and it also means every bug found in the capture harness AFTER a capture costs money to fix, with the cost not falling over time. Evidence that sits gets more expensive to correct, not less. That is a designed consequence rather than a defect, but it should be a known one when deciding how long to leave a capture in place, and it argues for batching harness changes rather than dribbling them out.\n\nTwo prior recaptures in this session were each explicitly authorized by the owner. A third must be too.",
+  "createdDate": "2026-08-02",
+  "id": "N-004",
+  "status": "active",
+  "tags": [
+    "t-009",
+    "owner-decision",
+    "blocked"
+  ],
+  "title": "T-009 is complete as designed and now waits on three owner decisions",
+  "updatedDate": "2026-08-02"
+}

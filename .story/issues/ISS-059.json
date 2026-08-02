@@ -1,0 +1,21 @@
+{
+  "components": [
+    "tests/oracle"
+  ],
+  "createdBy": "claude-code T-009 closure check",
+  "dedupeKey": "oracle-stale-unexercised-mutation-survives",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-059",
+  "impact": "`npm run test:all` exits 1 with ZERO test failures. The failure is `tests/oracle/mutation_check.py` reporting `SURVIVED  allowlist entry deleted while the gap remains`.\n\nNot caused by T-009, and not a regression. The mutation deletes every `inventory.unexercised` entry whose shape is \"blocks\" and expects the checker to then complain \"shape blocks declares --since\". Commit 51e0a42 (ISS-029/ISS-024, parity coverage) closed all four unexercised gaps and set `\"unexercised\": []`. With an empty allowlist the mutation deletes nothing, the checker is unaffected, and it correctly reports SURVIVED.\n\nThe harness is behaving well here — it is saying, accurately, that this check is no longer exercised by anything. The bug is that a green `test:all` is now unreachable until the mutation is re-pointed.\n\nThis is the same defect class T-009 round 13 spent its whole time on: a check that passes for want of anything to act on. There it was a guard nothing reached; here it is a mutation whose target vanished when the gap it probed was legitimately fixed. Closing a coverage gap silently disarmed the mutation that proved the gap-tracking worked.\n\nTwo candidate fixes, and the choice is a real one:\n- Re-point the mutation at a synthetic inventory that HAS an unexercised entry, so it tests the checker rather than the current data. This keeps the check alive permanently and decouples it from whether any real gap happens to exist.\n- Or make an empty `unexercised` array skip this mutation explicitly and loudly, recording that it is inapplicable rather than surviving. Weaker, because \"inapplicable\" is one edit away from \"never runs again\".\n\nThe first is preferable: a mutation that only works while the codebase is imperfect is a mutation that retires exactly when the code gets good.\n\nReproduce: `npm run test:all; echo $?` -> 1, with no `not ok` lines anywhere in the output.",
+  "location": [
+    "tests/oracle/mutation_check.py:73",
+    "tests/oracle/inventory.json"
+  ],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "test:all is red on a stale oracle mutation whose target no longer exists — the allowlist it probes was emptied by ISS-029"
+}

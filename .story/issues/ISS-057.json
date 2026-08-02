@@ -1,0 +1,24 @@
+{
+  "components": [
+    "spikes/mcp/real-client"
+  ],
+  "createdBy": "claude-code T-009 review round 13",
+  "dedupeKey": "t009-purge-destroys-unreceipted-captures",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-057",
+  "impact": "receipt.mjs verifies the whole retained batch and writes nothing if any member fails, so a single superseded capture blocks the receipt for every good one beside it. That state is reachable and was reached: a failed capture run leaves four directories behind, the fix to capture.mjs invalidates them (it is a capture input, bound into every manifest), and the next run's four good captures then cannot be receipted until the dead four are gone.\n\nThe only documented escape is `node spikes/mcp/real-client/capture.mjs --purge`, which calls sweepAbandoned(Infinity) and removes EVERY retained capture carrying the owner marker, regardless of whether cells.json still lists it as a live attempt. An operator following the harness's own header comment out of this state destroys the paid captures they are trying to rescue. There is no --purge-superseded, and the age-based startup sweep does not help because the superseded captures are minutes old, not seven days.\n\nWorked around by hand for the current run: a one-off script removed the four superseded directories by name after checking each carried the owner marker and was absent from cells.json's attempt lists. That check is exactly what --purge should be doing itself.\n\nThe fix is small — skip any capture cells.json still claims, or add a narrower flag — but its COST is not, and that is the part worth recording. capture.mjs is a capture input whose digest is bound into every manifest, so touching it invalidates all four current captures and forces another four-cell paid recapture. It should therefore ride along with the next change that already requires a recapture, never on its own.",
+  "location": [
+    "spikes/mcp/real-client/capture.mjs:9",
+    "spikes/mcp/real-client/capture.mjs:278",
+    "spikes/mcp/real-client/capture.mjs:835"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-009"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "capture.mjs --purge destroys un-receipted captures along with superseded ones, and it is the only documented escape from a blocked receipt"
+}

@@ -70,10 +70,15 @@ INVENTORY_MUTATIONS = [
     ("defaultAnchor changed without re-recording",
      lambda i: i.__setitem__("defaultAnchor", "2027-05-05"),
      "recorded at an anchor that no longer matches"),
-    ("allowlist entry deleted while the gap remains",
-     lambda i: i.__setitem__(
-         "unexercised", [u for u in i["unexercised"] if u["shape"] != "blocks"]),
-     "shape blocks declares --since"),
+    # RETIRED: "allowlist entry deleted while the gap remains". ISS-029 exercised all four
+    # windowed args and emptied `unexercised`, so there is no entry to delete and the
+    # mutation became a no-op that always SURVIVED (ISS-059). Its detector — a declared arg
+    # with no observation and no entry — is still observed by the "--until" mutation above;
+    # the entry-hygiene direction is now observed by the mutation below instead.
+    ("allowlist entry names a shape no inventory declares",
+     lambda i: i["unexercised"].append(
+         {"shape": "bogus", "arg": "--since", "issue": "x", "why": []}),
+     "exempts nothing"),
 ]
 
 

@@ -1,0 +1,13 @@
+#!/bin/sh
+# Fail-closed privacy gate for RAW `git commit` (ISS-054).
+#
+# scripts/guarded-commit.mjs already runs this scan, but nothing FORCED committers through
+# it: tracked ledger files accumulate operator identifiers in the working tree during
+# autonomous sessions, and one ordinary `git add -A && git commit` would publish them.
+# This hook makes the index scan unconditional for any clone that has run:
+#
+#   npm run hooks:install     (git config core.hooksPath .githooks)
+#
+# Fresh clones that skip installation are still covered by the privacy-audit CI workflow,
+# which scans every pushed commit.
+exec node "$(git rev-parse --show-toplevel)/scripts/privacy-scan.mjs" --mode=index
