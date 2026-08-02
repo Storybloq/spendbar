@@ -1,0 +1,13 @@
+{
+  "content": "Three owner decisions, 2026-08-02:\n\n1. **Apple Developer membership: already paid.** T-016 (D4 signing/notarization gate) no longer waits on the $99/yr cost decision — the gate is purely technical now: build the artifact matrix (ad-hoc raw vs Developer-ID raw vs notarized+stapled .app, online/offline, npm/pnpm/yarn/bun extractors) and pick the artifact. The open question about personal vs organization signing identity remains (a Developer ID certificate embeds the account holder's legal name, visible via codesign -dv — decide before signing anything shipped).\n\n2. **Public GitHub repo: approved**, under the storybloq org per N-001, with one HARD constraint: **no Claude co-authorship anywhere in commit history** — no Co-Authored-By trailers, no \"Generated with Claude Code\" lines, no anthropic emails. Audited 2026-08-02 across all branches: history is already clean (sole author/committer is the owner). Repo-level `.claude/settings.json` now sets `includeCoAuthoredBy: false` so no future session introduces one. Any session touching git history for the public repo must re-verify this constraint before pushing.\n\n3. **npm publish 0.1.0: explicitly authorized by the owner.** Standing rule still applies to execution discipline: run it in a supervised turn, not from an autonomous session; from a quiet, green HEAD after the currently-running auto session (T-009) lands; clear ISS-024 first (high, gates T-007: the frozen ENOENT diagnostic recommends installing npx — needs a fix + allowlist entry or a recorded waiver). Sequence: verify ISS-024 state → bump 0.1.0-dev → 0.1.0 → npm run test:all green → pack audit → publish (ashayegh, 2FA) → npm view + registry install smoke → tag v0.1.0 → create and push the public repo.\n",
+  "createdDate": "2026-08-02",
+  "id": "N-002",
+  "status": "active",
+  "tags": [
+    "decisions",
+    "publish",
+    "repo"
+  ],
+  "title": "Owner greenlights (2026-08-02): Apple membership paid, public repo approved, publish authorized",
+  "updatedDate": "2026-08-02"
+}
