@@ -123,6 +123,52 @@ async function measureListedTool(candidate) {
   }
 }
 
+/**
+ * Run every stage for every candidate with NO short-circuiting (§1): a stage that throws
+ * becomes a typed failure record and the walk continues — to this candidate's later stages
+ * and to the other candidate. A stage may declare `needs`, an earlier stage whose success it
+ * requires; when that prerequisite did not succeed, the dependent stage is recorded as
+ * not-run WITH ITS CAUSE rather than skipped silently.
+ *
+ * Exported and stage-injectable so the contract is directly testable: a test injects an early
+ * failure and asserts every later stage and the other candidate still produced typed results
+ * (review round 1 — the previous assertion only inspected an all-green record, which a
+ * short-circuiting orchestrator would produce identically).
+ */
+export async function runStages(candidates, stages) {
+  const results = {};
+  for (const candidate of candidates) {
+    results[candidate] = {};
+    for (const stage of stages) {
+      if (stage.needs && results[candidate][stage.needs]?.status !== "ok") {
+        results[candidate][stage.name] = {
+          status: "not-run",
+          cause: `not run: prerequisite stage '${stage.needs}' did not succeed`,
+        };
+        continue;
+      }
+      try {
+        results[candidate][stage.name] = { status: "ok", value: await stage.run(candidate, results[candidate]) };
+      } catch (error) {
+        results[candidate][stage.name] = { status: "failed", cause: String(error?.message ?? error) };
+      }
+    }
+  }
+  return results;
+}
+
+/** The stage list, in order. Every stage that consumes an installed tree declares that need. */
+export function buildStages() {
+  return [
+    { name: "supply-chain", run: (c) => inspectClosure(join(HERE, "candidates", c, "package-lock.json")) },
+    { name: "install", needs: "supply-chain", run: (c) => installCandidate(c) },
+    { name: "installed-rescan", needs: "install", run: (c) => scanInstalledTree(join(HERE, "candidates", c)) },
+    { name: "audit", run: (c) => recordAudit(c) }, // advisory: independent of the install chain
+    { name: "conformance", needs: "installed-rescan", run: (c) => runCandidate(c) },
+    { name: "token-measure", needs: "installed-rescan", run: (c) => measureListedTool(c) },
+  ];
+}
+
 async function main() {
   preflightPrivacyAudit();
   process.stderr.write("preflight: privacy audit over HEAD is green\n");
@@ -131,6 +177,8 @@ async function main() {
   mkdirSync(EVIDENCE_DIR, { recursive: true });
   writeFileSync(MARKER, JSON.stringify({ status: "in-progress", startedAt: new Date().toISOString() }, null, 2) + "\n");
 
+  const results = await runStages(["v1", "v2"], buildStages());
+
   const scripted = {};
   const supplyChain = {};
   const audit = {};
@@ -138,45 +186,32 @@ async function main() {
   const stageFailures = [];
   let anyFailed = false;
 
-  // Every stage of every candidate runs; a throw becomes a typed failure record and the walk
-  // continues — an independently runnable candidate must not lose its evidence to a
-  // sibling's (or an earlier stage's) crash (review round 1).
-  const stage = async (candidate, name, fn) => {
-    try {
-      return await fn();
-    } catch (error) {
-      stageFailures.push({ candidate, stage: name, cause: String(error?.message ?? error) });
-      return null;
-    }
-  };
-
   for (const candidate of ["v1", "v2"]) {
-    const lockfile = join(HERE, "candidates", candidate, "package-lock.json");
-    const inspected = await stage(candidate, "supply-chain", () => inspectClosure(lockfile));
+    for (const [name, r] of Object.entries(results[candidate])) {
+      if (r.status !== "ok") stageFailures.push({ candidate, stage: name, cause: r.cause });
+    }
+    const value = (name) => (results[candidate][name]?.status === "ok" ? results[candidate][name].value : null);
+
+    const inspected = value("supply-chain");
+    const install = value("install");
+    const rescan = value("installed-rescan");
     if (inspected) {
       process.stderr.write(
         `${candidate}: supply chain ${inspected.verified}/${inspected.packages} verified, ` +
           `${inspected.violations.length} violations\n`,
       );
     }
-
-    // Install + rescan only make sense over a clean inspection; their absence is a recorded
-    // stage failure either way, never a silent skip.
-    const install = inspected
-      ? await stage(candidate, "install", () => installCandidate(candidate))
-      : (stageFailures.push({ candidate, stage: "install", cause: "not run: supply-chain inspection failed" }), null);
-    const rescan = install
-      ? await stage(candidate, "installed-rescan", () => scanInstalledTree(join(HERE, "candidates", candidate)))
-      : (stageFailures.push({ candidate, stage: "installed-rescan", cause: "not run: install failed" }), null);
     if (rescan) {
-      process.stderr.write(`${candidate}: installed rescan ${rescan.packagesScanned} packages, ${rescan.violations.length} violations\n`);
+      process.stderr.write(
+        `${candidate}: installed rescan ${rescan.packagesScanned} packages, ${rescan.violations.length} violations\n`,
+      );
     }
     if (inspected && install && rescan) {
       supplyChain[candidate] = { ...inspected, install, installedRescan: rescan };
       anyFailed ||= inspected.violations.length > 0 || rescan.violations.length > 0;
     }
 
-    const auditRec = await stage(candidate, "audit", () => recordAudit(candidate));
+    const auditRec = value("audit");
     if (auditRec) {
       audit[candidate] = auditRec;
       process.stderr.write(
@@ -184,7 +219,7 @@ async function main() {
       );
     }
 
-    const conf = await stage(candidate, "conformance", () => runCandidate(candidate));
+    const conf = value("conformance");
     if (conf) {
       scripted[candidate] = conf;
       anyFailed ||= conf.failed > 0;
@@ -194,7 +229,7 @@ async function main() {
       );
     }
 
-    const measured = await stage(candidate, "token-measure", () => measureListedTool(candidate));
+    const measured = value("token-measure");
     if (measured) {
       tokenCost.proxyVersion = measured.proxyVersion;
       tokenCost[candidate] = {
@@ -202,7 +237,9 @@ async function main() {
         proxyTokens: measured.proxyTokens,
         fields: measured.fields,
       };
-      process.stderr.write(`${candidate}: tool definition ${measured.canonicalBytes}B / ${measured.proxyTokens} proxy tokens\n`);
+      process.stderr.write(
+        `${candidate}: tool definition ${measured.canonicalBytes}B / ${measured.proxyTokens} proxy tokens\n`,
+      );
     }
   }
 

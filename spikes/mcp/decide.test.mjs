@@ -24,6 +24,8 @@ import {
 } from "./decide.mjs";
 import { verifyEvidence, BOUND_INPUTS, EVIDENCE_DIR, EvidenceError } from "./verify-evidence.mjs";
 import { canonicalize, proxyTokens, measureToolDefinition, TOKEN_PROXY_VERSION } from "./token-cost.mjs";
+import { runStages, buildStages } from "./matrix.mjs";
+import { CAPTURE_INPUTS } from "./real-client/receipt.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..");
@@ -61,18 +63,29 @@ test("exit codes are the pinned literals", () => {
 const cellsAll = (status) => Object.fromEntries(MANDATORY_CELLS.map((n) => [n, { status }]));
 const withCell = (cells, name, status) => ({ ...cells, [name]: { status } });
 
-test("aggregate: not-run dominates fail, fail dominates pass, a full pass is pass", () => {
+test("aggregate: EVERY mandatory cell can single-handedly drive the aggregate", () => {
+  // Exhaustive on purpose (review round 1): spot-checking two cells would pass even if the
+  // aggregate silently ignored the other eighteen. Each cell is broken alone, twice.
   assert.equal(aggregate(cellsAll("pass")), "pass");
-  assert.equal(aggregate(withCell(cellsAll("pass"), "scripted:cancellation", "fail")), "fail");
-  assert.equal(aggregate(withCell(cellsAll("fail"), "real:codex", "not-run")), "not-run");
-  assert.equal(aggregate(withCell(cellsAll("pass"), "real:claude-code", "not-run")), "not-run");
+  for (const name of MANDATORY_CELLS) {
+    assert.equal(aggregate(withCell(cellsAll("pass"), name, "fail")), "fail", `${name} did not force fail`);
+    assert.equal(aggregate(withCell(cellsAll("pass"), name, "not-run")), "not-run", `${name} did not force not-run`);
+    // not-run dominates fail no matter which cell carries which.
+    assert.equal(aggregate(withCell(cellsAll("fail"), name, "not-run")), "not-run", `${name} lost not-run dominance`);
+  }
 });
 
-test("aggregate refuses an absent or malformed cell — the verifier's job, asserted twice", () => {
-  const missing = cellsAll("pass");
-  delete missing["real:codex"];
-  assert.throws(() => aggregate(missing), /absent or malformed/);
-  assert.throws(() => aggregate(withCell(cellsAll("pass"), "real:codex", "maybe")), /absent or malformed/);
+test("aggregate refuses an absent or malformed value in EVERY mandatory cell", () => {
+  for (const name of MANDATORY_CELLS) {
+    const missing = cellsAll("pass");
+    delete missing[name];
+    assert.throws(() => aggregate(missing), /absent or malformed/, `missing ${name} was tolerated`);
+    assert.throws(
+      () => aggregate(withCell(cellsAll("pass"), name, "maybe")),
+      /absent or malformed/,
+      `malformed ${name} was tolerated`,
+    );
+  }
 });
 
 test("the decision truth table, every cell", () => {
@@ -240,11 +253,24 @@ test("act1 on blocked: dedupe-keyed ticket, attach, read-back, then the document
   assert.equal(deps.records[0].outcome, "blocked");
 });
 
-test("act1 on blocked is idempotent: an existing open ticket is reused, never duplicated", async () => {
+test("act1 on blocked is idempotent: an existing ticket is reused AND the rest of the transaction still runs", async () => {
+  // Asserting only "did not create" would pass an implementation that returned right after
+  // the lookup — never attaching the blocker or writing the artifacts (review round 1).
   const verified = verifiedFixture("fail", "fail");
   const deps = spyDeps({ existingTicket: { id: "T-900" } });
-  await act1(decide(verified), verified, deps);
-  assert.ok(!deps.calls.some((c) => c.startsWith("create:")), `created a duplicate: ${deps.calls}`);
+  const r = await act1(decide(verified), verified, deps);
+  assert.deepEqual(deps.calls, [
+    "locate:T-009:no-supported-sdk:2.0.0+1.30.0",
+    "read:T-900",
+    "attach:T-013:T-900",
+    "read:T-013",
+    "decision-doc",
+    "decision-record",
+  ]);
+  assert.equal(r.exitCode, EXIT_CODES.blocked);
+  assert.equal(r.ticketId, "T-900");
+  assert.equal(deps.docs.length, 1);
+  assert.equal(deps.records.length, 1);
 });
 
 test("act1 trusts the read-back, not the write: a lying attach is a transition error", async () => {
@@ -265,6 +291,26 @@ test("act1 recomputes the decision and refuses a supplied one that disagrees —
     (e) => e instanceof TransitionError && e.step === "decision-recompute",
   );
   assert.deepEqual(deps.calls, [], `effects ran on a mismatched decision: ${deps.calls}`);
+});
+
+test("act1 refuses a decision whose OUTCOME agrees but whose aggregates do not", async () => {
+  // Comparing only `outcome` would let wrong aggregates reach the document and the machine
+  // record (review round 1). Each aggregate is corrupted independently.
+  const verified = verifiedFixture("pass", "pass"); // truth: adopt-v2, aggregates pass/pass
+  for (const aggregates of [
+    { v2: "pass", v1: "fail" },
+    { v2: "fail", v1: "pass" },
+    { v2: "not-run", v1: "pass" },
+    { v2: "pass", v1: "not-run" },
+  ]) {
+    const deps = spyDeps();
+    await assert.rejects(
+      () => act1({ outcome: "adopt-v2", aggregates }, verified, deps),
+      (e) => e instanceof TransitionError && e.step === "decision-recompute",
+      `aggregates ${JSON.stringify(aggregates)} were accepted`,
+    );
+    assert.deepEqual(deps.calls, [], "effects ran on a mismatched decision");
+  }
 });
 
 test("act1 refuses an unknown outcome before any effect", async () => {
@@ -460,19 +506,15 @@ test("a supply-chain violation fails verification — the no-hooks precondition"
   });
 });
 
-test("even a fully failing scripted matrix cannot reach blocked while real cells are absent", () => {
-  withFixture(({ evidenceDir, repoRoot, mutate }) => {
-    rmSync(join(evidenceDir, "real-clients"), { recursive: true, force: true });
-    mutate("scripted.json", (s) => {
-      for (const c of ["v1", "v2"]) {
-        for (const name of Object.keys(s[c].cases)) s[c].cases[name] = { status: "fail" };
-        s[c].failed = Object.keys(s[c].cases).length; // keep the internal consistency the verifier checks
-      }
-    });
-    const verified = verifyEvidence({ evidenceDir, repoRoot });
-    assert.equal(decide(verified).outcome, "incomplete");
-  });
-});
+// NOTE, recorded rather than hidden: there is deliberately NO fixture here that rewrites the
+// scripted case statuses wholesale and still expects verification to succeed. Such a test
+// passes only because scripted statuses are recorded outcomes rather than statuses re-derived
+// offline from persisted per-case protocol observations — so it would document a weakness
+// while appearing to prove a strength (review round 1). The dominance claim it used to carry
+// ("a fully failing matrix still cannot reach blocked while real cells are absent") is proved
+// against decide() directly, above, where the inputs are synthetic by construction. Closing
+// the underlying gap — persisting raw per-case transcripts and re-running the literal oracles
+// inside the verifier — is tracked as follow-up work.
 
 test("hand-fabricated real-client cells with no receipt are refused, never accepted", () => {
   // Review round 1: a cells.json alone must not complete the matrix — the verifier demands
@@ -488,6 +530,13 @@ test("hand-fabricated real-client cells with no receipt are refused, never accep
         v1: { "claude-code": cell, codex: cell },
         v2: { "claude-code": cell, codex: cell },
       }),
+    );
+    // Refused at the FIRST missing support — the capture-input pin — and, once that is
+    // supplied, still refused for the missing receipt. Both gates asserted, in order.
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /capture-inputs\.json is absent/);
+    cpSync(
+      join(EVIDENCE_DIR, "real-clients", "capture-inputs.json"),
+      join(evidenceDir, "real-clients", "capture-inputs.json"),
     );
     assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /receipt\.json is absent/);
   });
@@ -554,6 +603,45 @@ test("an inconsistent failed count on a candidate record is refused", () => {
   });
 });
 
+test("a changed capture input makes the real cells not-run — captures are never re-bound silently", () => {
+  // The scripted matrix recomputes inputs.json every run. Without the separately pinned
+  // capture-input record, a re-run would bind today's bytes to yesterday's paid captures.
+  withFixture(({ evidenceDir, repoRoot }) => {
+    const p = join(evidenceDir, "real-clients", "capture-inputs.json");
+    const ci = JSON.parse(readFileSync(p, "utf8"));
+    ci.files["spikes/mcp/real-client/sanitize.mjs"] = "0".repeat(64);
+    writeFileSync(p, JSON.stringify(ci, null, 2));
+    const verified = verifyEvidence({ evidenceDir, repoRoot });
+    for (const c of ["v1", "v2"]) {
+      for (const client of REAL_CLIENTS) {
+        const cell = verified.cells[c][`real:${client}`];
+        assert.equal(cell.status, "not-run", `${c}/${client} survived a changed capture input`);
+        assert.match(cell.cause, /sanitize\.mjs changed since these captures were taken/);
+        assert.ok(!/[0-9a-f]{64}/.test(cell.cause), "the cause leaked a digest value instead of naming the file");
+      }
+    }
+    assert.equal(decide(verified).outcome, "incomplete", "a stale capture must force a recapture, not a verdict");
+  });
+});
+
+test("real-client cells present with no capture-input record are refused", () => {
+  withFixture(({ evidenceDir, repoRoot }) => {
+    rmSync(join(evidenceDir, "real-clients", "capture-inputs.json"));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /capture-inputs\.json is absent/);
+  });
+});
+
+test("the capture-input set excludes the classifier — a change there re-derives, never invalidates", () => {
+  // classify.mjs is re-run live by the verifier over the recorded manifest, so it is a
+  // consumer, not a capture input. Pinning it would force a paid recapture for a pure
+  // refactor of the classifier.
+  assert.ok(!CAPTURE_INPUTS.includes("spikes/mcp/real-client/classify.mjs"));
+  assert.ok(!CAPTURE_INPUTS.includes("spikes/mcp/real-client/receipt.mjs"));
+  for (const rel of ["spikes/mcp/probe-def.mjs", "spikes/mcp/real-client/capture.mjs", "spikes/mcp/real-client/sanitize.mjs"]) {
+    assert.ok(CAPTURE_INPUTS.includes(rel), `${rel} must be pinned at capture time`);
+  }
+});
+
 test("a present matrix attempt marker makes the whole evidence set unconsumable", () => {
   withFixture(({ evidenceDir, repoRoot }) => {
     writeFileSync(
@@ -564,10 +652,39 @@ test("a present matrix attempt marker makes the whole evidence set unconsumable"
   });
 });
 
+// An INDEPENDENT literal of the producers this project expects to be digest-bound. Iterating
+// BOUND_INPUTS alone would silently stop checking a producer that was dropped from the list
+// (review round 1); this list is the oracle, and the equality assertion below is the guard.
+const EXPECTED_BOUND_PRODUCERS = [
+  "spikes/mcp/probe-def.mjs",
+  "spikes/mcp/candidates/v1/server.mjs",
+  "spikes/mcp/candidates/v2/server.mjs",
+  "spikes/mcp/candidates/v1/package-lock.json",
+  "spikes/mcp/candidates/v2/package-lock.json",
+  "spikes/mcp/conformance.mjs",
+  "spikes/mcp/isolate.mjs",
+  "spikes/mcp/instrument.mjs",
+  "spikes/mcp/instrument-hooks.mjs",
+  "spikes/mcp/token-cost.mjs",
+  "spikes/mcp/supply-chain.mjs",
+  "spikes/mcp/matrix.mjs",
+  "spikes/mcp/real-client/capture.mjs",
+  "spikes/mcp/real-client/capture-wrapper.mjs",
+  "spikes/mcp/real-client/classify.mjs",
+  "spikes/mcp/real-client/normalize.mjs",
+  "spikes/mcp/real-client/sanitize.mjs",
+  "spikes/mcp/real-client/receipt.mjs",
+];
+
+test("the bound-input list equals this suite's independent literal — nothing dropped silently", () => {
+  assert.deepEqual([...BOUND_INPUTS].sort(), [...EXPECTED_BOUND_PRODUCERS].sort());
+});
+
 test("EVERY bound producer's digest is enforced — a stale recorded digest for each file refuses", () => {
   // Review round 1: each evidence-producing input must independently invalidate stale
-  // evidence. One fixture per bound input, corrupting only that file's recorded digest.
-  for (const rel of BOUND_INPUTS) {
+  // evidence. One fixture per producer, corrupting only that file's recorded digest, driven
+  // from the INDEPENDENT literal above.
+  for (const rel of EXPECTED_BOUND_PRODUCERS) {
     withFixture(({ evidenceDir, repoRoot, mutate }) => {
       mutate("inputs.json", (i) => (i.files[rel] = "0".repeat(64)));
       assert.throws(
@@ -579,13 +696,91 @@ test("EVERY bound producer's digest is enforced — a stale recorded digest for 
   }
 });
 
-test("the committed matrix recorded every scripted case for both candidates — no short-circuit", () => {
-  // The live no-short-circuit assertion over the real evidence: all eight cases present per
-  // candidate regardless of status (an early failure may end its case, never the matrix).
+test("the committed matrix recorded every scripted case for both candidates", () => {
   const scripted = JSON.parse(readFileSync(join(EVIDENCE_DIR, "scripted.json"), "utf8"));
   for (const c of ["v1", "v2"]) {
     assert.deepEqual(Object.keys(scripted[c].cases).sort(), [...SCRIPTED_CASES].sort());
   }
+});
+
+test("no short-circuit: an early stage failure stops NOTHING but its own dependents", async () => {
+  // An all-green record proves nothing about short-circuiting — a short-circuiting
+  // orchestrator produces exactly the same one (review round 1). So inject a real failure
+  // into v1's FIRST stage and require that v1's independent stages, and every v2 stage,
+  // still produced typed results.
+  const ran = [];
+  const stages = [
+    {
+      name: "supply-chain",
+      run: (c) => {
+        ran.push(`${c}:supply-chain`);
+        if (c === "v1") throw new Error("injected first-stage failure");
+        return { ok: true };
+      },
+    },
+    { name: "install", needs: "supply-chain", run: (c) => (ran.push(`${c}:install`), { ok: true }) },
+    { name: "installed-rescan", needs: "install", run: (c) => (ran.push(`${c}:installed-rescan`), { ok: true }) },
+    { name: "audit", run: (c) => (ran.push(`${c}:audit`), { ok: true }) },
+    { name: "conformance", needs: "installed-rescan", run: (c) => (ran.push(`${c}:conformance`), { ok: true }) },
+  ];
+  const results = await runStages(["v1", "v2"], stages);
+
+  // Every stage of every candidate has a typed record — nothing silently absent.
+  for (const c of ["v1", "v2"]) {
+    assert.deepEqual(Object.keys(results[c]), stages.map((s) => s.name), `${c} lost a stage record`);
+  }
+  assert.equal(results.v1["supply-chain"].status, "failed");
+  assert.match(results.v1["supply-chain"].cause, /injected first-stage failure/);
+  // Dependents are not-run WITH A CAUSE, never silently skipped.
+  for (const dependent of ["install", "installed-rescan", "conformance"]) {
+    assert.equal(results.v1[dependent].status, "not-run", `${dependent} should be not-run`);
+    assert.match(results.v1[dependent].cause, /prerequisite stage/);
+  }
+  // The independent stage still ran for the FAILED candidate...
+  assert.equal(results.v1.audit.status, "ok");
+  assert.ok(ran.includes("v1:audit"), "an independent stage was skipped after a sibling failed");
+  // ...and the other candidate ran completely.
+  for (const name of stages.map((s) => s.name)) {
+    assert.equal(results.v2[name].status, "ok", `v2/${name} was lost to v1's failure`);
+  }
+});
+
+test("no short-circuit: a mid-chain failure still leaves every later independent stage recorded", async () => {
+  const stages = [
+    { name: "supply-chain", run: () => ({ ok: true }) },
+    { name: "install", needs: "supply-chain", run: (c) => {
+      if (c === "v2") throw new Error("injected install failure");
+      return { ok: true };
+    } },
+    { name: "installed-rescan", needs: "install", run: () => ({ ok: true }) },
+    { name: "audit", run: () => ({ ok: true }) },
+  ];
+  const results = await runStages(["v1", "v2"], stages);
+  assert.equal(results.v1["installed-rescan"].status, "ok");
+  assert.equal(results.v2.install.status, "failed");
+  assert.equal(results.v2["installed-rescan"].status, "not-run");
+  assert.equal(results.v2.audit.status, "ok");
+  for (const name of stages.map((s) => s.name)) assert.equal(results.v1[name].status, "ok");
+});
+
+test("the production stage list declares the install chain its scripted stages depend on", () => {
+  // The injected-stage tests above prove the RUNNER; this pins the real wiring, so a stage
+  // that quietly loses its `needs` cannot let conformance run against an unverified tree.
+  const stages = buildStages();
+  assert.deepEqual(stages.map((s) => s.name), [
+    "supply-chain",
+    "install",
+    "installed-rescan",
+    "audit",
+    "conformance",
+    "token-measure",
+  ]);
+  const needs = Object.fromEntries(stages.map((s) => [s.name, s.needs ?? null]));
+  assert.equal(needs["install"], "supply-chain");
+  assert.equal(needs["installed-rescan"], "install");
+  assert.equal(needs["conformance"], "installed-rescan");
+  assert.equal(needs["token-measure"], "installed-rescan");
+  assert.equal(needs["audit"], null, "the advisory audit must not depend on the install chain");
 });
 
 // ---------- token plumbing, fixed vectors ---------------------------------------------------
@@ -603,6 +798,17 @@ test("the token proxy is the pinned version with fixed known vectors", () => {
   assert.equal(measured.canonicalBytes, canonicalize({ inputSchema: { a: 2, b: 1 }, name: "t" }).length);
   assert.equal(measured.proxyTokens, Math.ceil(measured.canonicalBytes / 4));
   assert.deepEqual(measured.fields, ["inputSchema", "name"]);
+});
+
+test("the byte count is UTF-8 bytes, not code units — a non-ASCII vector with a literal expectation", () => {
+  // ASCII-only vectors cannot tell Buffer.byteLength from String.length (review round 1).
+  // {"name":"é中🙂"} is 11 ASCII bytes of syntax and key, plus 2 + 3 + 4 bytes of value = 20.
+  const measured = measureToolDefinition({ name: "é中🙂" });
+  assert.equal(measured.canonicalBytes, 20);
+  assert.equal(canonicalize({ name: "é中🙂" }).length, 15, "code-unit length, which must NOT be what is recorded");
+  assert.equal(measured.proxyTokens, Math.ceil(20 / 4));
+  assert.equal(proxyTokens("é"), 1); // 2 bytes -> ceil(2/4)
+  assert.equal(proxyTokens("🙂🙂"), 2); // 8 bytes -> 2
 });
 
 test("REAL_CLIENTS and EvidenceError are the exported shapes act2 tooling will rely on", () => {

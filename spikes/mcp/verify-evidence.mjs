@@ -37,6 +37,7 @@ import { SCRIPTED_CASES, REAL_CLIENTS, MANDATORY_CELLS, STATUSES } from "./decid
 import { parseStrictJson, JsonSyntaxError } from "./strict-json.mjs";
 import { classify, toCellStatus } from "./real-client/classify.mjs";
 import { PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER } from "./real-client/capture.mjs";
+import { CAPTURE_INPUTS } from "./real-client/receipt.mjs";
 import { TOKEN_PROXY_VERSION } from "./token-cost.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -59,6 +60,7 @@ export const BOUND_INPUTS = [
   "spikes/mcp/instrument-hooks.mjs",
   "spikes/mcp/token-cost.mjs",
   "spikes/mcp/supply-chain.mjs",
+  "spikes/mcp/matrix.mjs",
   "spikes/mcp/real-client/capture.mjs",
   "spikes/mcp/real-client/capture-wrapper.mjs",
   "spikes/mcp/real-client/classify.mjs",
@@ -370,7 +372,30 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
   const realPath = join(evidenceDir, "real-clients", "cells.json");
   const real = existsSync(realPath) ? readJson(realPath, "real-clients/cells.json") : null;
   let receipts = null;
+  // Capture-time input binding: the scripted matrix recomputes inputs.json on every run, so
+  // without a SEPARATE record pinned when the captures were taken, a re-run would re-bind
+  // today's bytes to yesterday's paid captures. A mismatch does not refuse outright — it
+  // makes the real cells not-run with a cause, which routes the decision to `incomplete` and
+  // forces a recapture, exactly as a missing capture would.
+  let captureInputsStale = null;
   if (real !== null) {
+    const ciPath = join(evidenceDir, "real-clients", "capture-inputs.json");
+    const ci = checkShape(readJson(ciPath, "real-clients/capture-inputs.json"), { files: { type: "object" } },
+      "real-clients/capture-inputs.json");
+    const recorded = Object.keys(ci.files).sort();
+    if (JSON.stringify(recorded) !== JSON.stringify([...CAPTURE_INPUTS].sort())) {
+      refuse(`real-clients/capture-inputs.json pins [${recorded.join(", ")}], expected exactly the capture-input set`);
+    }
+    for (const rel of CAPTURE_INPUTS) {
+      const abs = join(repoRoot, rel);
+      if (!existsSync(abs)) refuse(`capture input ${rel} is missing from the repository`);
+      if (sha256(readFileSync(abs)) !== ci.files[rel]) {
+        captureInputsStale = rel; // name the FILE, never the digest values
+        break;
+      }
+    }
+  }
+  if (real !== null && captureInputsStale === null) {
     checkExactKeys(real, ["v1", "v2"], "real-clients/cells.json");
     const receiptRaw = readJson(join(evidenceDir, "real-clients", "receipt.json"), "real-clients/receipt.json");
     if (!Array.isArray(receiptRaw)) refuse("real-clients/receipt.json is not an array");
@@ -390,6 +415,13 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
   }
   for (const candidate of ["v1", "v2"]) {
     for (const client of REAL_CLIENTS) {
+      if (captureInputsStale !== null) {
+        cells[candidate][`real:${client}`] = {
+          status: "not-run",
+          cause: `capture input ${captureInputsStale} changed since these captures were taken — recapture required`,
+        };
+        continue;
+      }
       const rec = real?.[candidate]?.[client];
       if (rec === undefined) {
         cells[candidate][`real:${client}`] = { status: "not-run", cause: "no real-client capture recorded" };

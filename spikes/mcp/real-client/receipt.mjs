@@ -21,6 +21,37 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const EVIDENCE_REAL = join(HERE, "..", "evidence", "real-clients");
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
+const REPO = join(HERE, "..", "..", "..");
+
+/**
+ * The repository bytes a real-client capture's MEANING depends on: what the probe server did
+ * (probe-def, both servers, both lockfiles) and how the run was conducted and recorded
+ * (capture, capture-wrapper, sanitize, normalize). Recorded AT CAPTURE TIME, because the
+ * scripted matrix recomputes its own digest set on every run and would otherwise re-bind
+ * today's bytes to yesterday's paid captures — evidence claiming a provenance it does not
+ * have.
+ *
+ * classify.mjs and receipt.mjs are deliberately ABSENT: the verifier re-runs the classifier
+ * live over the recorded manifest, so a change there re-derives rather than invalidates.
+ */
+export const CAPTURE_INPUTS = [
+  "spikes/mcp/probe-def.mjs",
+  "spikes/mcp/candidates/v1/server.mjs",
+  "spikes/mcp/candidates/v2/server.mjs",
+  "spikes/mcp/candidates/v1/package-lock.json",
+  "spikes/mcp/candidates/v2/package-lock.json",
+  "spikes/mcp/real-client/capture.mjs",
+  "spikes/mcp/real-client/capture-wrapper.mjs",
+  "spikes/mcp/real-client/sanitize.mjs",
+  "spikes/mcp/real-client/normalize.mjs",
+];
+
+/** Digest every capture input from the working tree, as a {path: sha256} record. */
+export function captureInputDigests(repoRoot = REPO) {
+  const files = {};
+  for (const rel of CAPTURE_INPUTS) files[rel] = sha256(readFileSync(join(repoRoot, rel)));
+  return files;
+}
 
 function main() {
   if (!existsSync(RETAINED_DIR)) {
@@ -86,9 +117,18 @@ function main() {
 
   if (receipts.length > 0) {
     writeFileSync(join(EVIDENCE_REAL, "receipt.json"), JSON.stringify(receipts, null, 2) + "\n");
+    // Pin the bytes these captures were produced by, so a later matrix run cannot re-bind
+    // fresh digests to them silently.
+    writeFileSync(
+      join(EVIDENCE_REAL, "capture-inputs.json"),
+      JSON.stringify({ files: captureInputDigests() }, null, 2) + "\n",
+    );
     process.stderr.write(`receipt: wrote ${join(EVIDENCE_REAL, "receipt.json")} (${receipts.length} capture(s))\n`);
   }
   process.exit(failed ? 1 : receipts.length > 0 ? 0 : 2);
 }
 
-main();
+// Direct-entry guard: importing this module for CAPTURE_INPUTS/captureInputDigests must not
+// run the receipt tool (which sweeps retained captures and calls process.exit). Same defect
+// class the mutant server carried in review round 1.
+if (import.meta.url === `file://${process.argv[1]}`) main();
