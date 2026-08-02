@@ -17,9 +17,9 @@
   ],
   "phase": null,
   "relatedTickets": [],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Resolved 2026-08-02 in commit 51e0a42: four windowed parity branches (blocks --since, daily --since/--until, codex --since/--until, combined --since/--until) now have golden cases captured at the 2026-01-03 anchor. Differential parity 274/0/0 across all 122 cases; oracle traces and response artifacts regenerated; the three 'unexercised' inventory entries retired with the coverage they described. Ships in 0.1.1 (publish awaits fresh owner authorization).",
+  "resolvedDate": "2026-08-02",
   "severity": "medium",
-  "status": "open",
+  "status": "resolved",
   "title": "Three ccusage window-arg branches are unexercised by the case registry (blocks --since, daily --until, codex --until)"
 }

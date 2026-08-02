@@ -19,9 +19,9 @@
     "T-007",
     "T-023"
   ],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Resolved 2026-08-02 in commit 51e0a42, the way the issue always wanted: the ENOENT diagnostic now says 'Fix or unset CCUSAGE_CMD — spendbar bundles its own ccusage and has no npx fallback' instead of parroting usage.py's install-npx advice. Sanctioned as ALLOWLIST-25 via a stderr REWRITE comparison policy (mirror of help-config-path): only the advice suffix is rewritten in the oracle's output, everything else — the quoted command, single stderr line, empty stdout, exit 1 — stays byte-compared. A first-draft pattern policy was rejected in codex review for accepting any executable name; the review's regression scenario is now a dedicated test. Mutation-verified (wording revert 273/1, policy deletion, scope-line deletion all fail loudly). Ships in 0.1.1 (publish awaits fresh owner authorization).",
+  "resolvedDate": "2026-08-02",
   "severity": "low",
-  "status": "open",
+  "status": "resolved",
   "title": "Frozen ENOENT diagnostic advises installing npx, which is never the remedy — reword in 0.1.1 (rescoped, shipped as-is in 0.1.0)"
 }
