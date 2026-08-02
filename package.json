@@ -1,6 +1,6 @@
 {
   "name": "spendbar",
-  "version": "0.1.0-dev",
+  "version": "0.1.0",
   "description": "Per-project Claude Code + Codex spend tracking, grouped by project and model family.",
   "license": "MIT",
   "type": "module",
