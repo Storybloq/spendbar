@@ -15,7 +15,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -74,6 +74,13 @@ export class Harness {
       if (this.stdoutRaw.length < MAX_STREAM_BYTES) this.stdoutRaw += d;
       else this.overflow ??= "stdout";
       buf += d;
+      // The advertised bound did not bound THIS: a server emitting megabytes with no newline
+      // left `stdoutRaw` capped while the parse buffer grew without limit, so the cap that
+      // exists to stop a runaway candidate exhausting the runner did not (round 2, chunk 9).
+      if (buf.length > MAX_STREAM_BYTES) {
+        this.overflow ??= "stdout";
+        buf = "";
+      }
       let idx;
       while ((idx = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, idx);
@@ -120,8 +127,13 @@ export class Harness {
       if (this.overflow) return `server ${this.overflow} exceeded ${MAX_STREAM_BYTES} bytes`;
       return null;
     };
+    // Trouble is checked BEFORE the predicate, always. It used to be the other way round, so an
+    // event that both satisfied the predicate and recorded a stream overflow returned success:
+    // a request answered, or a stdout-purity case judged, on a stream the harness KNEW it had
+    // stopped capturing (review round 2, chunk 9). An observation that failed is not a pass,
+    // however good the thing it happened to observe alongside it looks.
     const early = trouble();
-    if (early && !predicate()) {
+    if (early) {
       await this.dispose();
       throw new CaseFailure(early);
     }
@@ -132,17 +144,17 @@ export class Harness {
         this.dispose().then(() => reject(new CaseFailure(`timed out after ${timeoutMs}ms waiting for ${what}`)));
       }, timeoutMs);
       const onEvent = () => {
-        if (predicate()) {
-          clearTimeout(timer);
-          this.listeners.delete(onEvent);
-          resolve();
-          return;
-        }
         const bad = trouble();
         if (bad) {
           clearTimeout(timer);
           this.listeners.delete(onEvent);
           this.dispose().then(() => reject(new CaseFailure(bad)));
+          return;
+        }
+        if (predicate()) {
+          clearTimeout(timer);
+          this.listeners.delete(onEvent);
+          resolve();
         }
       };
       this.listeners.add(onEvent);
@@ -201,7 +213,14 @@ export class Harness {
       if (this.exited === null) this.child.kill("SIGKILL");
       if (this.closed === null) {
         await new Promise((resolve) => {
-          const timer = setTimeout(resolve, 3_000); // best effort; an unkillable child cannot block the run forever
+          // Bounded, because an unkillable child must not block the run forever — but the
+          // timeout is RECORDED rather than swallowed (review round 2, chunk 9). Returning
+          // quietly meant the caller went on to read a resolution log a live process was still
+          // writing, and then deleted the isolated root out from under it.
+          const timer = setTimeout(() => {
+            this.disposeTimedOut = true;
+            resolve();
+          }, 3_000);
           this.child.on("close", () => {
             clearTimeout(timer);
             resolve();
@@ -286,20 +305,32 @@ export const CASES = [
   },
   {
     name: "broken-framing",
-    mutants: ["framing-wrong-code", "framing-dies"],
+    mutants: ["framing-wrong-code", "framing-garbage", "framing-late", "framing-dies"],
     async run(h) {
       await initialize(h);
+      const from = h.messages.length;
       h.writeRaw("{this line is not JSON\n");
       await h.settle(FRAMING_GRACE);
       check(h.exited === null, "server died on a malformed line");
-      for (const msg of h.messages) {
-        if (msg.error !== undefined && (msg.id === null || msg.id === undefined)) {
-          check(msg.error.code === -32700,
-            `malformed line answered with code ${msg.error.code}; only -32700 or silence is conformant`);
-        }
-      }
+      // The tools/list round-trip is the BARRIER: its answer proves the server processed past
+      // the malformed line, so anything it was going to emit about that line has been emitted
+      // or is at least in flight. A second settle catches the in-flight case. The judgement
+      // used to happen before this request, so a late answer landed in `messages` after the
+      // loop had already declared silence (review round 2, chunk 9).
       const list = await h.request(3, "tools/list");
       check(list.result?.tools !== undefined, "server stopped serving after a malformed line");
+      await h.settle(FRAMING_GRACE);
+      // EVERYTHING emitted since, not just the parsed null-id errors. Unframeable bytes were
+      // being read as silence — a server could answer the malformed line with garbage and pass.
+      for (const msg of h.messages.slice(from)) {
+        if (msg.id === 3 && msg.result !== undefined) continue; // the barrier's own answer
+        check(msg.__unparseable === undefined,
+          `malformed line answered with unframeable bytes: ${JSON.stringify(msg.__unparseable)}`);
+        check(msg.error !== undefined && (msg.id === null || msg.id === undefined),
+          `malformed line answered with ${JSON.stringify(msg)}; only a null-id error or silence is conformant`);
+        check(msg.error.code === -32700,
+          `malformed line answered with code ${msg.error.code}; only -32700 or silence is conformant`);
+      }
     },
   },
   {
@@ -351,7 +382,7 @@ export const CASES = [
   },
   {
     name: "stdout-purity",
-    mutants: ["stdout-noise", "stderr-silent"],
+    mutants: ["stdout-noise", "stdout-blank-lines", "stdout-unterminated", "stderr-silent"],
     async run(h) {
       await initialize(h);
       await h.request(2, "tools/list");
@@ -362,7 +393,15 @@ export const CASES = [
       const closed = await h.waitClose(EXIT_DEADLINE);
       check(closed !== null, `server did not close within ${EXIT_DEADLINE}ms; stream inspection would be partial`);
       check(closed.code === 0, `server exited ${closed.code}/${closed.signal}, expected 0`);
-      for (const line of h.stdoutRaw.split("\n").filter((l) => l.trim() !== "")) {
+      // The same framing rules the capture normalizer applies, and for the same reasons. This
+      // oracle used to DISCARD blank lines and admit an unterminated tail, so a server emitting
+      // stray newlines, or cut off mid-message at EOF, earned a clean purity result — while the
+      // normalizer next door counted both as protocol errors (review round 2, chunk 9).
+      const parts = h.stdoutRaw.split("\n");
+      const tail = parts.pop();
+      check(tail === "", `stdout ends with an unterminated frame: ${JSON.stringify(tail.slice(0, 80))}`);
+      for (const line of parts) {
+        check(line.trim() !== "", "an empty line on the protocol stream — newline framing never produces one");
         let msg;
         try {
           msg = JSON.parse(line);
@@ -382,15 +421,23 @@ export const CASES = [
  *  before the caller reuses (or removes) anything the child referenced. */
 export async function runCase(def, spawnFn) {
   let h = null;
+  let outcome;
   try {
     h = new Harness(spawnFn(def.name));
     await def.run(h);
-    return { status: "pass" };
+    outcome = { status: "pass" };
   } catch (error) {
-    return { status: "fail", detail: String(error.message ?? error) };
+    outcome = { status: "fail", detail: String(error.message ?? error) };
   } finally {
     if (h) await h.dispose();
   }
+  // A child that would not die is not a passing case: whatever it is still doing, it is doing
+  // it to the same isolated root the next case runs in and the same log this one is about to
+  // be judged on.
+  if (h?.disposeTimedOut) {
+    return { status: "fail", detail: `server did not close after SIGKILL; ${outcome.status === "fail" ? outcome.detail : "case assertions passed but the run is not trustworthy"}` };
+  }
+  return outcome;
 }
 
 /** Spawn a named mutant server (test harness for the suite itself). */
@@ -428,6 +475,51 @@ export function descendantsFor(logPath) {
 }
 
 /**
+ * How many of a case's in-root resolutions came from the candidate SDK package itself.
+ *
+ * Exported so the requirement is testable without a real candidate root. Built from the log's
+ * OWN realpath'd root so a symlinked assembled root compares like with like rather than always
+ * matching nothing — which would turn this check into one that fails everything, the mirror of
+ * the one that passed everything.
+ */
+export function sdkWitness(resolutions, sdk) {
+  const prefix = join(resolutions.rootReal, "node_modules", ...sdk.split("/")) + sep;
+  return resolutions.insidePaths.filter((p) => p.startsWith(prefix)).length;
+}
+
+/**
+ * One case's isolation record. A pure function of that case's resolution audit, so the
+ * requirement below is falsifiable without assembling a candidate root.
+ *
+ * The candidate SDK must appear in this case's OWN resolutions. Requiring only "some resolution
+ * inside the root" was satisfied by the instrument, the server entry and the local probe files,
+ * so a server.mjs that had stopped importing the SDK altogether could pass all eight behavioural
+ * cases and still report isolation.ok — evidence about neither v1 nor v2 (round 2, chunk 9).
+ */
+export function judgeCaseIsolation(resolutions, sdk, descendantCount) {
+  const sdkResolutions = sdkWitness(resolutions, sdk);
+  const record = {
+    total: resolutions.total,
+    violations: resolutions.violations.length,
+    descendants: descendantCount,
+    sdkResolutions,
+  };
+  if (sdkResolutions === 0) {
+    record.error = `no module was resolved from ${sdk} — this case did not exercise the candidate SDK`;
+  }
+  return record;
+}
+
+/** The candidate-level isolation verdict, pure so every way it can be false is testable. */
+export function aggregateIsolation({ perCase, violations, descendants, oppositeSdkProbe }) {
+  const everyCaseInstrumented = Object.values(perCase).every((r) => r.error === undefined);
+  return {
+    everyCaseInstrumented,
+    ok: everyCaseInstrumented && violations.length === 0 && descendants.length === 0 && oppositeSdkProbe === "not-found",
+  };
+}
+
+/**
  * The per-candidate runner: assemble the isolated root once, run all eight cases against
  * fresh server processes, then attach the §2 isolation evidence (complete resolution
  * enumeration + the opposite-SDK probe). Isolation failure fails the candidate — a case
@@ -447,21 +539,31 @@ export async function runCandidate(candidate) {
         env: buildServerEnv({ resolveLog: logFor(caseName) }),
         stdio: ["pipe", "pipe", "pipe"],
       });
+    const sdk = candidate === "v1" ? "@modelcontextprotocol/sdk" : "@modelcontextprotocol/server";
     const cases = {};
     const perCase = {};
     const resolutions = { total: 0, builtins: 0, inside: 0, violations: [] };
     const descendants = [];
-    let everyCaseInstrumented = true;
     for (const def of CASES) {
       cases[def.name] = await runCase(def, spawnFn); // every case runs; failures accumulate
       // A child process or Worker resolves its modules where the instrument was never loaded,
       // so its closure is UNKNOWN rather than clean; counting it as a violation is the only
       // reading that does not overstate what was enumerated (review round 1, chunk 16).
-      const spawned = descendantsFor(logFor(def.name)).map((d) => ({ ...d, case: def.name }));
-      descendants.push(...spawned);
       try {
+        // INSIDE the guard (review round 2, chunk 9). A missing or malformed sidecar threw
+        // straight out of runCandidate, aborting this candidate and the rest of the matrix —
+        // the opposite of the recorded isolation failure the catch below promises.
+        const spawned = descendantsFor(logFor(def.name)).map((d) => ({ ...d, case: def.name }));
+        descendants.push(...spawned);
         const r = checkResolutions(logFor(def.name), root);
-        perCase[def.name] = { total: r.total, violations: r.violations.length, descendants: spawned.length };
+        // The candidate SDK must appear in this case's OWN resolutions. Requiring only "some
+        // resolution inside the root" was satisfied by the instrument, the server entry and the
+        // local probe files, so a server.mjs that had stopped importing the SDK altogether
+        // could pass all eight cases and report isolation.ok — evidence about neither v1 nor
+        // v2 (review round 2, chunk 9).
+        // Built from the log's OWN realpath'd root, so a symlinked assembled root compares
+        // like with like rather than always matching nothing.
+        perCase[def.name] = judgeCaseIsolation(r, sdk, spawned.length);
         resolutions.total += r.total;
         resolutions.builtins += r.builtins;
         resolutions.inside += r.inside;
@@ -470,10 +572,8 @@ export async function runCandidate(candidate) {
         // Includes the empty-log case: this child ran WITHOUT working instrumentation, so
         // its result proves nothing about isolation — recorded, and it breaks the aggregate.
         perCase[def.name] = { error: String(error.message ?? error) };
-        everyCaseInstrumented = false;
       }
     }
-    const sdk = candidate === "v1" ? "@modelcontextprotocol/sdk" : "@modelcontextprotocol/server";
     const opposite = candidate === "v1" ? "@modelcontextprotocol/server" : "@modelcontextprotocol/sdk";
     let oppositeSdkProbe;
     try {
@@ -486,11 +586,12 @@ export async function runCandidate(candidate) {
       readFileSync(join(root, "node_modules", ...sdk.split("/"), "package.json"), "utf8"),
     ).version;
 
-    const isolationOk =
-      everyCaseInstrumented &&
-      resolutions.violations.length === 0 &&
-      descendants.length === 0 &&
-      oppositeSdkProbe === "not-found";
+    const { everyCaseInstrumented, ok: isolationOk } = aggregateIsolation({
+      perCase,
+      violations: resolutions.violations,
+      descendants,
+      oppositeSdkProbe,
+    });
     const failedCases = Object.values(cases).filter((c) => c.status === "fail").length;
     return {
       candidate,

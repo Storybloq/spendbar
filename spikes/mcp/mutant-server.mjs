@@ -19,6 +19,8 @@ export const MUTANTS = [
   "no-structured", // tools/call succeeds without structuredContent
   "empty-text", // tools/call text fallback is an empty string
   "framing-wrong-code", // malformed line answered with -32601 instead of -32700/silence
+  "framing-garbage", // malformed line answered with non-JSON bytes on stdout
+  "framing-late", // malformed line answered with -32601, but only after the grace window
   "framing-dies", // malformed line kills the server
   "args-accept", // schema-violating arguments accepted silently
   "args-crash", // schema-violating arguments kill the server
@@ -26,6 +28,8 @@ export const MUTANTS = [
   "cancel-wedged", // honors the cancellation, then stops answering entirely
   "eof-alive", // the process outlives client EOF
   "stdout-noise", // a non-JSON-RPC line is written to stdout
+  "stdout-blank-lines", // stray empty lines on the protocol stream — framing never produces one
+  "stdout-unterminated", // a final frame is written at EOF without its newline
   "stderr-silent", // no log line ever reaches stderr
 ];
 
@@ -34,7 +38,12 @@ export const MUTANTS = [
 // IMPORTING process's stdin — which is exactly the lingering reference that kept test-runner
 // child processes alive (review round 1 found the root cause the earlier header guessed at).
 function main() {
-const out = (obj) => process.stdout.write(JSON.stringify(obj) + "\n");
+const out = (obj) => {
+  process.stdout.write(JSON.stringify(obj) + "\n");
+  // Stray empty lines: newline framing never produces one, so these are unaccounted-for bytes
+  // on a stream whose purity is the asserted property.
+  if (MUTANT === "stdout-blank-lines") process.stdout.write("\n\n");
+};
 const log = (line) => {
   if (MUTANT !== "stderr-silent") process.stderr.write(`${line}\n`);
 };
@@ -164,6 +173,16 @@ rl.on("line", (line) => {
     if (MUTANT === "framing-wrong-code") {
       out({ jsonrpc: "2.0", id: null, error: { code: -32601, message: "parse error" } });
     }
+    if (MUTANT === "framing-garbage") {
+      // Neither silence nor a JSON-RPC error: bytes on the protocol stream that no reader can
+      // frame. A suite that only inspects PARSED null-id errors sees this as silence.
+      process.stdout.write("E: could not parse that\n");
+    }
+    if (MUTANT === "framing-late") {
+      // The same wrong code, delivered after any fixed grace window has closed. A suite that
+      // decides silence-versus-wrong-code at a deadline never sees it.
+      setTimeout(() => out({ jsonrpc: "2.0", id: null, error: { code: -32601, message: "late parse error" } }), 1_200);
+    }
     // Correct baseline: drop the malformed line and keep serving (matches both real SDKs).
     return;
   }
@@ -171,6 +190,12 @@ rl.on("line", (line) => {
 });
 rl.on("close", () => {
   if (MUTANT === "eof-alive") setInterval(() => {}, 1 << 30);
+  // A final frame written WITHOUT its newline, at the moment the stream ends. The bytes are
+  // valid JSON, so a reader that splits on newline and drops the tail sees a clean stream —
+  // which is indistinguishable from a stream that was cut off mid-write.
+  if (MUTANT === "stdout-unterminated") {
+    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/message", params: { level: "info" } }));
+  }
 });
 }
 

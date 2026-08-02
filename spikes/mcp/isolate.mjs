@@ -263,6 +263,10 @@ export function checkResolutions(logPath, root) {
   let builtins = 0;
   let inside = 0;
   const violations = [];
+  // The real paths of everything classified as inside. Counting them was enough to know the
+  // closure stayed in the root; it was NOT enough to know WHICH package the closure came from,
+  // so a candidate that never loaded its SDK still looked isolated (review round 2, chunk 9).
+  const insidePaths = [];
   for (const line of lines) {
     const entry = JSON.parse(line); // malformed log lines are a hard error, deliberately
     let filePath = null;
@@ -291,6 +295,7 @@ export function checkResolutions(logPath, root) {
     const real = realpathSync(filePath);
     if (real === rootReal || real.startsWith(rootReal + sep)) {
       inside++;
+      insidePaths.push(real);
     } else {
       violations.push(entry);
     }
@@ -312,7 +317,7 @@ export function checkResolutions(logPath, root) {
   if (builtins + inside + violations.length !== lines.length) {
     throw new Error(`resolution log accounting does not add up: ${lines.length} lines, ${builtins + inside + violations.length} classified`);
   }
-  return { total: lines.length, builtins, inside, violations };
+  return { total: lines.length, builtins, inside, violations, insidePaths, rootReal };
 }
 
 /**
