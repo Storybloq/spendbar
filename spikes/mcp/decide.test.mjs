@@ -46,7 +46,9 @@ import {
   checkOutcomeArtifacts,
   verifyRecordedOutcome,
   OUTCOME_ARTIFACTS,
+  MANIFEST_SPEC,
 } from "./verify-evidence.mjs";
+import { SCHEMA as SANITIZE_SCHEMA } from "./real-client/sanitize.mjs";
 import { canonicalize, proxyTokens, measureToolDefinition, TOKEN_PROXY_VERSION } from "./token-cost.mjs";
 import {
   runStages,
@@ -509,7 +511,27 @@ function withFixture(fn) {
       fn2(value);
       writeFileSync(p, JSON.stringify(value, null, 2));
     };
-    return fn({ evidenceDir, repoRoot, mutate });
+    /**
+     * Re-point a receipt's `manifestSha256` at the manifest as it now stands on disk.
+     *
+     * The byte binding refuses any manifest that is not the file its receipt was written for,
+     * and it runs BEFORE the isolation and re-derivation logic. That is correct against an
+     * editor and wrong against a test: a fixture that alters a manifest to reach a later check
+     * never gets there, and the suite would then be asserting the binding over and over while
+     * believing it covered everything downstream of it. Re-sealing is how a test says "assume
+     * this manifest was captured, not edited" — so it is deliberately explicit, and the tests
+     * that exist to prove the binding bites must NOT call it.
+     */
+    const reseal = (client, candidate) => {
+      const manifestPath = join(evidenceDir, "real-clients", `${client}-${candidate}.manifest.json`);
+      const digest = sha256Hex(readFileSync(manifestPath, "utf8"));
+      mutate("real-clients/receipt.json", (entries) => {
+        const matching = entries.filter((e) => e.client === client && e.candidate === candidate);
+        assert.equal(matching.length, 1, `expected exactly one receipt for ${client}-${candidate}`);
+        matching[0].manifestSha256 = digest;
+      });
+    };
+    return fn({ evidenceDir, repoRoot, mutate, reseal });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -522,44 +544,60 @@ test("the committed evidence verifies offline, with the full mandatory set", () 
   for (const c of ["v1", "v2"]) {
     assert.deepEqual(Object.keys(verified.cells[c]).sort(), [...MANDATORY_CELLS].sort());
   }
-  // The recorded verdict, pinned to what the evidence ACTUALLY derives today: `incomplete`.
+  // The recorded verdict, pinned to what the evidence ACTUALLY derives today: `adopt-v2`.
   //
-  // This line used to read adopt-v2, and the gap between it and reality is the whole reason
-  // §14 exists. The four real-client captures went stale — a capture input changed after they
-  // were taken — so every mandatory real cell degrades to not-run, not-run dominates (§1), and
-  // the gate has no verdict to give. Meanwhile the committed decision.json and DECISION.md
-  // still said adopt-v2 and `verify:real-client-evidence` exited 0 over the contradiction.
+  // This line has now read all three of its possible values, and the history is the point. It
+  // said adopt-v2 over evidence that derived `incomplete` — the four real captures had gone
+  // stale, so every mandatory real cell degraded to not-run, not-run dominates (§1), and
+  // `verify:real-client-evidence` exited 0 over the contradiction anyway. §14 exists because of
+  // that gap. It was then corrected to `incomplete` — the honest reading of stale evidence —
+  // and it is adopt-v2 again only because four cells were recaptured under isolation that is
+  // now preflight-validated and demonstrated, not assumed.
   //
-  // A recapture is what changes this, and it must change this line WITH the evidence, never
-  // instead of it.
+  // The rule that survives all of it: this line changes WITH the evidence, never instead of it.
   const decision = decide(verified);
-  assert.equal(decision.outcome, "incomplete");
-  assert.deepEqual(decision.aggregates, { v2: "not-run", v1: "not-run" });
-  // Non-vacuity: assert the CAUSE, not just the status. A not-run with an empty or missing
-  // cause would satisfy the line above while telling a reader nothing about why the gate could
-  // not run — and "the gate could not run" is only an honest answer when it says what stopped it.
+  assert.equal(decision.outcome, "adopt-v2");
+  assert.deepEqual(decision.aggregates, { v2: "pass", v1: "pass" });
+  // Non-vacuity: a pass has to be a pass for a stated reason. Assert the isolation each cell
+  // claims, from the manifest rather than the cell, because the isolation gate (ISS-047) turns
+  // an unisolated capture into not-run and an all-pass row is exactly what that gate must never
+  // be able to produce silently.
   for (const candidate of ["v1", "v2"]) {
     for (const client of ["claude-code", "codex"]) {
       const cell = verified.cells[candidate][`real:${client}`];
-      assert.equal(cell.status, "not-run", `${candidate}/real:${client} is not not-run`);
-      assert.match(
-        cell.cause,
-        /changed since these captures were taken/,
-        `${candidate}/real:${client} is not-run for an unstated reason`,
-      );
+      assert.equal(cell.status, "pass", `${candidate}/real:${client} is not a pass`);
+      assert.ok(!cell.cause, `${candidate}/real:${client} passed while carrying a cause`);
     }
   }
-  // No cell reached a pass, so nothing qualified one. Pinned as an exact set rather than a
-  // count: a qualification appearing here would mean a cell contributed to a decision the
-  // aggregates above say was never reached.
-  assert.deepEqual(verified.report.qualifications, []);
+  // Every real cell carries the resolutions-not-audited qualification and nothing else. This is
+  // the first time this set has been reachable at all: it needs four real cells that PASS, and
+  // until the recapture there were none. Pinned as an exact set, so a qualification that
+  // silently stops being emitted — the failure mode where a caveat quietly leaves the record
+  // while the pass it qualifies stays — fails here.
+  assert.deepEqual(
+    verified.report.qualifications.map((q) => `${q.candidate}/${q.cell}/${q.kind}`).sort(),
+    [
+      "v1/real:claude-code/resolutions-not-audited",
+      "v1/real:codex/resolutions-not-audited",
+      "v2/real:claude-code/resolutions-not-audited",
+      "v2/real:codex/resolutions-not-audited",
+    ],
+    "the real-client passes are not carrying exactly their expected qualifications",
+  );
+  for (const q of verified.report.qualifications) {
+    assert.match(q.detail, /established by the scripted cells, not by this one/, "qualification has no stated scope");
+  }
 });
 
 test("a cell that ran without user-config isolation is not-run — it cannot certify an adoption", () => {
-  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+  withFixture(({ evidenceDir, repoRoot, mutate, reseal }) => {
     // Flip the one client that IS isolated today. If the rule were hardcoded to Codex, or read
     // from anywhere but the manifest, this would not move.
     mutate("real-clients/claude-code-v2.manifest.json", (m) => (m.isolation.userConfigIsolated = false));
+    // Stand this up as a capture that RAN unisolated, rather than a manifest edited after the
+    // fact — otherwise the byte binding refuses first and the isolation rule below is never
+    // reached. The refusal itself is proved by the test that follows this one.
+    reseal("claude-code", "v2");
     const verified = verifyEvidence({ evidenceDir, repoRoot });
     const cell = verified.cells.v2["real:claude-code"];
     // This assertion is the inversion of what it used to be, and the inversion IS the fix.
@@ -582,7 +620,7 @@ test("a cell that ran without user-config isolation is not-run — it cannot cer
 });
 
 test("an unisolated capture is still fully validated — the downgrade is not a way to skip checks", () => {
-  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+  withFixture(({ evidenceDir, repoRoot, mutate, reseal }) => {
     // The downgrade is applied to the PUBLISHED cell, after every receipt, manifest-binding and
     // re-derivation check has run against the RECORDED status. If it were applied early — by
     // returning or continuing at the isolation flag — a manifest could dodge validation by
@@ -591,10 +629,36 @@ test("an unisolated capture is still fully validated — the downgrade is not a 
       m.isolation.userConfigIsolated = false;
       m.digests.derivationDigest = "0".repeat(64);
     });
+    // Re-seal, so this is NOT caught by the byte binding. Without it the refusal below arrives
+    // from the first check in the chain and proves only that some check ran — which is what the
+    // assertion's own alternation used to permit, and it would have passed just as happily if
+    // every check after the binding were dead. Sealed, the only thing left to catch this is the
+    // digest comparison itself, so the refusal names it.
+    reseal("claude-code", "v2");
     assert.throws(
       () => verifyEvidence({ evidenceDir, repoRoot }),
-      /receipt digests disagree with the manifest|is not the file its receipt was written for/,
-      "an unisolated capture skipped the manifest/receipt binding checks",
+      /receipt digests disagree with the manifest/,
+      "an unisolated capture skipped the re-derivation check",
+    );
+  });
+});
+
+test("the byte binding refuses a manifest edited after its receipt was written", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    // The companion to the two tests above, and the reason `reseal` has to be opt-in. Here the
+    // manifest is edited and the receipt is left alone — an editor, not a capture — and the
+    // binding is the check that has to notice. It went eight review rounds without ever
+    // executing: `manifestBytes` was referenced and never defined, so the line threw
+    // ReferenceError, and no committed evidence had reached it because every path refused
+    // earlier. A check that crashes when reached is indistinguishable from one that passes,
+    // until something reaches it.
+    mutate("real-clients/claude-code-v2.manifest.json", (m) => {
+      m.clientStdout.hasCompletionMarker = !m.clientStdout.hasCompletionMarker;
+    });
+    assert.throws(
+      () => verifyEvidence({ evidenceDir, repoRoot }),
+      /committed manifest is not the file its receipt was written for/,
+      "a manifest edited after its receipt was accepted",
     );
   });
 });
@@ -806,6 +870,45 @@ test("the generators are deterministic, pinned against literals the generators d
   assert.equal(pinned, 5, "the golden table lost an artifact");
 });
 
+/**
+ * A runnable COPY of verify-evidence.mjs: its transitive relative-import graph, every bound
+ * input, and the evidence directory, laid out so the copied script's own `HERE` resolves to the
+ * copy rather than to the repository.
+ *
+ * The graph is walked rather than listed. A hand-maintained list of modules to copy is the same
+ * construct that produced the drainTimedOut divergence — a second table describing something the
+ * program already knows — and it would rot the first time an import is added. A module the walk
+ * misses does not pass silently either: the subprocess dies with ERR_MODULE_NOT_FOUND, and the
+ * clean-run assertion below is what turns that into a failure.
+ */
+function withScriptFixture(fn) {
+  const dir = mkdtempSync(join(tmpdir(), "verify-script-fixture-"));
+  try {
+    const copyFile = (rel) => {
+      const dest = join(dir, rel);
+      mkdirSync(dirname(dest), { recursive: true });
+      cpSync(join(REPO, rel), dest);
+    };
+    const seen = new Set();
+    const walk = (rel) => {
+      if (seen.has(rel)) return;
+      seen.add(rel);
+      copyFile(rel);
+      const source = readFileSync(join(REPO, rel), "utf8");
+      for (const m of source.matchAll(/from\s+"(\.[^"]*)"/g)) {
+        walk(join(dirname(rel), m[1]));
+      }
+    };
+    walk("spikes/mcp/verify-evidence.mjs");
+    for (const rel of BOUND_INPUTS) copyFile(rel);
+    const evidenceDir = join(dir, "spikes", "mcp", "evidence");
+    cpSync(EVIDENCE_DIR, evidenceDir, { recursive: true });
+    return fn({ scriptPath: join(dir, "spikes", "mcp", "verify-evidence.mjs"), evidenceDir });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 test("the verify script itself runs the recorded-outcome check, not just input verification", () => {
   // The WIRING, pinned separately from the behaviour — and it had to be, because it was not
   // covered: reverting `main()` from verifyRecordedOutcome() back to verifyEvidence() left every
@@ -813,33 +916,53 @@ test("the verify script itself runs the recorded-outcome check, not just input v
   // survived. It is the §14.3 lesson stated as a mutation: an enforcer that `test:all` does not
   // reach is a promise rather than a gate, and this file was proving the promise.
   //
-  // Run as a SUBPROCESS, against the real evidence directory, exactly as
-  // `npm run verify:real-client-evidence` does.
-  const proc = spawnSync(process.execPath, [join(HERE, "verify-evidence.mjs")], { encoding: "utf8" });
-  assert.equal(proc.status, 2, `the verify script exited ${proc.status}; stderr: ${proc.stderr}`);
-  assert.match(
-    proc.stderr,
-    /evidence INVALID: DECISION\.md is present, but the derived outcome is 'incomplete'/,
-    "the verify script is not running the recorded-outcome check",
-  );
-  // Non-vacuity: a script that crashed on startup would also exit nonzero with something on
-  // stderr. It must have got far enough to print nothing on stdout AND to name the artifact.
-  assert.equal(proc.stdout, "", "the script emitted a verified result while refusing");
+  // Run as a SUBPROCESS, exactly as `npm run verify:real-client-evidence` does. It used to run
+  // against the real evidence directory and expect exit 2, which worked only while the
+  // repository was in the broken state §14.1 exists to refuse — the assertion would have
+  // evaporated the moment the recapture fixed it, taking the mutation coverage with it. A test
+  // whose subject is "does the entry point call the check" must not depend on the repository
+  // failing that check, so the disagreement is now manufactured in a copy.
+  withScriptFixture(({ scriptPath, evidenceDir }) => {
+    const run = () => spawnSync(process.execPath, [scriptPath], { encoding: "utf8" });
+
+    // Non-vacuity, and fixture fidelity in one assertion: the untouched copy must verify clean.
+    // If the copy were missing a module, an input or an artifact, it would refuse here, and
+    // every refusal below would then be evidence of a broken fixture rather than of a working
+    // check. This is the assertion that makes the next one mean what it says.
+    const clean = run();
+    assert.equal(clean.status, 0, `the copied tree does not verify clean; stderr: ${clean.stderr}`);
+
+    // Now break ONLY the recorded outcome. Every input digest still matches, so verifyEvidence()
+    // alone is satisfied — which is precisely the state the reverted `main()` would exit 0 over.
+    const doc = join(evidenceDir, OUTCOME_ARTIFACTS.decisionDoc);
+    writeFileSync(doc, readFileSync(doc, "utf8") + "\nappended after the fact\n");
+
+    const proc = run();
+    assert.equal(proc.status, 2, `the verify script exited ${proc.status}; stderr: ${proc.stderr}`);
+    assert.match(
+      proc.stderr,
+      /evidence INVALID: DECISION\.md does not match the artifact regenerated from the current evidence/,
+      "the verify script is not running the recorded-outcome check",
+    );
+    assert.equal(proc.stdout, "", "the script emitted a verified result while refusing");
+  });
 });
 
-test("verifyRecordedOutcome refuses the repository as it actually stands", () => {
-  // The end-to-end path, against the real evidence directory rather than a fixture. Today the
-  // captures are stale, so the derived outcome is incomplete while DECISION.md and decision.json
-  // are still committed — the state §14.1 exists to refuse. This is the assertion that has to be
-  // revisited by the recapture, and it is deliberately specific about WHY it refuses so that a
-  // different failure cannot silently satisfy it.
-  assert.throws(
-    () => verifyRecordedOutcome(),
-    (error) =>
-      error instanceof EvidenceError &&
-      /DECISION\.md is present, but the derived outcome is 'incomplete'/.test(error.message),
-    "the committed decision artifacts are no longer being checked against the evidence",
-  );
+test("verifyRecordedOutcome accepts the repository as it actually stands", () => {
+  // The end-to-end path, against the real evidence directory rather than a fixture, and the
+  // assertion the recapture was supposed to change. It previously pinned the REFUSAL: the
+  // captures were stale, so the derived outcome was incomplete while DECISION.md and
+  // decision.json were still committed — the contradiction §14.1 exists to catch, and which
+  // `verify:real-client-evidence` had been exiting 0 over.
+  //
+  // It now pins the other side. That is a weaker statement on its own — a check that refuses
+  // nothing also "accepts" — so it is not left on its own: the fixture tests above prove this
+  // same function refuses a tampered doc, a missing artifact and a stale verdict, and the
+  // subprocess test proves the shipped entry point is what runs it. What this adds, and what
+  // nothing else can, is that the committed artifacts in THIS repository regenerate byte for
+  // byte from THIS evidence.
+  const { decision } = verifyRecordedOutcome();
+  assert.equal(decision.outcome, "adopt-v2", "the repository's recorded outcome is no longer adopt-v2");
 });
 
 test("a capture that executed a hostile configuration is refused, not qualified", () => {
@@ -1641,4 +1764,90 @@ test("which clients can isolate their user configuration is a literal, not a man
   // manufactured by an unchecked factual claim. If a future codex removes the flag, the
   // capture preflight is what reports it (isolation-unavailable), not this table.
   assert.deepEqual(CAN_ISOLATE_USER_CONFIG, { "claude-code": true, codex: true });
+});
+
+// --- the manifest shape has two owners, and one enforcer -------------------------------------
+//
+// A sanitized manifest is described twice, on purpose. sanitize.mjs's SCHEMA is the PRODUCER's
+// table: what capture.mjs is permitted to write. verify-evidence.mjs's MANIFEST_SPEC is the
+// AUDITOR's table: what a manifest read back off disk is permitted to contain. The auditor must
+// not import the producer's table — an auditor that asks the thing it checks what to expect
+// agrees with it by construction — so the two are independent literals, and nothing in the
+// program makes them agree.
+//
+// They diverged. `drainTimedOut` was added to the producer and never to the auditor, and the
+// gate refused every freshly captured manifest with "carries unknown field 'drainTimedOut'".
+// It stayed invisible for as long as the committed manifests predated the field: the auditor
+// only ever saw manifests written before the divergence. The first real capture after it found
+// the bug, having spent four paid cells to do so.
+//
+// This is the shape plan §14.3 names — an invariant stated without naming its enforcer. "The
+// two tables describe the same artifact" was true as prose and false as fact, because no
+// executable check owned it. These two tests are that enforcer.
+
+/** kind (producer vocabulary) -> JSON type (auditor vocabulary). One entry per kind, not per
+ *  field: adding a field with a known kind does not touch this table, so it stays stable while
+ *  the field tables churn. Adding a NEW kind fails here until it is classified, which is the
+ *  intended cost of inventing one. */
+const KIND_TO_JSON_TYPE = {
+  argv: "array",
+  boolean: "boolean",
+  "digest-map": "object",
+  "digest-set": "object",
+  enum: "string",
+  "env-names": "array",
+  environmental: "object",
+  exit: "object",
+  flags: "object",
+  frames: "array",
+  isolation: "object",
+  "placeholder-path": "string",
+  retries: "array",
+  sha256: "string",
+  spawn: "object",
+  "stream-stats": "object",
+  termination: "object",
+  token: "string",
+  "version-line": "string",
+  wrapper: "object",
+};
+
+test("the producer's manifest schema and the auditor's manifest spec name the same fields", () => {
+  const producer = Object.keys(SANITIZE_SCHEMA).sort();
+  const auditor = Object.keys(MANIFEST_SPEC).sort();
+
+  // Non-vacuity. Both sides are read out of the modules under test, so a broken import that
+  // yielded {} would make the comparison below trivially true. Pinning the count as an
+  // independent literal means the test cannot pass over nothing.
+  assert.equal(producer.length, 30, "expected 30 manifest fields; update this count deliberately");
+
+  assert.deepEqual(
+    auditor,
+    producer,
+    "sanitize.mjs SCHEMA and verify-evidence.mjs MANIFEST_SPEC must name the same fields — " +
+      "a field in only one of them is either an unaudited field or an impossible refusal",
+  );
+});
+
+test("every manifest field's producer kind agrees with the auditor's declared JSON type", () => {
+  const kinds = new Set(Object.values(SANITIZE_SCHEMA).map((s) => s.kind));
+  assert.equal(kinds.size, 20, "expected 20 distinct kinds; update this count deliberately");
+
+  for (const kind of kinds) {
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(KIND_TO_JSON_TYPE, kind),
+      `no JSON type declared for producer kind '${kind}' — classify it before using it`,
+    );
+  }
+
+  for (const [field, spec] of Object.entries(SANITIZE_SCHEMA)) {
+    // Nullability is deliberately not cross-checked: the producer's table does not express it,
+    // so only `type` is comparable. Key equality above is what keeps that gap from widening.
+    assert.equal(
+      MANIFEST_SPEC[field].type,
+      KIND_TO_JSON_TYPE[spec.kind],
+      `manifest field '${field}': producer writes kind '${spec.kind}' ` +
+        `(JSON ${KIND_TO_JSON_TYPE[spec.kind]}) but the auditor expects ${MANIFEST_SPEC[field].type}`,
+    );
+  }
 });

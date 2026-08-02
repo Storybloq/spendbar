@@ -190,7 +190,10 @@ const CELL_SPEC = {
 
 // The sanitized capture manifest, exactly as sanitize.mjs's FIELD_MAP emits it. The verifier
 // re-derives the cell status from this record, so its shape is load-bearing.
-const MANIFEST_SPEC = {
+// The verifier's OWN table of what a manifest may contain. It deliberately does not import
+// sanitize.mjs's SCHEMA: an auditor that asks the producer what shape to expect cannot catch a
+// producer that emits the wrong shape. The two are held equal by a test, not by an import.
+export const MANIFEST_SPEC = {
   captureId: { type: "string" },
   client: { type: "string" },
   candidate: { type: "string" },
@@ -210,6 +213,7 @@ const MANIFEST_SPEC = {
   environmental: { type: "object", nullable: true },
   isolation: { type: "object" },
   timedOut: { type: "boolean" },
+  drainTimedOut: { type: "boolean" },
   lastPhase: { type: "string" },
   clientExit: { type: "object", nullable: true },
   serverTermination: { type: "object", nullable: true },
@@ -705,7 +709,7 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       // satisfied, and `classify()` then re-derived a status from the edited assertions. The
       // receipt records the digest of the manifest it sanitized, taken while the bytes still
       // existed, and the committed file has to be that file (round 2, chunk 12).
-      if (sha256(manifestBytes) !== receipt.manifestSha256) {
+      if (sha256(readFileSync(manifestPath)) !== receipt.manifestSha256) {
         refuse(`${what} committed manifest is not the file its receipt was written for — it has been edited since`);
       }
       // An independent cross-check of the same counters from the other record.

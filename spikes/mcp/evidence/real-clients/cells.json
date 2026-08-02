@@ -1,22 +1,50 @@
 {
   "v2": {
     "claude-code": {
-      "status": "not-run",
-      "cause": "binary-missing: claude --version failed"
+      "status": "pass",
+      "traceDigest": "56c26f9f92fafa5d494fea8b5589ac15b3714afe80ead05d4c1729611f232256",
+      "clientVersion": "2.1.220 (Claude Code)",
+      "attempts": [
+        {
+          "captureId": "claude-code-v2-d02aee98",
+          "outcome": "pass"
+        }
+      ]
     },
     "codex": {
-      "status": "not-run",
-      "cause": "binary-missing: codex --version failed"
+      "status": "pass",
+      "traceDigest": "bcd24560eab303fcccfc5e36fb204789445187fad7d1b0774c4a66edfa0fa12a",
+      "clientVersion": "codex-cli 0.144.0",
+      "attempts": [
+        {
+          "captureId": "codex-v2-560e7677",
+          "outcome": "pass"
+        }
+      ]
     }
   },
   "v1": {
     "claude-code": {
-      "status": "not-run",
-      "cause": "binary-missing: claude --version failed"
+      "status": "pass",
+      "traceDigest": "8dd8077347d30ae8046d2ddf21f0ac4222afec898a2db9023a6bc56b8c4561aa",
+      "clientVersion": "2.1.220 (Claude Code)",
+      "attempts": [
+        {
+          "captureId": "claude-code-v1-367118c1",
+          "outcome": "pass"
+        }
+      ]
     },
     "codex": {
-      "status": "not-run",
-      "cause": "binary-missing: codex --version failed"
+      "status": "pass",
+      "traceDigest": "58826533f27f46427d8607839dbe55d3b0b109ce0775c01de539243d93caafde",
+      "clientVersion": "codex-cli 0.144.0",
+      "attempts": [
+        {
+          "captureId": "codex-v1-f9abb76c",
+          "outcome": "pass"
+        }
+      ]
     }
   }
 }

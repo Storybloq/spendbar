@@ -335,6 +335,21 @@ test("every client invocation carries its user-configuration isolation flags", (
         `${client} invocation declares no probe server`,
       );
     }
+    // Isolating codex's configuration removes whatever approved the tool call, and the measured
+    // consequence is that codex CANCELS its own tools/call and never sends it. The grant has to
+    // travel with the isolation or the capture scores the client's approval UX as an SDK
+    // conformance failure. Asserted as a literal here for the same reason as the flag list.
+    const { args: codexArgs } = buildClientInvocation("codex", "p", wrapperCmd, scratch);
+    assert.ok(
+      codexArgs.some((a) => String(a) === 'mcp_servers.spendbar-probe.default_tools_approval_mode="approve"'),
+      "the codex invocation does not approve the probe tool, so the client will cancel its own tools/call",
+    );
+    // Scoped to the probe server, and NOT by disabling the sandbox — which also works and is
+    // the wrong trade.
+    assert.ok(
+      !codexArgs.includes("--dangerously-bypass-approvals-and-sandbox"),
+      "the capture is bypassing the sandbox to solve a tool-approval problem",
+    );
     // Non-vacuity: an empty flag table would satisfy every loop above.
     assert.equal(Object.keys(REQUIRED_ISOLATION_FLAGS).length, 2);
     assert.equal(Object.values(REQUIRED_ISOLATION_FLAGS).flat().length, 6);
@@ -355,6 +370,12 @@ test("the preflight refuses a client that does not advertise its isolation flags
       return [process.execPath, [stub]];
     };
     const wanted = REQUIRED_ISOLATION_FLAGS.codex;
+    // Non-vacuity, asserted HERE rather than relied on from the invocation test above: an empty
+    // list makes the drop-one loop run zero times while the positive assertion still passes,
+    // because validateFlags(binary, help, []) is trivially ok. A test has to be non-vacuous on
+    // its own terms — depending on a sibling test's count is how a guard goes missing when the
+    // sibling is edited.
+    assert.equal(wanted.length, 3, "the codex isolation flag list is empty — this test proves nothing");
 
     const [bin, helpArgs] = advertise(wanted);
     assert.equal(validateFlags(bin, helpArgs, wanted).ok, true, "a binary advertising every flag was refused");

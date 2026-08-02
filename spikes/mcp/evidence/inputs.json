@@ -26,7 +26,7 @@
     "spikes/mcp/matrix.mjs": "a1eae6d220d04763b038d74a39de1e2d10ada15460cebbd53846537bfbf87e6c",
     "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
     "spikes/mcp/real-client/capture-wrapper.mjs": "460db92a5a646f2162f47955e167936723b2c91610195f3442ef5cc81e0364a4",
-    "spikes/mcp/real-client/capture.mjs": "326fbea9023e20b8a9e453525cc2c527777c5912ef048066b9ae2dc80d302d54",
+    "spikes/mcp/real-client/capture.mjs": "7fd449a90870ed4dd46ad68b12c6f9034a5c92248277edcb7f455bc4fc29b59f",
     "spikes/mcp/real-client/classify.mjs": "4fb1ad1af831c859645a98b83dc23dc76272a86e3c5d4f87de9197b7cc485b15",
     "spikes/mcp/real-client/normalize.mjs": "b0bc682c11f5c2283175fba052d6b672abdf414f328b3dc791f5f6980f29e066",
     "spikes/mcp/real-client/provenance.mjs": "fbf1141162a8964154b378acb03b973afa2f313b272d8bd58ae022eb3ff95367",

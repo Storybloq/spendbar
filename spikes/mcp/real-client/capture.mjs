@@ -486,6 +486,24 @@ export function buildClientInvocation(client, prompt, wrapperCmd, scratchCwd) {
   // the ONLY MCP server the run can see. Every one of these flags is validated by preflight
   // against `codex exec --help`, and --ignore-user-config is additionally DEMONSTRATED by the
   // malformed-config differential before any quota is spent (codexConfigSuppressionWitness).
+  // AND the tool must be approvable, which isolation is what made visible. With the operator's
+  // config excluded, `codex exec` defaults to an approval mode under which it CANCELS its own
+  // MCP tool call — measured: the client sent initialize and tools/list, the server answered
+  // both correctly, and then the client reported "user cancelled MCP tool call" and never sent
+  // tools/call at all. That is codex's approval UX, not a property of the SDK, and scoring it
+  // as a conformance failure would blame both candidates for the harness.
+  //
+  // It also explains the earlier "passes": they ran with ~/.codex/config.toml loaded, whose
+  // per-project trust entries approved the call. So those cells were only passes because of the
+  // operator's own configuration — exactly what ISS-047 suspected, now demonstrated.
+  //
+  // The grant is deliberately the NARROWEST one that works, and each rejected alternative was
+  // measured, not assumed: a project trust_level override for the scratch cwd did NOT help;
+  // dropping --ephemeral did NOT help; --dangerously-bypass-approvals-and-sandbox DID work and
+  // is rejected anyway, because it disables the sandbox for everything the model might run in
+  // order to fix one server's tool approval. This override is scoped to the probe server this
+  // gate itself launches, leaves the sandbox read-only, and is recorded verbatim in the
+  // manifest's command line. Valid values are auto|prompt|writes|approve.
   const argsJson = JSON.stringify(wrapperCmd.slice(1));
   return {
     binary: "codex",
@@ -497,6 +515,7 @@ export function buildClientInvocation(client, prompt, wrapperCmd, scratchCwd) {
       "--ephemeral",
       "-c", `mcp_servers.spendbar-probe.command=${JSON.stringify(wrapperCmd[0])}`,
       "-c", `mcp_servers.spendbar-probe.args=${argsJson}`,
+      "-c", `mcp_servers.spendbar-probe.default_tools_approval_mode="approve"`,
       prompt,
     ],
   };

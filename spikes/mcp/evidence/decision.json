@@ -11,15 +11,27 @@
   "qualifications": [
     {
       "candidate": "v1",
+      "cell": "real:claude-code",
+      "kind": "resolutions-not-audited",
+      "detail": "the candidate server ran here without resolution instrumentation; module-closure isolation for these bytes is established by the scripted cells, not by this one"
+    },
+    {
+      "candidate": "v1",
       "cell": "real:codex",
-      "kind": "user-config-not-isolated",
-      "detail": "codex ran with the operator's own user configuration reachable; this cell is a pass on this machine, not from a fresh state"
+      "kind": "resolutions-not-audited",
+      "detail": "the candidate server ran here without resolution instrumentation; module-closure isolation for these bytes is established by the scripted cells, not by this one"
+    },
+    {
+      "candidate": "v2",
+      "cell": "real:claude-code",
+      "kind": "resolutions-not-audited",
+      "detail": "the candidate server ran here without resolution instrumentation; module-closure isolation for these bytes is established by the scripted cells, not by this one"
     },
     {
       "candidate": "v2",
       "cell": "real:codex",
-      "kind": "user-config-not-isolated",
-      "detail": "codex ran with the operator's own user configuration reachable; this cell is a pass on this machine, not from a fresh state"
+      "kind": "resolutions-not-audited",
+      "detail": "the candidate server ran here without resolution instrumentation; module-closure isolation for these bytes is established by the scripted cells, not by this one"
     }
   ]
 }
