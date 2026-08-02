@@ -54,6 +54,20 @@ export const FORBIDDEN_ENV = [
   "AWS_SESSION_TOKEN",
 ];
 
+/**
+ * The candidates that exist. `candidate` is interpolated into a repository path AND into a
+ * mkdtemp prefix, and nothing validated it (review round 2, chunk 5): `..` or a separator in
+ * that string reaches outside the candidates directory on the read side and outside the
+ * intended temp subtree on the write side. The CLI that calls this was hardened one chunk ago;
+ * this is the guard for every other caller, present and future.
+ */
+export const CANDIDATES = ["v1", "v2"];
+function assertCandidate(candidate) {
+  if (!CANDIDATES.includes(candidate)) {
+    throw new Error(`unknown candidate '${String(candidate)}' — expected one of ${CANDIDATES.join(", ")}`);
+  }
+}
+
 /** The mutation-tested scratch invariant: temporary roots never resolve inside the repo. */
 export function assertOutsideRepo(path, repo = REPO) {
   const pathReal = realpathSync(path);
@@ -101,9 +115,25 @@ export function treeDigest(dir) {
 // signal arriving between them.
 const liveScratch = new Set();
 let handlersInstalled = false;
+/**
+ * Remove every live scratch root. Each one is attempted independently (review round 2, chunk
+ * 5): the loop used to abort at the first rmSync exception, leaving the remaining roots on disk
+ * AND — in a signal handler — throwing past the process.exit(1) that was supposed to follow, so
+ * the exit handler ran next and retried the same failing entry before reaching the others.
+ * Every entry leaves the set whether or not its removal worked, so nothing is retried forever.
+ */
 function reapScratch() {
-  for (const dir of liveScratch) rmSync(dir, { recursive: true, force: true });
-  liveScratch.clear();
+  const failures = [];
+  for (const dir of [...liveScratch]) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch (error) {
+      failures.push(`${dir}: ${error?.code ?? "unknown"}`);
+    } finally {
+      liveScratch.delete(dir);
+    }
+  }
+  return failures;
 }
 function installReapHandlers() {
   if (handlersInstalled) return;
@@ -111,7 +141,10 @@ function installReapHandlers() {
   process.on("exit", reapScratch);
   for (const sig of ["SIGINT", "SIGTERM"]) {
     process.on(sig, () => {
-      reapScratch();
+      const failures = reapScratch();
+      // Reported, never fatal: a scratch root that could not be removed must not stop the
+      // process from leaving, and must not be silent either.
+      if (failures.length) process.stderr.write(`isolate: scratch left behind — ${failures.join("; ")}\n`);
       process.exit(1);
     });
   }
@@ -129,6 +162,7 @@ function installReapHandlers() {
  * capture whose lockfile digests were still perfectly valid).
  */
 export function assembleCandidateRoot(candidate, { repo = REPO } = {}) {
+  assertCandidate(candidate);
   const candidateDir = join(HERE, "candidates", candidate);
   installReapHandlers();
 
@@ -179,6 +213,7 @@ export function assembleCandidateRoot(candidate, { repo = REPO } = {}) {
  * dependencies this repository currently holds" is checked rather than assumed.
  */
 export function candidateTreeDigest(candidate) {
+  assertCandidate(candidate);
   return treeDigest(join(HERE, "candidates", candidate, "node_modules"));
 }
 
@@ -188,7 +223,19 @@ export function candidateTreeDigest(candidate) {
  * mutation test proves the assertion can fail (and how the offline exfiltration fixture
  * seeds its canary).
  */
-export function buildServerEnv({ resolveLog, extra = {} } = {}) {
+export function buildServerEnv({ resolveLog, unaudited = null, extra = {} } = {}) {
+  // Instrumentation used to be OPTIONAL BY OMISSION (review round 2, chunk 5): `buildServerEnv({})`
+  // returned a perfectly valid-looking environment with no SPENDBAR_RESOLVE_LOG, so a candidate
+  // could execute with none of its resolutions recorded and nothing downstream would know the
+  // audit had not happened. That is exactly how the real-client captures run — and it was
+  // invisible at the call site. Not auditing is still allowed; being silent about it is not.
+  if (!resolveLog && !unaudited) {
+    throw new Error(
+      "buildServerEnv: pass `resolveLog` to audit this candidate's resolutions, or `unaudited: \"<reason>\"` " +
+        "to state on the record that this execution is not audited",
+    );
+  }
+  if (resolveLog && unaudited) throw new Error("buildServerEnv: a run is either audited or not, never both");
   const env = {};
   for (const name of ENV_ALLOWLIST) {
     if (process.env[name] !== undefined) env[name] = process.env[name];
@@ -247,6 +294,23 @@ export function checkResolutions(logPath, root) {
     } else {
       violations.push(entry);
     }
+  }
+  // An empty log was the only vacuous case this refused, and it was not the only one (review
+  // round 2, chunk 5). A log of nothing but `node:` builtins is equally uninformative: it proves
+  // the instrument loaded and proves NOTHING about where the candidate's own closure came from,
+  // yet it returned zero violations and read as a clean audit. A server that resolved not one
+  // file inside its own root did not demonstrate isolation; it demonstrated that it never got
+  // as far as loading itself.
+  if (inside === 0) {
+    throw new Error(
+      `resolution log has ${builtins} builtin resolution(s) and none inside the root — ` +
+        `nothing about the candidate's own closure was observed`,
+    );
+  }
+  // The three buckets are exhaustive by construction. Asserting it here means a future edit
+  // that adds a fourth path cannot silently drop entries out of the audit.
+  if (builtins + inside + violations.length !== lines.length) {
+    throw new Error(`resolution log accounting does not add up: ${lines.length} lines, ${builtins + inside + violations.length} classified`);
   }
   return { total: lines.length, builtins, inside, violations };
 }

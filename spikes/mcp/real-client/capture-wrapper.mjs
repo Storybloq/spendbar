@@ -88,7 +88,13 @@ writeStatus();
 
 const child = spawn(process.execPath, ["server.mjs"], {
   cwd: root,
-  env: buildServerEnv({}),
+  // NOT audited, said out loud. A real-client capture runs the candidate server as the client's
+  // MCP server, and adding a resolution log here would put a fifth stream in the retained
+  // capture that the receipt roster, the manifest schema and the sanitizer all know nothing
+  // about. The resolution audit is therefore the scripted matrix's guarantee, not this cell's,
+  // and verify-evidence qualifies every real-client pass accordingly rather than letting a
+  // reader assume otherwise (review round 2, chunk 5).
+  env: buildServerEnv({ unaudited: "real-client capture: resolutions are audited by the scripted matrix, not here" }),
   stdio: ["pipe", "pipe", "pipe"],
 });
 

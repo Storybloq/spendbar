@@ -614,6 +614,23 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       if (rec.clientVersion !== undefined && rec.clientVersion !== manifest.clientVersion) {
         refuse(`${what} clientVersion disagrees with the manifest`);
       }
+      // Every real-client cell that RAN carries this, and it is not a defect in the cell — it
+      // is the shape of the evidence. The candidate server in a real-client capture is spawned
+      // by the tee wrapper without a resolution log, so nothing enumerates where its module
+      // closure actually resolved from; that guarantee comes from the scripted cells, which run
+      // the same server bytes from the same assembled root with the instrument loaded. Saying
+      // so on every real pass is the difference between a reader knowing which cells prove
+      // isolation and a reader assuming all of them do (review round 2, chunk 5).
+      if (rec.status !== "not-run") {
+        qualifications.push({
+          candidate,
+          cell: `real:${client}`,
+          kind: "resolutions-not-audited",
+          detail:
+            "the candidate server ran here without resolution instrumentation; module-closure " +
+            "isolation for these bytes is established by the scripted cells, not by this one",
+        });
+      }
       cells[candidate][`real:${client}`] = rec;
     }
   }

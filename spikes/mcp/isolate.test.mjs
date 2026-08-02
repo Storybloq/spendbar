@@ -22,7 +22,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 
@@ -36,6 +36,8 @@ import {
   checkResolutions,
   resolveFromRoot,
   treeDigest,
+  candidateTreeDigest,
+  CANDIDATES,
 } from "./isolate.mjs";
 import { descendantsFor } from "./conformance.mjs";
 
@@ -70,7 +72,7 @@ test("the constructed environment contains only allowlisted names plus explicit 
 test("a parent-environment variable does not leak into the constructed environment", () => {
   process.env.SPENDBAR_PARENT_POLLUTION = "present";
   try {
-    assert.ok(!("SPENDBAR_PARENT_POLLUTION" in buildServerEnv({})));
+    assert.ok(!("SPENDBAR_PARENT_POLLUTION" in buildServerEnv({ unaudited: "env-construction test" })));
   } finally {
     delete process.env.SPENDBAR_PARENT_POLLUTION;
   }
@@ -79,7 +81,7 @@ test("a parent-environment variable does not leak into the constructed environme
 test("a forbidden credential variable present in the PARENT env never reaches the child", () => {
   process.env.GITHUB_TOKEN = "synthetic-parent-value-0000";
   try {
-    assert.ok(!("GITHUB_TOKEN" in buildServerEnv({})));
+    assert.ok(!("GITHUB_TOKEN" in buildServerEnv({ unaudited: "env-construction test" })));
   } finally {
     delete process.env.GITHUB_TOKEN;
   }
@@ -88,7 +90,7 @@ test("a forbidden credential variable present in the PARENT env never reaches th
 test("mutation: adding a forbidden credential variable back makes the assertion throw", () => {
   for (const name of FORBIDDEN_ENV) {
     assert.throws(
-      () => buildServerEnv({ extra: { [name]: "synthetic-0000" } }),
+      () => buildServerEnv({ unaudited: "env-construction test", extra: { [name]: "synthetic-0000" } }),
       new RegExp(name),
       `forbidden variable ${name} was accepted`,
     );
@@ -297,11 +299,70 @@ test("a data: URL resolution is a violation, never a builtin", async () => {
   // Executable code from nowhere on disk — the checker must not wave it through.
   await withTempDir((dir) => {
     const log = join(dir, "log.ndjson");
-    writeFileSync(log, JSON.stringify({ kind: "esm", request: "x", resolved: "data:text/javascript,export default 1" }) + "\n");
+    // One genuine in-root resolution alongside it, so what this test proves is that the data:
+    // URL is a violation — not merely that a log with nothing inside the root is refused as
+    // vacuous, which is a different guard with its own test.
+    const real = join(dir, "server.mjs");
+    writeFileSync(real, "export default 1\n");
+    writeFileSync(
+      log,
+      JSON.stringify({ kind: "esm", request: "./server.mjs", resolved: pathToFileURL(real).href }) + "\n" +
+        JSON.stringify({ kind: "esm", request: "x", resolved: "data:text/javascript,export default 1" }) + "\n",
+    );
     const r = checkResolutions(log, dir);
     assert.equal(r.builtins, 0);
+    assert.equal(r.inside, 1);
     assert.equal(r.violations.length, 1);
   });
+});
+
+
+test("an execution is either audited or says on the record that it is not", () => {
+  // Instrumentation used to be optional BY OMISSION: `buildServerEnv({})` returned a valid
+  // environment with no resolution log, so a candidate could run with none of its resolutions
+  // recorded and no call site said so. That is how the real-client captures run — and it was
+  // invisible. Not auditing is still allowed; being silent about it is not.
+  assert.throws(() => buildServerEnv({}), /resolveLog|unaudited/);
+  assert.throws(() => buildServerEnv(), /resolveLog|unaudited/);
+  assert.doesNotThrow(() => buildServerEnv({ unaudited: "stated reason" }));
+  assert.ok(!("SPENDBAR_RESOLVE_LOG" in buildServerEnv({ unaudited: "stated reason" })));
+  assert.equal(buildServerEnv({ resolveLog: "/tmp/x.ndjson" }).SPENDBAR_RESOLVE_LOG, "/tmp/x.ndjson");
+  // Claiming both is a contradiction about the same run, not a preference to resolve.
+  assert.throws(() => buildServerEnv({ resolveLog: "/tmp/x.ndjson", unaudited: "why" }), /either audited or not/);
+});
+
+test("the real-client wrapper states its unaudited reason rather than omitting the log", () => {
+  // The one production call site that does not audit. If it ever goes back to buildServerEnv({})
+  // it will throw at capture time — but this catches it without spending a paid run.
+  const src = readFileSync(join(HERE, "real-client", "capture-wrapper.mjs"), "utf8");
+  assert.match(src, /buildServerEnv\(\{\s*unaudited:/);
+});
+
+test("a resolution log of nothing but builtins is vacuous, not clean", async () => {
+  // The empty log was refused; this one was not, and it is just as uninformative. It proves the
+  // instrument loaded and proves nothing about where the candidate's own closure came from.
+  await withTempDir((dir) => {
+    const log = join(dir, "log.ndjson");
+    writeFileSync(
+      log,
+      [
+        JSON.stringify({ kind: "esm", request: "node:path", resolved: "node:path" }),
+        JSON.stringify({ kind: "cjs", request: "fs", resolved: "fs" }),
+      ].map((l) => l + "\n").join(""),
+    );
+    assert.throws(() => checkResolutions(log, dir), /none inside the root/);
+  });
+});
+
+test("a candidate name is validated before it reaches a path", () => {
+  // `candidate` is interpolated into a repository path AND a mkdtemp prefix, and nothing
+  // checked it: `..` reaches outside the candidates directory on the read side and outside the
+  // intended temp subtree on the write side.
+  for (const bad of ["../../etc", "v1/../..", "v3", "", "v1\u0000", "/absolute"]) {
+    assert.throws(() => assembleCandidateRoot(bad), /unknown candidate/, JSON.stringify(bad));
+    assert.throws(() => candidateTreeDigest(bad), /unknown candidate/, JSON.stringify(bad));
+  }
+  assert.deepEqual(CANDIDATES, ["v1", "v2"]);
 });
 
 test("mutation: treeDigest's record encoding is unambiguous — trees that COLLIDE under raw concatenation differ", async () => {
