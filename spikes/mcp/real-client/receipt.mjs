@@ -28,7 +28,9 @@
 import { createHash } from "node:crypto";
 import {
   closeSync,
+  constants as fsConstants,
   existsSync,
+  fstatSync,
   fsyncSync,
   lstatSync,
   openSync,
@@ -36,7 +38,6 @@ import {
   readdirSync,
   renameSync,
   rmSync,
-  writeFileSync,
   writeSync,
 } from "node:fs";
 import { join, dirname, resolve } from "node:path";
@@ -48,7 +49,17 @@ import { classify, toCellStatus, InvalidRecordError } from "./classify.mjs";
 import { normalize } from "./normalize.mjs";
 import { CAPTURE_INPUTS, RECEIPT_SCHEMA_VERSION, staleCaptureInputs } from "./provenance.mjs";
 import { sanitize, assertNoPersonalData } from "./sanitize.mjs";
-import { RETAINED_DIR, PROMPT_TEMPLATE, PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER, OWNER_MARKER } from "./capture.mjs";
+import {
+  RETAINED_DIR,
+  PROMPT_TEMPLATE,
+  PROMPT_TEMPLATE_SHA256,
+  COMPLETION_MARKER,
+  OWNER_MARKER,
+  MAX_CLIENT_STREAM_BYTES,
+  READY_LINE,
+  SERVER_FRAME_ON_STDERR,
+  disclosesEnvValue,
+} from "./capture.mjs";
 import { isDirectEntry } from "../../../scripts/direct-entry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -123,15 +134,31 @@ export function openCapture(id, retainedDir = RETAINED_DIR, { uid = process.getu
   if (unexpected.length) problems.push(`${id}: unexpected file(s) [${unexpected.join(", ")}]`);
   if (missing.length) problems.push(`${id}: missing required file(s) [${missing.join(", ")}]`);
 
+  // Opened ONCE per file, with O_NOFOLLOW, and then stat'ed and read through that same
+  // descriptor. lstat-then-readFileSync judged one inode and read another: anything able to
+  // replace a file with a symlink between the two calls got its bytes verified against
+  // somebody else's mode and type (review round 2, chunk 8). O_NOFOLLOW makes the swap fail
+  // the open instead, and fstat/read on the descriptor cannot drift from what was opened.
   const bytes = {};
   for (const name of present) {
-    const fst = lstatSync(join(dir, name), { throwIfNoEntry: false });
-    if (!fst || !fst.isFile()) {
-      problems.push(`${id}: '${name}' is not a regular file`);
+    let fd;
+    try {
+      fd = openSync(join(dir, name), fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    } catch (error) {
+      problems.push(`${id}: '${name}' could not be opened without following a link (${error.code ?? error.message})`);
       continue;
     }
-    if ((fst.mode & 0o777) !== 0o600) problems.push(`${id}: '${name}' mode is not 0600`);
-    bytes[name] = readFileSync(join(dir, name));
+    try {
+      const fst = fstatSync(fd);
+      if (!fst.isFile()) {
+        problems.push(`${id}: '${name}' is not a regular file`);
+        continue;
+      }
+      if ((fst.mode & 0o777) !== 0o600) problems.push(`${id}: '${name}' mode is not 0600`);
+      bytes[name] = readFileSync(fd);
+    } finally {
+      closeSync(fd);
+    }
   }
   return { dir, bytes, problems };
 }
@@ -177,15 +204,8 @@ export function verifyCapture(id, bytes, evidenceDir) {
     }
   }
 
-  // 3. The predicates over the client's own streams, recomputed from the bytes rather than read
-  //    back from the record that asserted them.
+  // 3. The client's own stdout, decoded once — every predicate over it is re-derived in 5b.
   const clientText = bytes["client-stdout.raw"].toString("utf8");
-  if (raw.clientStdout?.hasCompletionMarker !== clientText.includes(COMPLETION_MARKER)) {
-    note(`${id}: the recorded completion-marker fact is not what the client's stdout shows`);
-  }
-  if (raw.clientStdout?.containsNonce !== clientText.includes(raw.nonce)) {
-    note(`${id}: the recorded nonce-disclosure fact is not what the client's stdout shows`);
-  }
 
   // 4. The prompt actually passed, reconstructed from the committed template and this run's
   //    nonce — not merely the template's own hash.
@@ -198,9 +218,79 @@ export function verifyCapture(id, bytes, evidenceDir) {
     note(`${id}: the reconstructed prompt does not appear in the recorded command line`);
   }
 
-  // 5. The wrapper's witness must agree with the spawn record it is the witness for.
-  if (raw.spawn?.server?.ok !== (raw.wrapper?.spawned === true)) {
-    note(`${id}: the recorded server-spawn outcome disagrees with the wrapper's witness`);
+  // 5. THE WITNESS FILES. These are retained precisely because the facts they carry — did the
+  //    server process ever start, was the pipe closed cleanly, how did it die — cannot be
+  //    recovered from the protocol streams afterwards. Until review round 2, chunk 8, neither
+  //    file was opened: the check below compared `raw.spawn.server.ok` with `raw.wrapper.spawned`,
+  //    two fields of the same manifest, and a crafted directory could set both to true beside a
+  //    wrapper status that recorded no spawn at all. `server-exit.json` was never read either,
+  //    so a server killed by a signal could be receipted as having terminated cleanly.
+  //
+  //    The derivation is capture.mjs's, repeated here rather than imported, because the point is
+  //    to re-derive the manifest's claim from the bytes it was derived from.
+  let wrapperStatus;
+  try {
+    wrapperStatus = parseStrictJson(bytes["wrapper-status.json"].toString("utf8"));
+  } catch (error) {
+    return [...problems, `${id}: wrapper-status.json is not strictly-parseable JSON (${error.message})`];
+  }
+  const rederivedWrapper = {
+    spawned: wrapperStatus?.spawned === true,
+    closed: wrapperStatus?.closed === true,
+    // A status that never got written at all counts as a delivery failure, not as zero — the
+    // same reading capture.mjs takes, for the same reason.
+    forwardErrors: Number.isSafeInteger(wrapperStatus?.forwardErrors) ? wrapperStatus.forwardErrors : 1,
+  };
+  if (JSON.stringify(raw.wrapper) !== JSON.stringify(rederivedWrapper)) {
+    note(`${id}: the manifest's wrapper record is not what wrapper-status.json says`);
+  }
+  if (raw.spawn?.server?.ok !== rederivedWrapper.spawned) {
+    note(`${id}: the recorded server-spawn outcome disagrees with wrapper-status.json`);
+  }
+
+  const exitBytes = bytes["server-exit.json"];
+  let rederivedSignal = null;
+  if (exitBytes !== undefined) {
+    try {
+      rederivedSignal = parseStrictJson(exitBytes.toString("utf8"))?.signal ?? null;
+    } catch (error) {
+      return [...problems, `${id}: server-exit.json is not strictly-parseable JSON (${error.message})`];
+    }
+  }
+  if ((raw.serverTermination?.signal ?? null) !== rederivedSignal) {
+    note(
+      `${id}: the manifest says the server terminated with signal ${JSON.stringify(raw.serverTermination?.signal ?? null)}, ` +
+        `its exit witness says ${JSON.stringify(rederivedSignal)}`,
+    );
+  }
+
+  // 5b. The predicates over the two streams that ARE retained but were never re-derived. Both
+  //     feed pass clauses, so a manifest asserting a ready line that never appeared, or no
+  //     environment disclosure on a stdout that carries one, decided the verdict on its own say-so.
+  const errText = bytes["server-stderr.raw"].toString("utf8");
+  const rederivedStderr = {
+    hasReadyLine: errText.includes(READY_LINE),
+    containsFrames: SERVER_FRAME_ON_STDERR.test(errText),
+  };
+  if (JSON.stringify(raw.serverStderr) !== JSON.stringify(rederivedStderr)) {
+    note(`${id}: the recorded facts about the server's stderr are not what its retained bytes show`);
+  }
+  // The in-memory copy capture.mjs computed these from is BOUNDED; the retained file is not. The
+  // two agree exactly whenever the bound did not bite, and `truncated` is the record of whether
+  // it did — which is itself reproducible from the retained length, so both halves are checked.
+  const rederivedClientStdout = {
+    hasCompletionMarker: clientText.includes(COMPLETION_MARKER),
+    containsNonce: clientText.includes(raw.nonce),
+    // `raw.env` is a manifest claim, so this re-derivation is "given the environment this run
+    // says it passed, does its own stdout disclose one of those values" — a real check over the
+    // retained bytes, and the sanitizer independently refuses any env value it can find.
+    containsAllowlistedEnvValue: disclosesEnvValue(raw.env ?? {}, clientText),
+    truncated:
+      bytes["client-stdout.raw"].length > MAX_CLIENT_STREAM_BYTES ||
+      bytes["client-stderr.raw"].length > MAX_CLIENT_STREAM_BYTES,
+  };
+  if (JSON.stringify(raw.clientStdout) !== JSON.stringify(rederivedClientStdout)) {
+    note(`${id}: the recorded facts about the client's stdout are not what its retained bytes show`);
   }
 
   // 6. Provenance: the digests pinned before the run must still describe this working tree, and
@@ -288,8 +378,28 @@ export function referencedCaptureIds(cells) {
   return ids;
 }
 
-/** Write a JSON file durably: temp file, fsync, rename, then read it back and compare. */
-export function writeDurable(path, value) {
+/** The cell attempt a capture id belongs to, with the cell's own coordinates attached. */
+function attemptFor(cells, captureId) {
+  for (const [candidate, perClient] of Object.entries(cells ?? {})) {
+    for (const [client, cell] of Object.entries(perClient ?? {})) {
+      for (const attempt of cell?.attempts ?? []) {
+        if (attempt.captureId === captureId) return { client, candidate, outcome: attempt.outcome };
+      }
+    }
+  }
+  return {};
+}
+
+/**
+ * STAGE a JSON file durably: write `${path}.writing`, fsync it, and leave it there. The
+ * destination is untouched until `commitStaged` renames it.
+ *
+ * Splitting staging from committing is what makes the two published files a unit (review round
+ * 2, chunk 8). They used to be written one after the other, so a failure on the second left
+ * receipt.json ALREADY REPLACED while the function reported that nothing had been published —
+ * and the replacement could have dropped superseded entries whose raw bytes were gone.
+ */
+export function stageDurable(path, value) {
   const text = JSON.stringify(value, null, 2) + "\n";
   const buf = Buffer.from(text, "utf8");
   const tmp = `${path}.writing`;
@@ -301,8 +411,38 @@ export function writeDurable(path, value) {
   } finally {
     closeSync(fd);
   }
-  renameSync(tmp, path);
-  if (readFileSync(path, "utf8") !== text) throw new Error(`${path} did not read back as written`);
+  return { path, tmp, text };
+}
+
+/**
+ * Rename every staged file into place, then fsync the DIRECTORY.
+ *
+ * The directory fsync is the part that was missing. fsync on the file makes its contents
+ * durable; it says nothing about the rename, which is a directory operation. A crash between
+ * the rename and the next directory flush could therefore lose receipt.json's name — after the
+ * raw captures had been deleted on the strength of it (review round 2, chunk 8). Reading the
+ * file back does not help: that reads the page cache, which is exactly what a crash discards.
+ *
+ * The residual, stated rather than buried: two renames are not one atomic operation, so a crash
+ * BETWEEN them can leave the new receipt.json beside the old capture-inputs.json. Closing that
+ * needs a generation directory and a single pointer swap; it is filed rather than half-done.
+ */
+export function commitStaged(staged, dir) {
+  // A staging step that returned nothing wrote nothing, whatever it reported. Checked here
+  // rather than trusted, because the next thing this authorizes is deletion.
+  for (const entry of staged) {
+    if (!entry?.tmp || !entry?.path) throw new Error("a staged record is missing its file — nothing was published");
+  }
+  for (const { tmp, path } of staged) renameSync(tmp, path);
+  const dfd = openSync(dir, "r");
+  try {
+    fsyncSync(dfd);
+  } finally {
+    closeSync(dfd);
+  }
+  for (const { path, text } of staged) {
+    if (readFileSync(path, "utf8") !== text) throw new Error(`${path} did not read back as written`);
+  }
 }
 
 /**
@@ -317,7 +457,8 @@ export function writeDurable(path, value) {
 export function publishReceipts({
   retainedDir = RETAINED_DIR,
   evidenceDir = EVIDENCE_REAL,
-  write = writeDurable,
+  write = stageDurable,
+  commit = commitStaged,
   uid = process.getuid(),
 } = {}) {
   const messages = [];
@@ -378,7 +519,31 @@ export function publishReceipts({
   for (const entry of superseded) {
     say(`receipt: dropping ${entry.captureId} — no current cell claims it as an attempt`);
   }
-  const byId = new Map(existing.filter((entry) => referenced.has(entry.captureId)).map((e) => [e.captureId, e]));
+
+  // A PRESERVED receipt is the only remaining evidence for a capture whose bytes are gone, so it
+  // is checked as carefully as a fresh one can be. Until review round 2, chunk 8 it was carried
+  // across on its captureId alone: a duplicate id was collapsed by the Map with the last one
+  // silently winning, and an entry contradicting the cell it belongs to was republished as if it
+  // corroborated it.
+  const kept = existing.filter((entry) => referenced.has(entry?.captureId));
+  const seen = new Set();
+  for (const entry of kept) {
+    if (seen.has(entry.captureId)) {
+      say(`receipt: the existing receipt.json lists ${entry.captureId} more than once — refusing to guess which is real`);
+      return done(1);
+    }
+    seen.add(entry.captureId);
+    const attempt = attemptFor(cells, entry.captureId);
+    if (entry.client !== attempt.client || entry.candidate !== attempt.candidate) {
+      say(`receipt: ${entry.captureId} is receipted for ${entry.client}/${entry.candidate} but claimed by ${attempt.client}/${attempt.candidate}`);
+      return done(1);
+    }
+    if (entry.outcome !== attempt.outcome) {
+      say(`receipt: ${entry.captureId} is receipted as '${entry.outcome}' but its cell records the attempt as '${attempt.outcome}'`);
+      return done(1);
+    }
+  }
+  const byId = new Map(kept.map((e) => [e.captureId, e]));
 
   for (const v of verified) {
     const entry = {
@@ -402,6 +567,17 @@ export function publishReceipts({
   }
   const merged = [...byId.values()].sort((a, b) => a.captureId.localeCompare(b.captureId));
 
+  // Every attempt a cell claims must be accounted for by something: retained bytes verified in
+  // this run, or a receipt preserved above. A cell listing a superseded first attempt whose raw
+  // bytes were already gone and whose receipt had never been written used to publish and delete
+  // successfully — the paid run simply was not mentioned again (review round 2, chunk 8).
+  const accounted = new Set(merged.map((entry) => entry.captureId));
+  const unaccounted = [...referenced].filter((id) => !accounted.has(id)).sort();
+  if (unaccounted.length) {
+    say(`receipt: cells.json claims attempt(s) with neither retained bytes nor a receipt: ${unaccounted.join(", ")}`);
+    return done(1);
+  }
+
   // The committed receipt is evidence like any other: it passes the same privacy gate.
   assertNoPersonalData(merged, "<receipt.json>");
 
@@ -423,18 +599,22 @@ export function publishReceipts({
   // failing after receipt.json succeeded is a failed publication, and the bytes stay.
   const written = [];
   let durable;
+  const staged = [];
   try {
-    write(receiptPath, merged);
-    written.push(receiptPath);
+    staged.push(write(receiptPath, merged));
     // The capture-time pin, taken from the manifests rather than recomputed now: recomputing it
     // here would bind whatever the working tree happens to hold to a run that predates it.
     const inputsPath = join(evidenceDir, "capture-inputs.json");
-    write(inputsPath, { files: JSON.parse([...pins][0]) });
-    written.push(inputsPath);
+    staged.push(write(inputsPath, { files: JSON.parse([...pins][0]) }));
+    // Nothing above has touched a destination file. Only here do both move into place, and only
+    // after the directory has been flushed does anything become a permission to delete.
+    commit(staged, evidenceDir);
+    written.push(receiptPath, inputsPath);
     // Read back from disk, inside the guard: the permission to delete comes from what the file
     // system holds now, not from the fact that a write call returned.
     durable = new Set(parseStrictJson(readFileSync(receiptPath, "utf8")).map((e) => e.captureId));
   } catch (error) {
+    for (const entry of staged) if (entry?.tmp) rmSync(entry.tmp, { force: true });
     say(`receipt: publishing failed (${error.message}) — every raw capture is kept`);
     return { code: 1, messages, written, deleted: [] };
   }

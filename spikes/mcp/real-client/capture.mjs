@@ -67,7 +67,14 @@ const RUN_DEADLINE_MS = 240_000;
 /** After SIGKILL, how long to wait for the pipes to close before recording that they did not. */
 const DRAIN_DEADLINE_MS = 30_000;
 /** Client output is held in memory to derive the disclosure predicates; bounded, and recorded when it bites. */
-const MAX_CLIENT_STREAM_BYTES = 8 * 1024 * 1024;
+export const MAX_CLIENT_STREAM_BYTES = 8 * 1024 * 1024;
+
+// The two literals the server-stderr predicates are computed from, named and exported so the
+// receipt can re-derive those predicates from the retained bytes using the SAME definitions
+// rather than a copy that can drift (review round 2, chunk 8). No /g flag: this regex is
+// shared, and a stateful one would answer differently on alternate calls.
+export const READY_LINE = "spendbar-probe-server ready";
+export const SERVER_FRAME_ON_STDERR = /"jsonrpc"\s*:\s*"2\.0"/;
 
 /**
  * The environment the real client is spawned with, as a literal allowlist (review round 1,
@@ -638,8 +645,8 @@ async function captureCell(client, candidate, clientVersion, attempt) {
   raw.serverStdout = derived.serverStdout;
   const errText = serverErr.toString("utf8");
   raw.serverStderr = {
-    hasReadyLine: errText.includes("spendbar-probe-server ready"),
-    containsFrames: /"jsonrpc"\s*:\s*"2\.0"/.test(errText),
+    hasReadyLine: errText.includes(READY_LINE),
+    containsFrames: SERVER_FRAME_ON_STDERR.test(errText),
   };
   raw.clientStdout = {
     hasCompletionMarker: clientOut.text.includes(COMPLETION_MARKER),

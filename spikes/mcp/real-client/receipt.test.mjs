@@ -38,13 +38,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   openCapture,
   verifyCapture,
   publishReceipts,
-  writeDurable,
+  stageDurable,
+  commitStaged,
   referencedCaptureIds,
   RECEIPT_SCHEMA_VERSION,
   RECEIPT_NOTE,
@@ -56,6 +57,9 @@ import { captureInputDigests } from "./provenance.mjs";
 import { PROMPT_TEMPLATE, PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER, OWNER_MARKER } from "./capture.mjs";
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
+
+/** Stage-and-commit one file, which is what the old one-shot `writeDurable` did. */
+const writeDurable = (path, value) => commitStaged([stageDurable(path, value)], dirname(path));
 const NONCE = "t009-0011223344556677";
 const CAPTURE_ID = "claude-code-v2-deadbeef";
 const OTHER_ID = "codex-v1-feedface";
@@ -285,7 +289,7 @@ test("a frame the streams do not contain is caught", () => {
 });
 
 test("a client-stdout predicate that the bytes do not support is caught", () => {
-  withFixture((ctx) => refuses(verify(ctx), "completion-marker"), {
+  withFixture((ctx) => refuses(verify(ctx), "the client's stdout"), {
     mutateStreams: (s) => (s["client-stdout.raw"] = Buffer.from("the model said something else\n")),
   });
 });
@@ -348,7 +352,7 @@ test("a dependency tree other than the installed one is caught", () => {
 });
 
 test("a wrapper witness that disagrees with the recorded spawn outcome is caught", () => {
-  withFixture((ctx) => refuses(verify(ctx), "wrapper's witness"), {
+  withFixture((ctx) => refuses(verify(ctx), "wrapper-status.json"), {
     mutateRaw: (raw) => (raw.wrapper.spawned = false),
   });
 });
@@ -376,7 +380,9 @@ test("a symlinked stream is refused rather than followed", () => {
     writeFileSync(target, "bytes from somewhere else");
     rmSync(join(ctx.dir, "server-stdout.raw"));
     symlinkSync(target, join(ctx.dir, "server-stdout.raw"));
-    refuses(openCapture(CAPTURE_ID, ctx.retainedDir).problems, "not a regular file");
+    // ELOOP from the open itself: the swap is refused at the syscall rather than detected after
+    // the fact by a stat of a path that may no longer name the same inode.
+    refuses(openCapture(CAPTURE_ID, ctx.retainedDir).problems, "without following a link");
   });
 });
 
@@ -506,15 +512,17 @@ test("a publication that fails on the second record deletes nothing", () => {
       write: (path, value) => {
         attempted.push(path);
         if (path.endsWith("capture-inputs.json")) throw new Error("disk full");
-        writeDurable(path, value);
+        return stageDurable(path, value);
       },
     });
     assert.equal(result.code, 1);
     assert.deepEqual(result.deleted, []);
     assert.equal(attempted.length, 2, "the second record must have been attempted");
-    // receipt.json exists — and that is exactly why deletion must not have happened: a
-    // half-published pair is not a permission to destroy anything.
-    assert.equal(existsSync(join(ctx.evidenceDir, "receipt.json")), true);
+    // Staging is separated from committing now (review round 2, chunk 8), so a failure on the
+    // second file leaves NEITHER in place rather than a half-published pair. Either way nothing
+    // may be deleted; this is the stronger of the two states.
+    assert.equal(existsSync(join(ctx.evidenceDir, "receipt.json")), false);
+    assert.equal(existsSync(join(ctx.evidenceDir, "receipt.json.writing")), false, "the staged file must be cleaned up");
     assert.equal(existsSync(ctx.dirA), true);
     assert.equal(existsSync(ctx.dirB), true);
     assert.ok(result.messages.some((m) => m.includes("every raw capture is kept")), result.messages.join("; "));
@@ -623,4 +631,223 @@ test("the committed receipt's note is the generator's, and says what survives de
   // review round 1 caught: after deletion these digests are attestations, not checks.
   assert.match(RECEIPT_NOTE, /COMMITMENTS/);
   assert.doesNotMatch(RECEIPT_NOTE, /residual check/);
+});
+
+// ---------------------------------------------------------------------------
+// Review round 2, chunk 8. The witness files were RETAINED and never read: the
+// receipt cross-checked two claims the same manifest made about itself, and
+// called that agreement.
+// ---------------------------------------------------------------------------
+
+test("the wrapper's own witness file is read, not just the manifest's copy of it", () => {
+  withFixture((ctx) => refuses(verify(ctx), "wrapper-status.json"), {
+    // The manifest still says the server spawned and nothing was dropped. The file the capture
+    // command DERIVED that from, retained right beside it, says otherwise.
+    mutateAfter: (ctx) =>
+      writeFileSync(
+        join(ctx.dir, "wrapper-status.json"),
+        JSON.stringify({ spawned: false, closed: false, forwardErrors: 7 }) + "\n",
+      ),
+  });
+});
+
+test("a wrapper status that is not strictly-parseable JSON is a refusal, not a shrug", () => {
+  withFixture((ctx) => refuses(verify(ctx), "strictly-parseable"), {
+    // The duplicate key is arranged so the LAST value is the one the manifest agrees with: a
+    // human reading this file sees a server that never spawned, JSON.parse sees one that did,
+    // and every other check passes. If the disagreement were visible to the neighbouring
+    // comparison the strict parse would not be what caught it.
+    mutateAfter: (ctx) =>
+      writeFileSync(
+        join(ctx.dir, "wrapper-status.json"),
+        '{"spawned":false,"spawned":true,"closed":false,"forwardErrors":0}\n',
+      ),
+  });
+});
+
+test("the server's exit witness is read when it is present", () => {
+  withFixture((ctx) => refuses(verify(ctx), "terminated"), {
+    // A server killed by a signal, recorded in the manifest as having terminated cleanly. The
+    // mode is set explicitly: a newly created file would otherwise be refused for being 0644,
+    // and the test would pass without the contents ever being looked at.
+    mutateAfter: (ctx) => {
+      const p = join(ctx.dir, "server-exit.json");
+      writeFileSync(p, JSON.stringify({ code: null, signal: "SIGKILL" }) + "\n");
+      chmodSync(p, 0o600);
+    },
+  });
+});
+
+test("the server's stderr predicates are recomputed from its retained bytes", () => {
+  withFixture((ctx) => refuses(verify(ctx), "server's stderr"), {
+    // The ready line never appeared, but the manifest asserts it did — and the manifest is what
+    // the classifier reads when deciding this was a server that started.
+    mutateAfter: (ctx) => writeFileSync(join(ctx.dir, "server-stderr.raw"), "nothing useful here\n"),
+  });
+});
+
+test("every clientStdout predicate is recomputed, not only the two that were", () => {
+  withFixture((ctx) => refuses(verify(ctx), "client's stdout"), {
+    // An allowlisted env VALUE disclosed on the client's own stdout, recorded as not disclosed.
+    mutateAfter: (ctx) =>
+      writeFileSync(join(ctx.dir, "client-stdout.raw"), `${COMPLETION_MARKER}\nHOME=/tmp/home-fixture\n`),
+  });
+});
+
+test("a cell attempt with neither retained bytes nor a receipt is refused, not quietly dropped", () => {
+  withFixture(
+    (ctx) => {
+      const out = publishReceipts({ retainedDir: ctx.retainedDir, evidenceDir: ctx.evidenceDir });
+      assert.equal(out.code, 1, `expected a refusal, got: ${out.messages.join("; ")}`);
+      assert.ok(
+        out.messages.some((m) => m.includes("claude-code-v2-00000000")),
+        `the unaccounted-for attempt is not named: ${out.messages.join("; ")}`,
+      );
+      assert.deepEqual(out.deleted, [], "nothing may be deleted while an attempt is unaccounted for");
+    },
+    {
+      // A first, superseded attempt — a PAID run — that has no raw bytes left and no receipt.
+      // The final attempt verifies fine, so the batch used to succeed and delete.
+      mutateAfter: (ctx) => {
+        const cells = JSON.parse(readFileSync(join(ctx.evidenceDir, "cells.json"), "utf8"));
+        cells.v2["claude-code"].attempts.unshift({ captureId: "claude-code-v2-00000000", outcome: "environmental" });
+        writeFileSync(join(ctx.evidenceDir, "cells.json"), JSON.stringify(cells, null, 2) + "\n");
+      },
+    },
+  );
+});
+
+test("a duplicated capture id in an existing receipt is refused, not collapsed silently", () => {
+  withFixture(
+    (ctx) => {
+      const out = publishReceipts({ retainedDir: ctx.retainedDir, evidenceDir: ctx.evidenceDir });
+      assert.equal(out.code, 1, `expected a refusal, got: ${out.messages.join("; ")}`);
+      assert.ok(out.messages.some((m) => m.includes("more than once")), out.messages.join("; "));
+    },
+    {
+      mutateAfter: (ctx) => {
+        const cells = JSON.parse(readFileSync(join(ctx.evidenceDir, "cells.json"), "utf8"));
+        cells.v1 = { codex: { status: "pass", attempts: [{ captureId: OTHER_ID, outcome: "pass" }] } };
+        writeFileSync(join(ctx.evidenceDir, "cells.json"), JSON.stringify(cells, null, 2) + "\n");
+        // Two receipts for one capture whose bytes are already gone. A Map keyed on captureId
+        // keeps whichever came last and publishes it as if it were the only one.
+        writeFileSync(
+          join(ctx.evidenceDir, "receipt.json"),
+          JSON.stringify(
+            [
+              { schemaVersion: RECEIPT_SCHEMA_VERSION, captureId: OTHER_ID, client: "codex", candidate: "v1", outcome: "pass" },
+              { schemaVersion: RECEIPT_SCHEMA_VERSION, captureId: OTHER_ID, client: "codex", candidate: "v1", outcome: "fail" },
+            ],
+            null,
+            2,
+          ) + "\n",
+        );
+      },
+    },
+  );
+});
+
+test("a preserved receipt that disagrees with the cell it belongs to is refused", () => {
+  withFixture(
+    (ctx) => {
+      const out = publishReceipts({ retainedDir: ctx.retainedDir, evidenceDir: ctx.evidenceDir });
+      assert.equal(out.code, 1, `expected a refusal, got: ${out.messages.join("; ")}`);
+      assert.ok(out.messages.some((m) => m.includes(OTHER_ID)), out.messages.join("; "));
+    },
+    {
+      mutateAfter: (ctx) => {
+        const cells = JSON.parse(readFileSync(join(ctx.evidenceDir, "cells.json"), "utf8"));
+        cells.v1 = { codex: { status: "pass", attempts: [{ captureId: OTHER_ID, outcome: "pass" }] } };
+        writeFileSync(join(ctx.evidenceDir, "cells.json"), JSON.stringify(cells, null, 2) + "\n");
+        // The receipt says this capture failed; the cell it is the receipt FOR says it passed.
+        // Its bytes are gone, so this disagreement is all a later reader will ever have.
+        writeFileSync(
+          join(ctx.evidenceDir, "receipt.json"),
+          JSON.stringify(
+            [{ schemaVersion: RECEIPT_SCHEMA_VERSION, captureId: OTHER_ID, client: "codex", candidate: "v1", outcome: "fail" }],
+            null,
+            2,
+          ) + "\n",
+        );
+      },
+    },
+  );
+});
+
+test("a publication that fails on its second file leaves the previous receipt untouched", () => {
+  withFixture((ctx) => {
+    const receiptPath = join(ctx.evidenceDir, "receipt.json");
+    const before = JSON.stringify([{ schemaVersion: RECEIPT_SCHEMA_VERSION, captureId: "prior", outcome: "pass" }], null, 2) + "\n";
+    writeFileSync(receiptPath, before);
+    let n = 0;
+    const out = publishReceipts({
+      retainedDir: ctx.retainedDir,
+      evidenceDir: ctx.evidenceDir,
+      write: (path, value) => {
+        if (++n === 2) throw new Error("disk full");
+        return stageDurable(path, value);
+      },
+    });
+    assert.equal(out.code, 1);
+    assert.deepEqual(out.deleted, []);
+    assert.ok(existsSync(ctx.dir), "the raw capture must survive a failed publication");
+    // The half-published state is the point: receipt.json must not already have been replaced
+    // by a record whose companion capture-inputs.json never landed.
+    assert.equal(readFileSync(receiptPath, "utf8"), before, "receipt.json was replaced by a failed publication");
+  });
+});
+
+test("committing refuses a staged record that never produced a file", () => {
+  const root = mkdtempSync(join(tmpdir(), "receipt-commit-"));
+  try {
+    assert.throws(() => commitStaged([{ path: join(root, "x.json") }], root), /nothing was published/);
+    assert.throws(() => commitStaged([undefined], root), /nothing was published/);
+    assert.equal(existsSync(join(root, "x.json")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("committing refuses when what landed is not what was staged", () => {
+  const root = mkdtempSync(join(tmpdir(), "receipt-commit-"));
+  try {
+    const staged = stageDurable(join(root, "receipt.json"), [{ captureId: "a" }]);
+    // The permission to delete comes from what the file system holds, not from what the writer
+    // believed it wrote — so a landed file that disagrees with the staged text is a failure.
+    assert.throws(() => commitStaged([{ ...staged, text: "something else\n" }], root), /did not read back as written/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("committing flushes the DIRECTORY, not only the files", () => {
+  // Structural, and deliberately so. fsync on a file makes its CONTENTS durable; the rename is
+  // a directory operation, and losing it is exactly the crash that deletes raw captures on the
+  // strength of a receipt.json whose name never survived. Nothing observable from inside this
+  // process distinguishes a flushed directory from an unflushed one — only a power cut does —
+  // so what is pinned is that the flush is performed at all.
+  const src = commitStaged.toString();
+  assert.match(src, /openSync\(dir/, "the directory is never opened");
+  assert.match(src, /fsyncSync\(dfd\)/, "the directory descriptor is never fsynced");
+  assert.ok(
+    src.indexOf("renameSync") < src.indexOf("fsyncSync"),
+    "the directory must be flushed AFTER the renames it is meant to make durable",
+  );
+});
+
+test("publication that does not verify what landed deletes nothing", () => {
+  withBatch((ctx) => {
+    // Staging succeeds and both files reach disk — but the publisher's own account of what it
+    // published disagrees with the bytes. Deletion is authorized by the COMMIT step verifying
+    // that disagreement, so a publisher that renames without going through it must not delete.
+    const result = publishReceipts({
+      retainedDir: ctx.retainedDir,
+      evidenceDir: ctx.evidenceDir,
+      write: (path, value) => ({ ...stageDurable(path, value), text: "not what landed\n" }),
+    });
+    assert.equal(result.code, 1, `expected a refusal, got: ${result.messages.join("; ")}`);
+    assert.deepEqual(result.deleted, []);
+    assert.equal(existsSync(ctx.dirA), true, "a raw capture was deleted on an unverified publication");
+    assert.equal(existsSync(ctx.dirB), true);
+  });
 });
