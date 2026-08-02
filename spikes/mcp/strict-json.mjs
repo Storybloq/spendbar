@@ -3,10 +3,17 @@
 // values for one field — one for a human reader, one for the machine. The verifier parses
 // evidence through this instead.
 //
-// The contract, and it is exact: accept precisely the JSON grammar (RFC 8259) — nothing
-// JSON.parse rejects — and additionally reject duplicated object keys. Any OTHER divergence
-// from JSON.parse is a bug in either direction, because the evidence this parses is compared
-// and re-serialized elsewhere; strict-json.test.mjs differential-tests the two side by side.
+// The contract: accept the JSON grammar (RFC 8259) exactly as JSON.parse does, and reject
+// duplicated object keys, and nothing else. Any OTHER divergence in either direction is a bug,
+// because the evidence this parses is compared and re-serialized elsewhere;
+// strict-json.test.mjs differential-tests the two side by side.
+//
+// TWO DECLARED EXCEPTIONS, and they are exceptions rather than part of the grammar (review
+// round 2, chunk 10 — the paragraph above used to say "exact" while these silently existed).
+// Both are RESOURCE limits, so both raise JsonLimitError, a distinct subclass: a document that
+// is merely too large is not malformed, and reporting it as a syntax error tells the operator
+// to go looking for a typo that is not there. Evidence files are kilobytes; the limits are
+// several orders of magnitude of headroom, and each has a test that pins it.
 //
 // Objects are built with a NULL PROTOTYPE and own data properties (review round 1): plain
 // `{}` plus `out[key] = …` routes a `__proto__` key through the inherited setter, where it
@@ -15,9 +22,18 @@
 
 export class JsonSyntaxError extends Error {}
 
-// Documented bounds: recursion is depth-limited so deep input fails as a JsonSyntaxError
-// rather than an uncatchable RangeError, and the whole document is length-limited. Evidence
-// files are kilobytes; these are four orders of magnitude of headroom.
+/**
+ * A document this parser REFUSES TO ATTEMPT, as opposed to one it read and found malformed.
+ *
+ * Subclasses JsonSyntaxError so that every existing caller keeps catching it — the evidence
+ * pipeline must still fail closed on an oversized file — while a caller that wants to tell the
+ * two apart now can.
+ */
+export class JsonLimitError extends JsonSyntaxError {}
+
+// The two declared exceptions to JSON.parse compatibility: recursion is depth-limited so deep
+// input fails as a catchable error rather than an uncatchable RangeError, and the whole
+// document is length-limited.
 export const MAX_DEPTH = 200;
 export const MAX_INPUT_CHARS = 50_000_000;
 
@@ -27,7 +43,7 @@ const isDigit = (c) => c >= "0" && c <= "9";
 export function parseStrictJson(text) {
   if (typeof text !== "string") throw new JsonSyntaxError("input is not a string");
   if (text.length > MAX_INPUT_CHARS) {
-    throw new JsonSyntaxError(`input exceeds ${MAX_INPUT_CHARS} characters`);
+    throw new JsonLimitError(`input exceeds ${MAX_INPUT_CHARS} characters`);
   }
 
   let i = 0;
@@ -173,7 +189,7 @@ export function parseStrictJson(text) {
     ws();
     const c = text[i];
     if (c === "{" || c === "[") {
-      if (++depth > MAX_DEPTH) err(`nesting deeper than ${MAX_DEPTH}`);
+      if (++depth > MAX_DEPTH) throw new JsonLimitError(`nesting deeper than ${MAX_DEPTH} at position ${i}`);
       const value = c === "{" ? parseObject() : parseArray();
       depth--;
       return value;

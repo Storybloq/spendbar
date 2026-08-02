@@ -12,7 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseStrictJson, JsonSyntaxError, MAX_DEPTH, MAX_INPUT_CHARS } from "./strict-json.mjs";
+import { parseStrictJson, JsonSyntaxError, MAX_DEPTH, MAX_INPUT_CHARS, JsonLimitError } from "./strict-json.mjs";
 
 /** JSON.parse's verdict, as data. */
 function reference(text) {
@@ -293,4 +293,32 @@ test("large realistic documents parse identically", () => {
   };
   assertAgrees(JSON.stringify(doc), "generated evidence-shaped document");
   assertAgrees(JSON.stringify(doc, null, 2), "the same document, pretty-printed");
+});
+
+// ---------------------------------------------------------------------------
+// Review round 2, chunk 10: the header claimed exact JSON.parse acceptance while
+// two resource bounds quietly rejected documents JSON.parse accepts.
+// ---------------------------------------------------------------------------
+
+test("the two declared exceptions are the ONLY documents JSON.parse accepts and this refuses", () => {
+  // Deep nesting: valid JSON, accepted by JSON.parse, refused here — and refused as a LIMIT,
+  // not as a syntax error, because telling an operator their evidence is malformed when it is
+  // merely deep sends them looking for a typo that does not exist.
+  const deep = "[".repeat(MAX_DEPTH + 1) + "]".repeat(MAX_DEPTH + 1);
+  assert.doesNotThrow(() => JSON.parse(deep), "the fixture is not valid JSON, so it proves nothing");
+  assert.throws(() => parseStrictJson(deep), JsonLimitError);
+  assert.throws(() => parseStrictJson(deep), /nesting deeper than/);
+
+  // Exactly at the bound is still accepted, so the limit is the documented one.
+  const atLimit = "[".repeat(MAX_DEPTH) + "]".repeat(MAX_DEPTH);
+  assert.doesNotThrow(() => parseStrictJson(atLimit));
+
+  // A limit error is still a JsonSyntaxError, so every caller that fails closed still does.
+  assert.ok(new JsonLimitError("x") instanceof JsonSyntaxError);
+});
+
+test("an oversized document is refused as a limit, not as malformed", () => {
+  const huge = `"${"x".repeat(MAX_INPUT_CHARS)}"`;
+  assert.throws(() => parseStrictJson(huge), JsonLimitError);
+  assert.throws(() => parseStrictJson(huge), /exceeds/);
 });

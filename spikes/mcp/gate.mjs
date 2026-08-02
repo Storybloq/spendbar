@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import { decide, act1, EXIT_CODES, TransitionError, resolutionTicketTitle } from "./decide.mjs";
 import { verifyEvidence, EVIDENCE_DIR, EvidenceError } from "./verify-evidence.mjs";
+import { isDirectEntry } from "../../scripts/direct-entry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..");
@@ -36,14 +37,36 @@ const sbJson = (args) => JSON.parse(sb([...args, "--format", "json", "--raw"]));
 // The live graph. The dedupe key is embedded in the ticket TITLE — stable, human-visible,
 // and locatable without metadata queries. A wrong assumption about any CLI surface fails the
 // step loudly (TransitionError), never silently: the read-back is the trust anchor.
+/**
+ * The rows of a `ticket list` response, or a refusal.
+ *
+ * Exported and pure because the shape of this response decides whether a resolution ticket is
+ * CREATED. `tickets.tickets ?? []` read every unrecognised envelope as an empty list, so a CLI
+ * that changed its wrapper, or returned `{}` after a partial failure, produced "no open ticket
+ * matches" — indistinguishable from a genuine miss — and the gate created a duplicate (review
+ * round 2, chunk 10). An envelope this does not recognise is now a failure, because "I could
+ * not read the list" and "the list is empty" are not the same answer.
+ */
+export function ticketRows(response) {
+  if (Array.isArray(response)) return response;
+  if (response !== null && typeof response === "object" && Object.prototype.hasOwnProperty.call(response, "tickets")) {
+    if (Array.isArray(response.tickets)) return response.tickets;
+    throw new Error(`ticket list: 'tickets' is ${typeof response.tickets}, not an array`);
+  }
+  throw new Error(
+    `ticket list: unrecognised response envelope (keys: ${
+      response !== null && typeof response === "object" ? Object.keys(response).join(", ") || "none" : typeof response
+    }) — refusing to read it as an empty list`,
+  );
+}
+
 const cliGraph = {
   findOpenTicketByDedupeKey(key) {
     // EXACT equality with the canonical title — substring matching could reuse an unrelated
     // ticket that merely mentions the key (review round 1). `ticket list` returns the full
     // unpaginated set for this CLI; a wrong assumption there surfaces as a duplicate whose
     // creation act1's read-back then validates against the same canonical title.
-    const tickets = sbJson(["ticket", "list"]);
-    const rows = Array.isArray(tickets) ? tickets : tickets.tickets ?? [];
+    const rows = ticketRows(sbJson(["ticket", "list"]));
     const canonical = resolutionTicketTitle(key);
     return rows.find((t) => t.title === canonical && !["done", "cancelled"].includes(t.status)) ?? null;
   },
@@ -102,30 +125,40 @@ const deps = {
   },
 };
 
-let verified;
-try {
-  verified = verifyEvidence();
-} catch (error) {
-  if (error instanceof EvidenceError) {
-    process.stderr.write(`gate: evidence INVALID — ${error.message}\n`);
-    process.exit(EXIT_CODES.invalidEvidence);
+export async function main() {
+  let verified;
+  try {
+    verified = verifyEvidence();
+  } catch (error) {
+    if (error instanceof EvidenceError) {
+      process.stderr.write(`gate: evidence INVALID — ${error.message}\n`);
+      process.exit(EXIT_CODES.invalidEvidence);
+    }
+    throw error;
   }
-  throw error;
+
+  const decision = decide(verified);
+  process.stderr.write(
+    `gate: outcome ${decision.outcome} (v2=${decision.aggregates.v2}, v1=${decision.aggregates.v1})\n`,
+  );
+
+  try {
+    const result = await act1(decision, verified, deps);
+    process.stderr.write(`gate: wrote ${result.wrote.join(", ")}\n`);
+    process.exit(result.exitCode);
+  } catch (error) {
+    if (error instanceof TransitionError) {
+      process.stderr.write(`gate: ${error.message}\nT-009 remains in progress.\n`);
+      process.exit(error.exitCode);
+    }
+    throw error;
+  }
 }
 
-const decision = decide(verified);
-process.stderr.write(
-  `gate: outcome ${decision.outcome} (v2=${decision.aggregates.v2}, v1=${decision.aggregates.v1})\n`,
-);
-
-try {
-  const result = await act1(decision, verified, deps);
-  process.stderr.write(`gate: wrote ${result.wrote.join(", ")}\n`);
-  process.exit(result.exitCode);
-} catch (error) {
-  if (error instanceof TransitionError) {
-    process.stderr.write(`gate: ${error.message}\nT-009 remains in progress.\n`);
-    process.exit(error.exitCode);
-  }
-  throw error;
-}
+// Direct-entry guard. This was the ONE file in the pipeline without it, and it is the file that
+// deletes committed evidence, mutates the live ticket graph and calls process.exit — all of
+// which ran on a bare `import` (review round 2, chunk 10). Demonstrated before fixing:
+// importing this module removed DECISION.md and decision.json from the working tree, wrote
+// attempt-report.json, and terminated the importing process. That is the same defect class the
+// mutant server carried and that receipt.mjs's own header cites.
+if (isDirectEntry(import.meta.url)) await main();
