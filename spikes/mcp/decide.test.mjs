@@ -4,7 +4,16 @@
 // uses direct execution. (An earlier runner hang traced to mutant-server.mjs executing on
 // import; it is fixed — see conformance.test.mjs.)
 
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  existsSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,7 +34,15 @@ import {
 } from "./decide.mjs";
 import { verifyEvidence, BOUND_INPUTS, EVIDENCE_DIR, EvidenceError, CAN_ISOLATE_USER_CONFIG } from "./verify-evidence.mjs";
 import { canonicalize, proxyTokens, measureToolDefinition, TOKEN_PROXY_VERSION } from "./token-cost.mjs";
-import { runStages, buildStages } from "./matrix.mjs";
+import {
+  runStages,
+  buildStages,
+  validateConformance,
+  validateMeasurement,
+  readAuditResult,
+  publishGeneration,
+  candidateFailed,
+} from "./matrix.mjs";
 import { CAPTURE_INPUTS } from "./real-client/provenance.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -902,6 +919,187 @@ test("the production stage list declares the install chain its scripted stages d
   assert.equal(needs["conformance"], "installed-rescan");
   assert.equal(needs["token-measure"], "installed-rescan");
   assert.equal(needs["audit"], null, "the advisory audit must not depend on the install chain");
+});
+
+// ---------- a stage's result must be acceptable, not merely thrown-free (round 2, chunk 13) --
+//
+// `inspectClosure` and `scanInstalledTree` report violations by RETURNING them. Status `ok`
+// meant "did not throw", so a closure known to declare `postinstall` was `ok`, `npm ci` ran,
+// and the conformance cases and the token measurement EXECUTED that tree — the violations
+// reached the exit code long after the code had run.
+
+test("a stage whose result is refused blocks everything that depends on it", async () => {
+  const ran = [];
+  const stages = [
+    {
+      name: "supply-chain",
+      run: (c) => {
+        ran.push(`${c}:supply-chain`);
+        return { packages: 1, verified: 1, violations: c === "v1" ? [{ package: "e@1", kind: "script:postinstall" }] : [] };
+      },
+      validate: (v) => (v.violations.length ? `locked closure: ${v.violations.length} violation(s)` : null),
+    },
+    { name: "install", needs: "supply-chain", run: (c) => (ran.push(`${c}:install`), { ok: true }) },
+    { name: "conformance", needs: "install", run: (c) => (ran.push(`${c}:conformance`), { ok: true }) },
+    { name: "audit", run: (c) => (ran.push(`${c}:audit`), { ok: true }) },
+  ];
+  const results = await runStages(["v1", "v2"], stages);
+
+  assert.equal(results.v1["supply-chain"].status, "refused");
+  assert.match(results.v1["supply-chain"].cause, /violation/);
+  assert.ok(results.v1["supply-chain"].value, "the refused record must keep what it was refused for");
+  assert.ok(!ran.includes("v1:install"), "an unsafe closure was installed");
+  assert.ok(!ran.includes("v1:conformance"), "an unsafe tree was EXECUTED");
+  // The refusal is this candidate's, and it is not a short circuit: independent stages and the
+  // other candidate are untouched.
+  assert.equal(results.v1.audit.status, "ok");
+  for (const name of stages.map((s) => s.name)) assert.equal(results.v2[name].status, "ok");
+});
+
+test("the real supply-chain and rescan stages refuse a result carrying violations", () => {
+  const stages = Object.fromEntries(buildStages().map((s) => [s.name, s]));
+  for (const name of ["supply-chain", "installed-rescan"]) {
+    const clean = { packages: 1, verified: 1, packagesScanned: 1, violations: [] };
+    assert.equal(stages[name].validate(clean), null, `${name} refused a clean result`);
+    const dirty = { ...clean, violations: [{ package: "e@1", kind: "script:postinstall" }] };
+    assert.match(stages[name].validate(dirty), /script:postinstall/, `${name} accepted a violation`);
+  }
+});
+
+test("a stage that returns nothing is a failure, not a success with no result", async () => {
+  // It used to be `ok` with `value: undefined`; main() then wrote no record for it, found no
+  // stage failure, and could publish an evidence file containing `{}` and exit zero.
+  const results = await runStages(["v1"], [
+    { name: "supply-chain", run: () => undefined },
+    { name: "install", needs: "supply-chain", run: () => ({ ok: true }) },
+  ]);
+  assert.equal(results.v1["supply-chain"].status, "failed");
+  assert.match(results.v1["supply-chain"].cause, /returned no result/);
+  assert.equal(results.v1.install.status, "not-run");
+
+  const nulled = await runStages(["v1"], [{ name: "supply-chain", run: () => null }]);
+  assert.equal(nulled.v1["supply-chain"].status, "failed");
+});
+
+test("conformance validation recomputes 'failed' instead of trusting it", () => {
+  const cases = { a: { status: "pass" }, b: { status: "fail" } };
+  // Case failures are EVIDENCE and must publish, so a consistent failing record is accepted.
+  assert.equal(validateConformance({ cases, failed: 1, isolation: { ok: true } }), null);
+  assert.equal(validateConformance({ cases: { a: { status: "pass" } }, failed: 1, isolation: { ok: false } }), null);
+  // Broken isolation counts as one more failure, exactly as runCandidate records it.
+  assert.equal(validateConformance({ cases, failed: 2, isolation: { ok: false } }), null);
+  // What must refuse is a record that cannot be read at face value.
+  assert.match(validateConformance({ cases, failed: 0, isolation: { ok: true } }), /recompute to 1/);
+  assert.match(validateConformance({ cases, failed: 1, isolation: { ok: false } }), /recompute to 2/);
+  for (const bad of [undefined, null, -1, 1.5, "1", Infinity]) {
+    assert.match(
+      validateConformance({ cases, failed: bad, isolation: { ok: true } }),
+      /not a count|recompute/,
+      `failed=${String(bad)} was accepted`,
+    );
+  }
+  assert.match(validateConformance({ cases, failed: 1 }), /no isolation verdict/);
+  assert.match(validateConformance({ failed: 0, isolation: { ok: true } }), /no case records/);
+});
+
+test("broken isolation is a failure for the exit code in its own right", () => {
+  // stderr printed "isolation BROKEN" while the process could exit 0, because the only term
+  // was `conf.failed > 0` — and `undefined > 0` is false.
+  const cases = { a: { status: "pass" } };
+  assert.equal(candidateFailed({ cases, failed: 0, isolation: { ok: true } }), false);
+  assert.equal(candidateFailed({ cases, failed: 1, isolation: { ok: true } }), true);
+  assert.equal(candidateFailed({ cases, failed: 0, isolation: { ok: false } }), true);
+  assert.equal(candidateFailed({ cases, failed: undefined, isolation: undefined }), true);
+});
+
+test("a measurement with no proxy version or a non-count is refused", () => {
+  const good = { proxyVersion: "bytes-div-4/v1", canonicalBytes: 8, proxyTokens: 2 };
+  assert.equal(validateMeasurement(good), null);
+  assert.match(validateMeasurement({ ...good, proxyVersion: "" }), /no proxy version/);
+  assert.match(validateMeasurement({ ...good, canonicalBytes: Infinity }), /'canonicalBytes'/);
+  assert.match(validateMeasurement({ ...good, proxyTokens: -1 }), /'proxyTokens'/);
+});
+
+// ---------- `npm audit` that did not audit (round 2, chunk 13) -------------------------------
+
+test("an npm-audit error envelope is recorded as not-run, never as a clean audit", () => {
+  // npm prints well-formed JSON and exits 0 when it REFUSES to audit. The old reader parsed
+  // that, found no metadata, defaulted to {} and recorded `ran: true, advisoriesTotal: 0` —
+  // "audit ran (0 advisories)" for a command that audited nothing.
+  const envelope = JSON.stringify({ error: { code: "ENOLOCK", summary: "This command requires an existing lockfile." } });
+  const r = readAuditResult({ stdout: envelope, stderr: "", status: 0 });
+  assert.equal(r.ran, false);
+  assert.match(r.cause, /ENOLOCK/);
+  assert.equal(r.advisoriesTotal, undefined, "a refused audit must not carry a count");
+});
+
+test("a real audit result is recorded, including a nonzero exit — that is what finding things looks like", () => {
+  // The exit status cannot be the test: npm exits NONZERO precisely when the audit succeeded
+  // and found vulnerabilities.
+  const stdout = JSON.stringify({ metadata: { vulnerabilities: { info: 0, low: 2, moderate: 1, high: 0, critical: 0 } } });
+  const r = readAuditResult({ stdout, stderr: "", status: 1 });
+  assert.deepEqual(r, {
+    ran: true,
+    vulnerabilities: { info: 0, low: 2, moderate: 1, high: 0, critical: 0 },
+    advisoriesTotal: 3,
+  });
+});
+
+test("audit output that carries no vulnerability counts is not an audit", () => {
+  for (const stdout of ["{}", '{"metadata":{}}', '{"metadata":{"vulnerabilities":{}}}', '{"metadata":{"vulnerabilities":[]}}']) {
+    assert.equal(readAuditResult({ stdout, stderr: "", status: 0 }).ran, false, `accepted ${stdout}`);
+  }
+  assert.equal(readAuditResult({ stdout: "not json", stderr: "boom", status: 1 }).ran, false);
+  assert.equal(readAuditResult({ stdout: "", error: new Error("spawn ENOENT"), status: null }).ran, false);
+  // A count that is not a count is not a count. Written as a literal because JSON.stringify
+  // turns Infinity into null and would prove something else.
+  const bad = '{"metadata":{"vulnerabilities":{"low":1e999}}}';
+  assert.equal(JSON.parse(bad).metadata.vulnerabilities.low, Infinity, "premise: this parses to Infinity");
+  assert.equal(readAuditResult({ stdout: bad, stderr: "", status: 0 }).ran, false);
+});
+
+// ---------- publication actually validates what it publishes (round 2, chunk 13) ------------
+//
+// The header said "renamed into place only after the whole generation validated" while the
+// code wrote five files and renamed them with nothing in between.
+
+test("a generation is validated off disk before anything is renamed into place", () => {
+  const dir = mkdtempSync(join(tmpdir(), "publish-fixture-"));
+  try {
+    writeFileSync(join(dir, "a.json"), '{"previous":"generation"}\n');
+    assert.throws(
+      () =>
+        publishGeneration(
+          { "a.json": { fresh: 1 }, "b.json": { fresh: 2 } },
+          {
+            dir,
+            // A short write is what the read-back exists to catch: the bytes on disk are not
+            // the bytes that were meant to be there.
+            tamper: (staged) => writeFileSync(staged[0].tmp, staged[0].text.slice(0, 4)),
+          },
+        ),
+      /a\.json: staged file did not read back as written/,
+    );
+    // Nothing was published, and nothing was left behind to be published later by accident.
+    assert.equal(readFileSync(join(dir, "a.json"), "utf8"), '{"previous":"generation"}\n', "destination was touched");
+    assert.ok(!existsSync(join(dir, "b.json")), "a sibling file was published from a refused generation");
+    assert.deepEqual(readdirSync(dir).filter((f) => f.endsWith(".staging")), [], "staging files survived a refusal");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a generation that validates is published whole, with no staging left behind", () => {
+  const dir = mkdtempSync(join(tmpdir(), "publish-fixture-"));
+  try {
+    publishGeneration({ "a.json": { b: 2, a: 1 }, "b.json": [3, 1, 2] }, { dir });
+    assert.deepEqual(readdirSync(dir).sort(), ["a.json", "b.json"]);
+    // sortDeep is applied, and array order survives it.
+    assert.equal(readFileSync(join(dir, "a.json"), "utf8"), '{\n  "a": 1,\n  "b": 2\n}\n');
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "b.json"), "utf8")), [3, 1, 2]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---------- token plumbing, fixed vectors ---------------------------------------------------

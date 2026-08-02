@@ -1,0 +1,22 @@
+{
+  "components": [
+    "spikes/mcp"
+  ],
+  "createdBy": "codex review round 2 chunk 13",
+  "dedupeKey": "T-009-r2c13-matrix-generation-commit-point",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-053",
+  "impact": "matrix.mjs publishes a generation of five evidence files by renaming five staged files into place one at a time. A crash between renames leaves a mixed generation: some files from this run, some from the last. The attempt marker covers the window (verify-evidence.mjs refuses while it is present, and it is removed only after the final rename), so nothing consumes the mixture — but that is a refusal, not atomicity, and it means an interrupted run leaves the working tree needing a full re-run rather than a clean rollback. Review round 2 chunk 13 added the missing parts that were cheap and local: the staged files are now read back and re-parsed before any rename, each is fsynced, and the directory is fsynced after the renames and again after the marker is removed. What remains is the transaction boundary itself: publish into a generation-specific directory and switch one pointer, so the whole generation becomes visible in a single durable operation. This is the same boundary as ISS-049 (receipt publication is two renames) and ISS-052 (the decision document, the machine record and the attempt-report removal are three effects). All three want doing together — a shared durable-publish helper — rather than three separate patches, which is why this is filed rather than fixed inside a review round.",
+  "location": [
+    "spikes/mcp/matrix.mjs"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-009"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "Evidence publication has no single commit point — five renames are five effects"
+}

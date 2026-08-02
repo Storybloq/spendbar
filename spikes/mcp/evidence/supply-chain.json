@@ -1,5 +1,6 @@
 {
   "v1": {
+    "expandedBytes": 18163712,
     "install": {
       "args": [
         "ci",
@@ -16,6 +17,7 @@
     "violations": []
   },
   "v2": {
+    "expandedBytes": 12837888,
     "install": {
       "args": [
         "ci",

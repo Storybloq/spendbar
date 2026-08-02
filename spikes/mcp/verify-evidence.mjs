@@ -382,6 +382,10 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       {
         packages: { type: "count" },
         verified: { type: "count" },
+        // The MEASURED expanded size of the whole closure. Recorded from round 2 chunk 13,
+        // when the bound stopped being gzip's forgeable ISIZE trailer and became a count taken
+        // by decompressing through a counter — a bound that is measured is worth publishing.
+        expandedBytes: { type: "count" },
         violations: { type: "array" },
         install: { type: "object" },
         installedRescan: { type: "object" },

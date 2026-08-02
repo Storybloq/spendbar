@@ -42,6 +42,7 @@ import { tmpdir } from "node:os";
 import { join, dirname, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createGunzip } from "node:zlib";
 import { isDirectEntry } from "../../scripts/direct-entry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -55,10 +56,24 @@ export const FORBIDDEN_SCRIPTS = ["preinstall", "install", "postinstall"];
 // or a redirect (refused wholesale rather than validated hop-by-hop) — is a hard error.
 export const REGISTRY_HOSTS = ["registry.npmjs.org"];
 
+// Integrity algorithms this gate will verify, STRONGEST FIRST. sha1 is deliberately absent:
+// it is collision-broken, so a lockfile naming a sha1 digest names bytes an attacker can
+// choose. Both real candidate lockfiles are sha512 throughout, so refusing sha1 costs nothing
+// here and removes the option of downgrading to it (review round 2, chunk 13).
+export const SRI_ALGORITHMS = ["sha512", "sha384", "sha256"];
+
+// Entries that legitimately appear inside a node_modules directory without being a package.
+// Anything else hidden there is recorded rather than skipped: the previous walk skipped every
+// dot-directory silently, which is a place to hide a package from the scan.
+export const KNOWN_METADATA_ENTRIES = new Set([".bin", ".cache", ".package-lock.json", ".modules.yaml"]);
+
 // Bounds. A slow response, an oversized download, or an archive bomb must fail the gate, not
-// hang it or exhaust the machine. The expanded-size bound reads gzip's trailing ISIZE field —
-// a liar's value only delays failure to the extraction timeout, so it is a first line, not
-// the only one.
+// hang it or exhaust the machine. The expanded-size bound is MEASURED by decompressing the
+// archive through a counter that aborts the moment it is exceeded — nothing is written to disk
+// to find out. It used to read gzip's trailing ISIZE field, which is the last member's size
+// modulo 2^32: concatenating a 5 MB member with a 1-byte member reported 1 (demonstrated in
+// review round 2, chunk 13), and the only remaining line of defence was an extraction timeout,
+// which bounds seconds and not bytes.
 export const FETCH_TIMEOUT_MS = 60_000;
 export const MAX_TARBALL_BYTES = 30_000_000;
 export const MAX_ARCHIVE_MEMBERS = 10_000;
@@ -86,8 +101,16 @@ export function lockEntries(lockfilePath) {
   return entries;
 }
 
-/** HTTPS to an allowlisted registry host, or refusal. Runs BEFORE any fetch — including an
- *  injected one, so the fixtures exercise the same boundary production does. */
+/**
+ * HTTPS to an allowlisted registry ORIGIN, or refusal. Runs BEFORE any fetch — including an
+ * injected one, so the fixtures exercise the same boundary production does.
+ *
+ * Origin, not hostname (review round 2, chunk 13). Checking `url.hostname` alone accepted
+ * `https://registry.npmjs.org:8443/...`, which is a different service on the same name, and it
+ * accepted a URL carrying userinfo — a username and password written before the host — which
+ * hands credentials out of a lockfile-controlled string to whatever answers. Neither is "the
+ * npm registry"; both passed.
+ */
 export function validateResolvedUrl(resolved, label) {
   let url;
   try {
@@ -101,17 +124,49 @@ export function validateResolvedUrl(resolved, label) {
   if (!REGISTRY_HOSTS.includes(url.hostname)) {
     throw new Error(`${label}: refusing resolved URL host ${url.hostname} — not an allowlisted registry`);
   }
+  if (url.port !== "" && url.port !== "443") {
+    throw new Error(`${label}: refusing resolved URL port ${url.port} — the registry is reached on 443`);
+  }
+  if (url.username !== "" || url.password !== "") {
+    throw new Error(`${label}: refusing resolved URL carrying credentials`);
+  }
+  if (url.hash !== "") {
+    throw new Error(`${label}: refusing resolved URL carrying a fragment`);
+  }
   return url;
 }
 
-/** sha512-BASE64 / sha256-BASE64 verification of raw tarball bytes. */
+/**
+ * Verify raw tarball bytes against a Subresource Integrity string.
+ *
+ * `integrity` is an SRI list, not one digest: npm may emit several whitespace-separated
+ * entries, each `algorithm-base64` with optional `?options`. The previous implementation was
+ * `integrity.split("-", 2)`, which meant a legitimate multi-digest string failed as an
+ * "integrity mismatch" — pointing an operator at tampered bytes when the real cause was an
+ * unparsed list — and, worse, accepted `sha1`, whose collisions are constructible. Contract
+ * now: parse every token, refuse anything unparseable, pick the STRONGEST algorithm actually
+ * present, and require a digest of that strength to match. A weaker digest sitting beside a
+ * stronger one can never be the one that decides.
+ */
 export function verifyIntegrity(buf, integrity) {
-  const [algo, expected] = integrity.split("-", 2);
-  if (!["sha512", "sha256", "sha1"].includes(algo)) {
-    throw new Error(`unsupported integrity algorithm ${algo}`);
+  if (typeof integrity !== "string" || integrity.trim() === "") {
+    throw new Error("integrity string is empty — there is nothing to verify against");
   }
-  const actual = createHash(algo).update(buf).digest("base64");
-  return actual === expected;
+  const digests = integrity
+    .trim()
+    .split(/\s+/)
+    .map((token) => {
+      const m = /^([A-Za-z0-9]+)-([A-Za-z0-9+/]+={0,2})(\?[\x21-\x7e]*)?$/.exec(token);
+      if (!m) throw new Error(`unparseable integrity token '${token}'`);
+      return { algo: m[1].toLowerCase(), expected: m[2] };
+    });
+  const strongest = SRI_ALGORITHMS.find((a) => digests.some((d) => d.algo === a));
+  if (!strongest) {
+    const seen = [...new Set(digests.map((d) => d.algo))].join(", ");
+    throw new Error(`unsupported integrity algorithm(s) ${seen} — supported: ${SRI_ALGORITHMS.join(", ")}`);
+  }
+  const actual = createHash(strongest).update(buf).digest("base64");
+  return digests.some((d) => d.algo === strongest && d.expected === actual);
 }
 
 /** One archive member path: confined under package/, no absolute paths, no `..` escapes. */
@@ -161,14 +216,33 @@ function validateArchiveMembers(tarPath, label) {
   }
 }
 
-/** gzip's trailing ISIZE (expanded size mod 2^32) as a first-line bomb check. */
-function checkExpandedSize(buf, label) {
-  if (buf.length >= 18 && buf[0] === 0x1f && buf[1] === 0x8b) {
-    const isize = buf.readUInt32LE(buf.length - 4);
-    if (isize > MAX_EXPANDED_BYTES) {
-      throw new Error(`${label}: archive claims ${isize} expanded bytes (limit ${MAX_EXPANDED_BYTES})`);
-    }
+/**
+ * MEASURE the expanded size by decompressing through a counter that aborts the instant the
+ * bound is crossed. Nothing is written to disk and nothing accumulates in memory: each chunk
+ * is counted and dropped, so a bomb costs decompression time and nothing else.
+ *
+ * This replaces a check that read gzip's trailing ISIZE field. ISIZE is the LAST member's
+ * uncompressed size modulo 2^32, so a 5 MB member concatenated with a 1-byte member reported
+ * 1 — and the comment beside it claimed the extraction timeout was a second line of defence,
+ * when a timeout bounds seconds and tar writes bytes (review round 2, chunk 13).
+ */
+export async function measureExpandedBytes(buf, label) {
+  if (!(buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b)) {
+    throw new Error(`${label}: not a gzip archive — refusing`);
   }
+  return await new Promise((resolve, reject) => {
+    let total = 0;
+    const gunzip = createGunzip();
+    gunzip.on("data", (chunk) => {
+      total += chunk.length;
+      if (total > MAX_EXPANDED_BYTES) {
+        gunzip.destroy(new Error(`${label}: archive expands past ${MAX_EXPANDED_BYTES} bytes — refusing`));
+      }
+    });
+    gunzip.on("end", () => resolve(total));
+    gunzip.on("error", (error) => reject(error));
+    gunzip.end(buf);
+  });
 }
 
 /** The extraction stage: validate members, then unpack under a timeout. Injectable in tests
@@ -181,27 +255,77 @@ function defaultExtract(tarPath, dest, label) {
 }
 
 /**
+ * The predicate itself, over ONE manifest: forbidden lifecycle hooks and the native-build
+ * flag. Shared by the tarball inspection and the installed-tree rescan so the two can never
+ * drift apart — they are supposed to be asking the same question of different bytes.
+ *
+ * A manifest that will not parse is a violation, not an exception. Throwing aborted the whole
+ * closure (and, through the matrix, the candidate) with a bare SyntaxError naming no package.
+ */
+export function inspectManifest(manifestPath, label) {
+  const violations = [];
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (error) {
+    return [{ package: label, kind: "malformed-manifest", detail: String(error?.message ?? error).slice(0, 200) }];
+  }
+  if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return [{ package: label, kind: "malformed-manifest", detail: "manifest is not a JSON object" }];
+  }
+  for (const hook of FORBIDDEN_SCRIPTS) {
+    if (manifest.scripts?.[hook] !== undefined) violations.push({ package: label, kind: `script:${hook}` });
+  }
+  if (manifest.gypfile) violations.push({ package: label, kind: "gypfile-flag" });
+  return violations;
+}
+
+/**
  * Inspect one UNPACKED package directory for anything that would execute at install time:
  * forbidden lifecycle scripts, a gypfile flag, or a `binding.gyp` on disk — the last being a
  * tarball fact, not a manifest fact, which is why fetching was necessary at all.
+ *
+ * The walk is RECURSIVE over the whole extracted tree (review round 2, chunk 13). It used to
+ * read exactly `package/package.json` and `package/binding.gyp`, so a tarball bundling its own
+ * `package/node_modules/evil` — with a postinstall hook, a gypfile flag and a binding.gyp —
+ * was reported as having no violations at all. Bundled dependencies install with the package;
+ * inspecting only its outermost manifest is inspecting the cover of the book. A symlink
+ * surviving into the extracted tree is itself recorded: member validation refuses links before
+ * extraction, so one here means that check did not run.
  */
 export function inspectUnpacked(dir, label) {
-  const violations = [];
-  const manifestPath = join(dir, "package", "package.json");
-  if (!existsSync(manifestPath)) {
+  const root = join(dir, "package");
+  if (!existsSync(join(root, "package.json"))) {
     // A package with no manifest cannot declare itself harmless; that is a violation, not a skip.
     return [{ package: label, kind: "missing-manifest" }];
   }
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  for (const hook of FORBIDDEN_SCRIPTS) {
-    if (manifest.scripts?.[hook] !== undefined) {
-      violations.push({ package: label, kind: `script:${hook}` });
+  const violations = [];
+  // Nested findings are labelled with their path inside the tarball; the outermost manifest
+  // keeps the bare package label, because that is the thing the operator was told about.
+  const at = (rel) => (rel === "" ? label : `${label}:package/${rel}`);
+  const walk = (currentDir, rel) => {
+    for (const entry of readdirSync(currentDir, { withFileTypes: true })) {
+      const child = join(currentDir, entry.name);
+      const childRel = rel === "" ? entry.name : `${rel}/${entry.name}`;
+      if (entry.isSymbolicLink()) {
+        violations.push({ package: at(childRel), kind: "symlink-in-tree" });
+        continue;
+      }
+      if (entry.isDirectory()) {
+        walk(child, childRel);
+        continue;
+      }
+      if (!entry.isFile()) {
+        violations.push({ package: at(childRel), kind: "irregular-file" });
+        continue;
+      }
+      // Both are labelled by their CONTAINING directory: a violation names a package position,
+      // not a filename, and the outermost position is the package the operator asked about.
+      if (entry.name === "binding.gyp") violations.push({ package: at(rel), kind: "binding.gyp" });
+      if (entry.name === "package.json") violations.push(...inspectManifest(child, at(rel)));
     }
-  }
-  if (manifest.gypfile) violations.push({ package: label, kind: "gypfile-flag" });
-  if (existsSync(join(dir, "package", "binding.gyp"))) {
-    violations.push({ package: label, kind: "binding.gyp" });
-  }
+  };
+  walk(root, "");
   return violations;
 }
 
@@ -243,17 +367,20 @@ export async function inspectClosure(lockfilePath, { fetchTarball, extract } = {
     }
     const violations = [];
     let verified = 0;
+    let expandedBytes = 0;
     for (const entry of entries) {
       const label = `${entry.name}@${entry.version}`;
-      validateResolvedUrl(entry.resolved, label);
-      const buf = await fetchOne(entry.resolved, entry);
+      // Fetch the URL VALIDATION returned, not the lockfile's original string: whatever the
+      // policy above normalised away must not come back through the back door.
+      const url = validateResolvedUrl(entry.resolved, label);
+      const buf = await fetchOne(url.href, entry);
       if (buf.length > MAX_TARBALL_BYTES) {
         throw new Error(`${label}: tarball exceeds ${MAX_TARBALL_BYTES} bytes — refusing`);
       }
       if (!verifyIntegrity(buf, entry.integrity)) {
         throw new Error(`integrity mismatch for ${label} — refusing to unpack`);
       }
-      checkExpandedSize(buf, label);
+      expandedBytes += await measureExpandedBytes(buf, label);
       verified++;
       const dest = join(scratch, `${verified}`);
       mkdirSync(dest);
@@ -262,7 +389,7 @@ export async function inspectClosure(lockfilePath, { fetchTarball, extract } = {
       extractOne(tarPath, dest, label);
       violations.push(...inspectUnpacked(dest, label));
     }
-    return { packages: entries.length, verified, violations };
+    return { packages: entries.length, verified, expandedBytes, violations };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -282,11 +409,30 @@ export function scanInstalledTree(workspaceDir) {
   }
   const violations = [];
   let packagesScanned = 0;
+  const rel = (p) => p.slice(workspaceDir.length + 1);
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name.startsWith(".")) continue;
       const child = join(dir, entry.name);
+      // Dot-entries first, and by allowlist. `.bin` and the lock sidecar are npm's own
+      // bookkeeping; every OTHER hidden directory is recorded, because "starts with a dot" was
+      // a way to put a package where the scan would not look (review round 2, chunk 13).
+      if (entry.name.startsWith(".")) {
+        if (!KNOWN_METADATA_ENTRIES.has(entry.name)) {
+          violations.push({ package: rel(child), kind: "hidden-entry" });
+        }
+        continue;
+      }
+      // A SYMLINK is not a directory to `Dirent.isDirectory()`, so the old walk skipped
+      // symlinked packages in silence — and npm installs `file:`, `link:` and workspace
+      // dependencies exactly that way. A tree of one honest package plus a symlink to a
+      // package carrying `postinstall` and `gypfile` was reported as one package scanned, zero
+      // violations: a clean bill of health for a tree the scan never looked at. Recorded now,
+      // never followed: following it would take the walk outside the tree being judged.
+      if (entry.isSymbolicLink()) {
+        violations.push({ package: rel(child), kind: "symlinked-package" });
+        continue;
+      }
+      if (!entry.isDirectory()) continue;
       if (entry.name.startsWith("@")) {
         walk(child);
         continue;
@@ -294,13 +440,14 @@ export function scanInstalledTree(workspaceDir) {
       const manifestPath = join(child, "package.json");
       if (existsSync(manifestPath)) {
         packagesScanned++;
-        const label = manifestPath.slice(workspaceDir.length + 1);
-        const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-        for (const hook of FORBIDDEN_SCRIPTS) {
-          if (manifest.scripts?.[hook] !== undefined) violations.push({ package: label, kind: `script:${hook}` });
+        violations.push(...inspectManifest(manifestPath, rel(manifestPath)));
+        if (existsSync(join(child, "binding.gyp"))) {
+          violations.push({ package: rel(manifestPath), kind: "binding.gyp" });
         }
-        if (manifest.gypfile) violations.push({ package: label, kind: "gypfile-flag" });
-        if (existsSync(join(child, "binding.gyp"))) violations.push({ package: label, kind: "binding.gyp" });
+      } else {
+        // A directory sitting in a package position with no manifest is not a package this
+        // scan can vouch for. Node will still resolve `require('name/file.js')` out of it.
+        violations.push({ package: rel(child), kind: "missing-manifest" });
       }
       const nested = join(child, "node_modules");
       if (existsSync(nested)) walk(nested);

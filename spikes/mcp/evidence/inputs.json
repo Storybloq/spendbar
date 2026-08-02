@@ -23,7 +23,7 @@
     "spikes/mcp/instrument-hooks.mjs": "c95368d3454a7bfa4d1c8d87921727524cf73f458054fd7a5c7d6b0f9c222911",
     "spikes/mcp/instrument.mjs": "5ddb84bf5ef39e72a30164095822a7bfcefd799333e43e6b421d06b68e6222ea",
     "spikes/mcp/isolate.mjs": "b09180a1f48f15832a17790e42452001ea86955382f96b1d5f3f8dbeddd6a9cf",
-    "spikes/mcp/matrix.mjs": "7625076f9859e252e5a57092aa4b7e62aeeeef96758e445d1604c2b5841e5ee5",
+    "spikes/mcp/matrix.mjs": "a1eae6d220d04763b038d74a39de1e2d10ada15460cebbd53846537bfbf87e6c",
     "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
     "spikes/mcp/real-client/capture-wrapper.mjs": "460db92a5a646f2162f47955e167936723b2c91610195f3442ef5cc81e0364a4",
     "spikes/mcp/real-client/capture.mjs": "59e077e3de9a11118f77149f697a68675c738d46706944622721dde49fb5a024",
@@ -32,7 +32,7 @@
     "spikes/mcp/real-client/provenance.mjs": "fbf1141162a8964154b378acb03b973afa2f313b272d8bd58ae022eb3ff95367",
     "spikes/mcp/real-client/receipt.mjs": "97eb1e5cde0d1bb7746144ea13769c3ba8a4bb9bcfc1784cb9c4fde991ffe38c",
     "spikes/mcp/real-client/sanitize.mjs": "07d77b29f8023df92694d02422f353b6cf02fdb4ca5044858424ce0f41d6e362",
-    "spikes/mcp/supply-chain.mjs": "720e7236d8c973824e52b9ced4017f23db81beee39488d8d83fc2824ecc4df1d",
+    "spikes/mcp/supply-chain.mjs": "f2a6fdf415c93fbd55599a10e11500074500275d18aa08d6efd85fb547a67c1e",
     "spikes/mcp/token-cost.mjs": "0932a60bc8327fb3d62adea7455f72676adff7f30c5e041395181b1a5fe7eee6"
   },
   "notes": [
