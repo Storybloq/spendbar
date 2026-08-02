@@ -28,3 +28,6 @@ westworld-investigation-2026-07-15.md
 # can be an os.rename on one filesystem; a process killed mid-capture can leave one behind.
 tests/golden/.staging-*/
 tests/golden/goldens.previous/
+
+# Machine-local storybloq server registrations (PID-named runtime state)
+.story/servers/

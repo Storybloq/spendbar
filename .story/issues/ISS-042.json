@@ -5,6 +5,7 @@
   "createdBy": "codex review, T-008 round 14",
   "dedupeKey": "t009-overstates-ignore-scripts-coverage-2026-08-01",
   "discoveredDate": "2026-08-02",
+  "displayId": "ISS-042",
   "id": "ISS-042",
   "impact": "T-009's description states the existing packaging contract already enforces installation with lifecycle scripts disabled. It does not: tests-ts/contract/packaging.contract.mjs installs the packed tarball into a scratch prefix without --ignore-scripts, and the four-package-manager script-disabled matrix named in the v0.1 plan row remains unimplemented.\n\nThe consequence is scoped and concrete: T-009 is next in the work queue, and an implementer reading this treats acceptance criterion 7 as already satisfied and skips building the check, leaving the \"no lifecycle scripts\" gate resting on a test that never ran with scripts disabled.\n\nNote T-008 round 14 strengthened the sibling check in spikes/lifecycle.test.mjs to scan the whole production dependency tree (npm ls --omit=dev) for preinstall/install/postinstall hooks and for native builds via binding.gyp/gypfile — previously it only read the root manifest, so a dependency declaring its own install hook passed. That closes the manifest half of the gate; the actual script-disabled INSTALL across npm/pnpm/yarn/bun is still unbuilt and belongs to T-009.\n\nSuggested fix: correct the claim, and state that lifecycle-script-disabled installation is new work required by criterion 7.\n\nFound by codex review during T-008 round 14.",
   "location": [
@@ -18,9 +19,9 @@
     "T-008",
     "T-007"
   ],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Resolved in 6ae37ae: the packaging contract's tarball install now runs with --ignore-scripts, and an argument-capture assertion (not tree observation) fails if the flag is removed — with a clean dependency tree the flag changes nothing observable, so only the captured arguments reveal that mutant. Also added the §10 decision-keyed adapter smoke: it reads spikes/mcp/evidence/decision.json and skips loudly against the recorded decision (or its absence), never on its own ability to find a module.",
+  "resolvedDate": "2026-08-01",
   "severity": "medium",
-  "status": "open",
+  "status": "resolved",
   "title": "T-009 claims lifecycle-script-disabled install coverage that does not exist yet"
 }

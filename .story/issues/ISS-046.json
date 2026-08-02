@@ -23,9 +23,9 @@
     "T-009",
     "T-007"
   ],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Resolved by T-024, committed 4b7248a + 3b06d2e. The repository now passes its own personal-data scan: audit mode over HEAD reports 303 text files, zero findings. Delivered scripts/privacy-scan.mjs (five modes, seven semantic classes, fail-closed on binaries/encodings/empty scans), scripts/guarded-commit.mjs (index-mode commit gate, used for the T-024 commit itself with the tool-written lease fields stripped from the staged copy), a CI workflow scanning every commit in each push range, and 20 tests including self-compliance and planted-value fixtures. All four inventory classes dispositioned: class-A values scrubbed (identifiers removed with markers, never replaced — substituting synthetic ids would fabricate history); class-B denylist literals removed entirely in favour of committed semantic rules, with a test proving the replacement still rejects what the literals named; class-C session ids scrubbed from handovers/issues/architecture doc, with the finding recorded that no generator exists to chase (the field is authored, not templated — the commit guard stops recurrence); class-D root notes gitignored by exact name, untracked handovers scrubbed in place. The claim-metadata entry (A1) is closed by the guard, not a scrub, since the writer is the external Storybloq serializer. EXPLICIT LIMIT: the values remain in git history (1cc1ff9, 8f9d799, 304da06) and every existing clone; history rewrite is an owner decision neither T-024 nor this resolution makes. During execution the scanner caught its own execution record quoting the old fixture values before staging — the fifth self-referential instance this session and the first caught by delivered tooling rather than review.",
+  "resolvedDate": "2026-08-01",
   "severity": "high",
-  "status": "inprogress",
+  "status": "resolved",
   "title": "Tracked files contain the maintainer's real email and home path, which the repo's own hard rule forbids"
 }
