@@ -14,7 +14,7 @@
     "spikes/mcp/candidates/v1/server.mjs": "950f44b0294a482f6f166cc618deeba2208a9a5a66c558794d3632d6724159fa",
     "spikes/mcp/candidates/v2/package-lock.json": "fa646e3069a4937fab5a5ef9905d461e98a51da9aaac4334e2585ce2d3e85db9",
     "spikes/mcp/candidates/v2/server.mjs": "0a84d7fa0f79dfc7a3d5942d756ce7292211369d855ea35f135680028606c237",
-    "spikes/mcp/conformance.mjs": "fa3011e8cde8739e535d2427b82559c6fdbae1fbcf302d2fd6d63a3e765d5605",
+    "spikes/mcp/conformance.mjs": "e8255cff98d47e1cf218ed821d0b3cc4d8a012c3658addaad9dfe6d70e42857d",
     "spikes/mcp/instrument-hooks.mjs": "c95368d3454a7bfa4d1c8d87921727524cf73f458054fd7a5c7d6b0f9c222911",
     "spikes/mcp/instrument.mjs": "bf574b1710dd1227bb3dda1614cfe014e4f35f629be37abe47d60e133eece33d",
     "spikes/mcp/isolate.mjs": "2b29a9011ccba7651f9c2cb6e4485dfd589757dc8f1f0bcdad2b720c2d105473",

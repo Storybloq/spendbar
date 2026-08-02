@@ -1,5 +1,5 @@
 // Tests for the real-client classifier and the manifest sanitizer (plan §9 / §6).
-// RUN DIRECTLY (`node spikes/mcp/real-client/classify.test.mjs`) — see conformance.test.mjs.
+// Runs under `node --test` or directly; test:mcp-spike uses direct execution.
 //
 // The two classes that must never collapse into each other, each pinned by fixture:
 // a post-spawn pre-handshake timeout is `conformance-fail`; a spawn failure is

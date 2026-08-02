@@ -22,12 +22,17 @@ export const MUTANTS = [
   "args-accept", // schema-violating arguments accepted silently
   "args-crash", // schema-violating arguments kill the server
   "cancel-ignored", // cancellation notification does nothing; the handler burns its full blockMs
-  "cancel-wedged", // after a cancellation the server stops answering entirely
+  "cancel-wedged", // honors the cancellation, then stops answering entirely
   "eof-alive", // the process outlives client EOF
   "stdout-noise", // a non-JSON-RPC line is written to stdout
   "stderr-silent", // no log line ever reaches stderr
 ];
 
+// Everything below runs ONLY when this file is the entry point. Importing MUTANTS must be
+// side-effect free: executing the server on import attaches a readline interface to the
+// IMPORTING process's stdin — which is exactly the lingering reference that kept test-runner
+// child processes alive (review round 1 found the root cause the earlier header guessed at).
+function main() {
 const out = (obj) => process.stdout.write(JSON.stringify(obj) + "\n");
 const log = (line) => {
   if (MUTANT !== "stderr-silent") process.stderr.write(`${line}\n`);
@@ -37,7 +42,7 @@ const PROBE_SCHEMA = {
   type: "object",
   properties: {
     nonce: { type: "string", minLength: 1 },
-    blockMs: { type: "number", minimum: 0, maximum: 60000 },
+    blockMs: { type: "integer", minimum: 0, maximum: 60000 },
   },
   required: ["nonce"],
   additionalProperties: false,
@@ -76,8 +81,7 @@ function handle(msg) {
   }
   if (method === "notifications/initialized") return;
   if (method === "notifications/cancelled") {
-    if (MUTANT === "cancel-wedged") wedged = true;
-    if (MUTANT === "cancel-ignored" || MUTANT === "cancel-wedged") return;
+    if (MUTANT === "cancel-ignored") return;
     const pending = pendingBlocks.get(params?.requestId);
     if (pending) {
       clearTimeout(pending.timer);
@@ -85,6 +89,9 @@ function handle(msg) {
       log(`probe-handler-released ${pending.nonce} aborted=true`);
       // Per MCP, a cancelled request gets no response.
     }
+    // cancel-wedged honors the cancellation itself, then stops answering ANYTHING — so its
+    // kill exercises the wedged-server clause, not cancel-ignored's release-witness clause.
+    if (MUTANT === "cancel-wedged") wedged = true;
     return;
   }
   if (method === "tools/list") {
@@ -110,8 +117,11 @@ function handle(msg) {
   if (method === "tools/call") {
     const args = params?.arguments ?? {};
     const badType = typeof args.nonce !== "string" || args.nonce.length === 0;
+    const badBlock =
+      args.blockMs !== undefined &&
+      (typeof args.blockMs !== "number" || !Number.isInteger(args.blockMs) || args.blockMs < 0 || args.blockMs > 60000);
     const extraKeys = Object.keys(args).filter((k) => k !== "nonce" && k !== "blockMs");
-    if (badType || extraKeys.length > 0) {
+    if (badType || badBlock || extraKeys.length > 0) {
       if (MUTANT === "args-accept") return respondProbe(id, { ...args, nonce: String(args.nonce) });
       if (MUTANT === "args-crash") process.exit(1);
       out({
@@ -161,3 +171,6 @@ rl.on("line", (line) => {
 rl.on("close", () => {
   if (MUTANT === "eof-alive") setInterval(() => {}, 1 << 30);
 });
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) main();

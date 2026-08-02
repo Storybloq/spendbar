@@ -1,6 +1,8 @@
 // Tests for decide()/act1 (plan §1), the evidence verifier (§6) and the token plumbing (§7).
 //
-// RUN DIRECTLY (`node spikes/mcp/decide.test.mjs`) — see conformance.test.mjs for why.
+// Runs under `node --test` or directly (`node spikes/mcp/decide.test.mjs`); test:mcp-spike
+// uses direct execution. (An earlier runner hang traced to mutant-server.mjs executing on
+// import; it is fixed — see conformance.test.mjs.)
 
 import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -306,6 +306,9 @@ export const CASES = [
       await initialize(h);
       checkRejected(await callProbe(h, { nonce: 42 }), "wrong-typed nonce");
       checkRejected(await callProbe(h, { nonce: "x", extra: true }), "extra property");
+      checkRejected(await callProbe(h, { nonce: "x", blockMs: 0.5 }), "fractional blockMs");
+      checkRejected(await callProbe(h, { nonce: "x", blockMs: -1 }), "negative blockMs");
+      checkRejected(await callProbe(h, { nonce: "x", blockMs: 60001 }), "over-limit blockMs");
       const ok = await callProbe(h, { nonce: "still-alive" });
       check(ok.result?.structuredContent?.nonce === "still-alive", "server unhealthy after rejections");
     },
