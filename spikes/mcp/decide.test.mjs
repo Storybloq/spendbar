@@ -877,9 +877,15 @@ test("the generators are deterministic, pinned against literals the generators d
  *
  * The graph is walked rather than listed. A hand-maintained list of modules to copy is the same
  * construct that produced the drainTimedOut divergence — a second table describing something the
- * program already knows — and it would rot the first time an import is added. A module the walk
- * misses does not pass silently either: the subprocess dies with ERR_MODULE_NOT_FOUND, and the
- * clean-run assertion below is what turns that into a failure.
+ * program already knows — and it would rot the first time an import is added.
+ *
+ * What the walk actually covers, stated rather than implied: STATIC relative specifiers, in
+ * `import`/`export ... from` and bare side-effect `import`, in either quote style. It is a regex,
+ * not a parser — a dynamic `import(expr)` with a computed specifier is invisible to it, and
+ * pulling in an ESM-aware lexer to close that gap would mean a dependency for a test fixture.
+ * That trade is acceptable only because the failure is loud: a module the walk misses makes the
+ * subprocess die with ERR_MODULE_NOT_FOUND, and the clean-run assertion below turns that into a
+ * failing test rather than a passing one. The fixture can be broken; it cannot be wrong.
  */
 function withScriptFixture(fn) {
   const dir = mkdtempSync(join(tmpdir(), "verify-script-fixture-"));
@@ -895,8 +901,8 @@ function withScriptFixture(fn) {
       seen.add(rel);
       copyFile(rel);
       const source = readFileSync(join(REPO, rel), "utf8");
-      for (const m of source.matchAll(/from\s+"(\.[^"]*)"/g)) {
-        walk(join(dirname(rel), m[1]));
+      for (const m of source.matchAll(/(?:from|^\s*import)\s*\(?\s*(["'])(\.[^"']*)\1/gm)) {
+        walk(join(dirname(rel), m[2]));
       }
     };
     walk("spikes/mcp/verify-evidence.mjs");

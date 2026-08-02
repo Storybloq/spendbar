@@ -119,14 +119,34 @@ const refuse = (msg) => {
   throw new EvidenceError(msg);
 };
 
-function readJson(path, what) {
+/**
+ * Read a JSON file ONCE and return both the bytes and the parsed value.
+ *
+ * The pair matters wherever a file is both validated and digested. Reading it twice — parse
+ * now, hash later — leaves a window in which the two reads can see different bytes, and a
+ * verifier that validates one byte sequence while binding a receipt to another has been talked
+ * out of the thing it exists to prevent. The manifest binding is exactly that case: it is the
+ * check that catches a manifest edited after its receipt was written, so an editor who can write
+ * the file at all is precisely the adversary it assumes.
+ */
+function readJsonWithBytes(path, what) {
   if (!existsSync(path)) refuse(`${what} is absent (${path})`);
+  let bytes;
   try {
-    return parseStrictJson(readFileSync(path, "utf8"));
+    bytes = readFileSync(path);
+  } catch (error) {
+    refuse(`${what} is unreadable: ${error.message}`);
+  }
+  try {
+    return { bytes, value: parseStrictJson(bytes.toString("utf8")) };
   } catch (error) {
     if (error instanceof JsonSyntaxError) refuse(`${what} is not strict JSON: ${error.message}`);
     refuse(`${what} is unreadable: ${error.message}`);
   }
+}
+
+function readJson(path, what) {
+  return readJsonWithBytes(path, what).value;
 }
 
 /** Exact-shape check: a record carries exactly its declared fields, with the declared types.
@@ -629,11 +649,11 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       if (rec.attempts.length > 2) refuse(`${what} records ${rec.attempts.length} attempts; the policy allows at most 2`);
 
       const manifestPath = join(evidenceDir, "real-clients", `${client}-${candidate}.manifest.json`);
-      const manifest = checkShape(
-        readJson(manifestPath, `${what} manifest`),
-        MANIFEST_SPEC,
-        `${what} manifest`,
-      );
+      // One read, kept for the binding below. Everything this function validates about the
+      // manifest, and everything classify() re-derives from it, has to describe the same bytes
+      // the receipt is compared against.
+      const manifestRead = readJsonWithBytes(manifestPath, `${what} manifest`);
+      const manifest = checkShape(manifestRead.value, MANIFEST_SPEC, `${what} manifest`);
       if (manifest.client !== client || manifest.candidate !== candidate) {
         refuse(`${what} manifest names ${manifest.client}/${manifest.candidate}`);
       }
@@ -709,7 +729,7 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       // satisfied, and `classify()` then re-derived a status from the edited assertions. The
       // receipt records the digest of the manifest it sanitized, taken while the bytes still
       // existed, and the committed file has to be that file (round 2, chunk 12).
-      if (sha256(readFileSync(manifestPath)) !== receipt.manifestSha256) {
+      if (sha256(manifestRead.bytes) !== receipt.manifestSha256) {
         refuse(`${what} committed manifest is not the file its receipt was written for — it has been edited since`);
       }
       // An independent cross-check of the same counters from the other record.
