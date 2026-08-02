@@ -25,7 +25,7 @@ import {
 import { verifyEvidence, BOUND_INPUTS, EVIDENCE_DIR, EvidenceError } from "./verify-evidence.mjs";
 import { canonicalize, proxyTokens, measureToolDefinition, TOKEN_PROXY_VERSION } from "./token-cost.mjs";
 import { runStages, buildStages } from "./matrix.mjs";
-import { CAPTURE_INPUTS } from "./real-client/receipt.mjs";
+import { CAPTURE_INPUTS } from "./real-client/provenance.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..");
@@ -674,6 +674,7 @@ const EXPECTED_BOUND_PRODUCERS = [
   "spikes/mcp/real-client/normalize.mjs",
   "spikes/mcp/real-client/sanitize.mjs",
   "spikes/mcp/real-client/receipt.mjs",
+  "spikes/mcp/real-client/provenance.mjs",
   "scripts/privacy-scan.mjs",
   "scripts/privacy-synthetic.json",
 ];

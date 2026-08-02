@@ -36,9 +36,9 @@ import { fileURLToPath } from "node:url";
 import { SCRIPTED_CASES, REAL_CLIENTS, MANDATORY_CELLS, STATUSES } from "./decide.mjs";
 import { parseStrictJson, JsonSyntaxError } from "./strict-json.mjs";
 import { classify, toCellStatus, InvalidRecordError } from "./real-client/classify.mjs";
-import { STREAM_STAT_KEYS } from "./real-client/sanitize.mjs";
-import { PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER } from "./real-client/capture.mjs";
-import { CAPTURE_INPUTS } from "./real-client/receipt.mjs";
+import { STREAM_STAT_KEYS, DIGEST_KEYS } from "./real-client/sanitize.mjs";
+import { PROMPT_TEMPLATE, PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER } from "./real-client/capture.mjs";
+import { CAPTURE_INPUTS, RECEIPT_SCHEMA_VERSION } from "./real-client/provenance.mjs";
 import { TOKEN_PROXY_VERSION } from "./token-cost.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -68,6 +68,7 @@ export const BOUND_INPUTS = [
   "spikes/mcp/real-client/normalize.mjs",
   "spikes/mcp/real-client/sanitize.mjs",
   "spikes/mcp/real-client/receipt.mjs",
+  "spikes/mcp/real-client/provenance.mjs",
   // The sanitizer runs the privacy classifier over its own output and refuses on a match, so
   // these rules — and the synthetic-value declarations that decide what they let through —
   // shape every committed manifest.
@@ -135,6 +136,7 @@ const CELL_SPEC = {
   detail: { type: "string", optional: true },
   traceDigest: { type: "string", optional: true },
   clientVersion: { type: "string", optional: true },
+  attempts: { type: "array", optional: true },
 };
 
 // The sanitized capture manifest, exactly as sanitize.mjs's FIELD_MAP emits it. The verifier
@@ -145,13 +147,16 @@ const MANIFEST_SPEC = {
   candidate: { type: "string" },
   clientVersion: { type: "string" },
   promptSha256: { type: "string" },
+  promptInstanceSha256: { type: "string" },
   nonce: { type: "string" },
   executablePath: { type: "string" },
   executableIdentity: { type: "string" },
   commandLine: { type: "array" },
   env: { type: "array" },
   cwd: { type: "string" },
+  captureInputs: { type: "object" },
   spawn: { type: "object" },
+  wrapper: { type: "object" },
   environmental: { type: "object", nullable: true },
   isolation: { type: "object" },
   timedOut: { type: "boolean" },
@@ -170,23 +175,23 @@ const MANIFEST_SPEC = {
 };
 
 const RECEIPT_SPEC = {
+  schemaVersion: { type: "string" },
   captureId: { type: "string" },
   client: { type: "string" },
   candidate: { type: "string" },
+  outcome: { type: "string" },
   reproduced: { type: "object" },
   rawStatistics: { type: "object" },
+  captureInputs: { type: "object" },
   note: { type: "string", optional: true },
 };
 
 /** Both directions carry the same seven counters; the key set is the sanitizer's, not a copy. */
 const STREAM_STATS_SPEC = Object.fromEntries(STREAM_STAT_KEYS.map((key) => [key, { type: "number" }]));
 
-const DIGEST_SET_SPEC = {
-  clientToServerSha256: { type: "string" },
-  serverStdoutSha256: { type: "string" },
-  serverStderrSha256: { type: "string" },
-  derivationDigest: { type: "string" },
-};
+// Built from the sanitizer's key list rather than restated, so a stream that becomes
+// digest-bound cannot be bound in one place and unchecked in the other.
+const DIGEST_SET_SPEC = Object.fromEntries(DIGEST_KEYS.map((key) => [key, { type: "string" }]));
 
 export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HERE, "..", "..") } = {}) {
   // 0. A present attempt marker means the last matrix run crashed or failed after this
@@ -414,6 +419,15 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
     if (!Array.isArray(receiptRaw)) refuse("real-clients/receipt.json is not an array");
     receipts = receiptRaw.map((entry, index) => {
       const r = checkShape(entry, RECEIPT_SPEC, `receipt.json[${index}]`);
+      // A receipt is a permission to have deleted the raw bytes, so one written by an older,
+      // weaker verifier must not keep validating after the verifier is strengthened — the
+      // evidence that would settle it is gone.
+      if (r.schemaVersion !== RECEIPT_SCHEMA_VERSION) {
+        refuse(
+          `receipt.json[${index}] was written under receipt schema '${r.schemaVersion}', ` +
+            `not the current '${RECEIPT_SCHEMA_VERSION}' — recapture rather than trust it`,
+        );
+      }
       checkShape(r.reproduced, DIGEST_SET_SPEC, `receipt.json[${index}].reproduced`);
       for (const [k, v] of Object.entries(r.reproduced)) {
         if (!HEX64.test(v)) refuse(`receipt.json[${index}].reproduced.${k} is not a sha256 hex string`);
@@ -447,6 +461,24 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       checkShape(rec, CELL_SPEC, what);
       if (!STATUSES.includes(rec.status)) refuse(`${what} has invalid status '${rec.status}'`);
 
+      // A cell with no attempts is a PREFLIGHT absence: the client binary was missing or did
+      // not advertise the flags isolation needs, so nothing ran and there is nothing to
+      // sanitize or receipt. It is accepted without a manifest, and the reason it is safe to
+      // accept is an asymmetry worth stating: a not-run can only ever produce `incomplete`
+      // (§1), so an editable not-run costs a recapture and can never buy an adoption. A pass
+      // or a fail still needs its manifest, its receipt, and re-derivation from both.
+      if (rec.attempts === undefined) {
+        if (rec.status !== "not-run") refuse(`${what} records status '${rec.status}' with no capture attempts`);
+        if (rec.cause === undefined) refuse(`${what} is a not-run with neither attempts nor a cause`);
+        if (rec.traceDigest !== undefined) refuse(`${what} has no attempts but records a trace digest`);
+        cells[candidate][`real:${client}`] = rec;
+        continue;
+      }
+      if (!Array.isArray(rec.attempts) || rec.attempts.length === 0) {
+        refuse(`${what} records an empty or malformed attempts list`);
+      }
+      if (rec.attempts.length > 2) refuse(`${what} records ${rec.attempts.length} attempts; the policy allows at most 2`);
+
       const manifestPath = join(evidenceDir, "real-clients", `${client}-${candidate}.manifest.json`);
       const manifest = checkShape(
         readJson(manifestPath, `${what} manifest`),
@@ -461,14 +493,25 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
         checkShape(manifest[direction], STREAM_STATS_SPEC, `${what} manifest.${direction}`);
       }
 
+      // Every attempt is receipted, including a superseded environmental one — the retry used
+      // to discard its predecessor, leaving a receipt with nowhere to belong and an attempt
+      // that committed evidence never mentioned.
       const matching = receipts.filter((r) => r.client === client && r.candidate === candidate);
-      if (matching.length !== 1) {
-        refuse(`${what} has ${matching.length} receipt entries, expected exactly 1`);
+      const attemptIds = rec.attempts.map((a) => a.captureId);
+      if (JSON.stringify([...matching.map((r) => r.captureId)].sort()) !== JSON.stringify([...attemptIds].sort())) {
+        refuse(`${what} receipts [${matching.map((r) => r.captureId).join(", ")}] do not match its attempts [${attemptIds.join(", ")}]`);
       }
-      const receipt = matching[0];
-      if (receipt.captureId !== manifest.captureId) {
-        refuse(`${what} receipt captureId ${receipt.captureId} != manifest ${manifest.captureId}`);
+      for (const attempt of rec.attempts) {
+        const entry = matching.find((r) => r.captureId === attempt.captureId);
+        if (entry.outcome !== attempt.outcome) {
+          refuse(`${what} attempt ${attempt.captureId} records outcome '${attempt.outcome}' but its receipt says '${entry.outcome}'`);
+        }
       }
+      const finalId = attemptIds[attemptIds.length - 1];
+      if (finalId !== manifest.captureId) {
+        refuse(`${what} committed manifest is ${manifest.captureId}, which is not the final attempt ${finalId}`);
+      }
+      const receipt = matching.find((r) => r.captureId === finalId);
       if (JSON.stringify(receipt.reproduced) !== JSON.stringify(manifest.digests)) {
         refuse(`${what} receipt digests disagree with the manifest — the derivation was not reproduced`);
       }
@@ -483,6 +526,10 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
         derived = toCellStatus(
           classify(manifest, {
             promptSha256: PROMPT_TEMPLATE_SHA256,
+            // Recomputed here from the committed template and the manifest's own nonce, so the
+            // prompt the client actually received is checked and not merely the template it
+            // was supposed to come from.
+            promptInstanceSha256: sha256(Buffer.from(PROMPT_TEMPLATE.replace("{{NONCE}}", manifest.nonce), "utf8")),
             nonce: manifest.nonce,
             completionMarker: COMPLETION_MARKER,
           }).outcome,

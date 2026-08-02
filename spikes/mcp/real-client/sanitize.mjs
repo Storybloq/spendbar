@@ -35,6 +35,7 @@
 
 import { scanText } from "../../../scripts/privacy-scan.mjs";
 import { ENVIRONMENTAL_CONDITIONS } from "./classify.mjs";
+import { CAPTURE_INPUTS } from "./provenance.mjs";
 
 export class SanitizeError extends Error {}
 
@@ -64,7 +65,16 @@ export const PLACEHOLDER = {
 export const FRAME_METHODS = ["initialize", "tools/list", "tools/call", "unknown", "ambiguous"];
 export const LAST_PHASES = ["pre-spawn", "spawned", "initialized", "listed", "called"];
 export const STREAM_STAT_KEYS = ["bytes", "lines", "messages", "remainder", "encodingErrors", "parseErrors", "protocolErrors"];
-export const DIGEST_KEYS = ["clientToServerSha256", "serverStdoutSha256", "serverStderrSha256", "derivationDigest"];
+export const DIGEST_KEYS = [
+  "clientToServerSha256",
+  "serverStdoutSha256",
+  "serverStderrSha256",
+  // Client stdout/stderr carry the completion-marker and disclosure predicates. Leaving them
+  // unbound meant those facts could not be reproduced once the raw capture was deleted.
+  "clientStdoutSha256",
+  "clientStderrSha256",
+  "derivationDigest",
+];
 
 const isPlainObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 const fail = (msg) => {
@@ -153,10 +163,36 @@ const TRANSFORMS = {
     return { condition: v.condition, detail: keepOrRedact(v.detail ?? "", DETAIL_TEXT, `${field}.detail`) };
   },
   isolation: (v, field) => {
-    if (!isPlainObject(v) || (v.hostileConfigExecuted !== true && v.hostileConfigExecuted !== false)) {
-      fail(`${field}.hostileConfigExecuted: expected a boolean`);
+    if (!isPlainObject(v)) fail(`${field}: expects an object`);
+    for (const key of ["hostileConfigExecuted", "userConfigIsolated"]) {
+      if (v[key] !== true && v[key] !== false) fail(`${field}.${key}: expected a boolean`);
     }
-    return { hostileConfigExecuted: v.hostileConfigExecuted };
+    return { hostileConfigExecuted: v.hostileConfigExecuted, userConfigIsolated: v.userConfigIsolated };
+  },
+  // The tee wrapper's own witness: whether the server process actually started, whether its
+  // streams closed, and how many bytes it recorded but could not deliver.
+  wrapper: (v, field) => {
+    if (!isPlainObject(v)) fail(`${field}: expects an object`);
+    for (const key of ["spawned", "closed"]) {
+      if (v[key] !== true && v[key] !== false) fail(`${field}.${key}: expected a boolean`);
+    }
+    if (!Number.isSafeInteger(v.forwardErrors) || v.forwardErrors < 0) {
+      fail(`${field}.forwardErrors: expected a non-negative integer`);
+    }
+    return { spawned: v.spawned, closed: v.closed, forwardErrors: v.forwardErrors };
+  },
+  // The capture-time provenance pin: repository-relative paths to sha256 digests, with the key
+  // set fixed by the declared capture-input list rather than by whatever the record contains.
+  "digest-map": (v, field, spec) => {
+    if (!isPlainObject(v)) fail(`${field}: expects an object`);
+    const out = {};
+    for (const key of spec.keys) {
+      if (typeof v[key] !== "string" || !SHA256.test(v[key])) fail(`${field}: '${key}' is not a sha256 digest`);
+      out[key] = v[key];
+    }
+    const extra = Object.keys(v).filter((k) => !spec.keys.includes(k));
+    if (extra.length) fail(`${field}: undeclared entries [${extra.join(", ")}]`);
+    return out;
   },
   exit: (v, field) => {
     if (!isPlainObject(v)) fail(`${field}: expects an object`);
@@ -242,13 +278,18 @@ export const SCHEMA = {
   candidate: { kind: "enum", values: ["v1", "v2"] },
   clientVersion: { kind: "version-line" },
   promptSha256: { kind: "sha256" },
+  promptInstanceSha256: { kind: "sha256" },
   nonce: { kind: "token" },
   executablePath: { kind: "placeholder-path" },
-  // A digest, or the recorded reason a digest was impossible.
-  executableIdentity: { kind: "token", pattern: /^(resolved-at-spawn-via-PATH|(sha256:)?[0-9a-f]{64})$/ },
+  // A digest of the resolved executable, or the recorded reason a digest was impossible.
+  executableIdentity: {
+    kind: "token",
+    pattern: /^(sha256:[0-9a-f]{64}|unresolved-on-PATH|not-a-regular-file|unreadable)$/,
+  },
   commandLine: { kind: "argv" },
   env: { kind: "env-names" },
   cwd: { kind: "placeholder-path" },
+  captureInputs: { kind: "digest-map", keys: CAPTURE_INPUTS },
   spawn: { kind: "spawn" },
   environmental: { kind: "environmental" },
   isolation: { kind: "isolation" },
@@ -256,11 +297,15 @@ export const SCHEMA = {
   lastPhase: { kind: "enum", values: LAST_PHASES },
   clientExit: { kind: "exit" },
   serverTermination: { kind: "termination" },
+  wrapper: { kind: "wrapper" },
   frames: { kind: "frames" },
   clientToServer: { kind: "stream-stats" },
   serverStdout: { kind: "stream-stats" },
   serverStderr: { kind: "flags", keys: ["hasReadyLine", "containsFrames"] },
-  clientStdout: { kind: "flags", keys: ["hasCompletionMarker", "containsNonce", "containsAllowlistedEnvValue"] },
+  clientStdout: {
+    kind: "flags",
+    keys: ["hasCompletionMarker", "containsNonce", "containsAllowlistedEnvValue", "truncated"],
+  },
   digests: { kind: "digest-set" },
   retries: { kind: "retries" },
 };
@@ -334,12 +379,15 @@ export function checkPreservation(raw, sanitized) {
     "client",
     "candidate",
     "promptSha256",
+    "promptInstanceSha256",
     "nonce",
     "executableIdentity",
+    "captureInputs",
     "timedOut",
     "lastPhase",
     "clientExit",
     "serverTermination",
+    "wrapper",
     "clientToServer",
     "serverStdout",
     "serverStderr",

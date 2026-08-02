@@ -94,6 +94,12 @@ function requireWellFormed(record) {
     bad("isolation.hostileConfigExecuted is missing or not a boolean");
   }
 
+  const wrapper = record.wrapper;
+  if (!isPlainObject(wrapper)) bad("wrapper witness is missing or not an object");
+  if (!isBool(wrapper.spawned)) bad("wrapper.spawned is missing or not a boolean");
+  if (!isBool(wrapper.closed)) bad("wrapper.closed is missing or not a boolean");
+  if (!isCount(wrapper.forwardErrors)) bad("wrapper.forwardErrors is missing or not a non-negative integer");
+
   const env = record.environmental;
   if (env !== null && env !== undefined) {
     if (!isPlainObject(env)) bad("environmental is neither null nor an object");
@@ -179,8 +185,14 @@ export function classify(record, expected) {
     if (!ok) reasons.push(why);
   };
 
-  // 1. Exact prompt — a hashed input, never a paraphrase.
+  // 1. Exact prompt — a hashed input, never a paraphrase. Both the committed TEMPLATE and the
+  //    exact instantiated bytes: matching only the template left prompt construction free to
+  //    mutate without changing the recorded hash.
   clause(record.promptSha256 === expected.promptSha256, "prompt hash does not match the committed literal");
+  clause(
+    expected.promptInstanceSha256 === undefined || record.promptInstanceSha256 === expected.promptInstanceSha256,
+    "the prompt actually passed to the client is not the committed template instantiated with this run's nonce",
+  );
   // 2. Nonce recorded before the run and echoed back through the tool result.
   clause(record.nonce === expected.nonce, "recorded nonce does not match this run's record");
 
@@ -228,6 +240,15 @@ export function classify(record, expected) {
     clause(stats.parseErrors === 0, `${direction} produced ${stats.parseErrors} parse errors`);
     clause(stats.protocolErrors === 0, `${direction} carried ${stats.protocolErrors} non-JSON-RPC-2.0 message(s)`);
   }
+  // The tee's own honesty: bytes it recorded but could not deliver mean the trace is not a
+  // record of an exchange that happened.
+  //
+  // `wrapper.closed` is recorded but deliberately NOT a clause. A real client tears the session
+  // down by killing the server process — which is the wrapper — so the wrapper does not survive
+  // to observe its child's streams close, and no capture of a healthy run has ever had it true.
+  // Requiring it failed every honest capture; it is a fact about teardown, not about the run.
+  clause(record.wrapper.forwardErrors === 0, `the capture wrapper failed to deliver ${record.wrapper.forwardErrors} chunk(s)`);
+  clause(record.clientStdout?.truncated !== true, "client output exceeded the retention ceiling — the disclosure predicates are unreliable");
   clause(record.serverStderr?.hasReadyLine === true, "server stderr lacks the expected log line");
   clause(record.serverStderr?.containsFrames === false, "server stderr contains JSON-RPC frames");
   clause(record.clientStdout?.hasCompletionMarker === true, `client stdout lacks the completion marker`);

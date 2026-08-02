@@ -24,11 +24,21 @@ import {
   PLACEHOLDER,
   STREAM_STAT_KEYS,
 } from "./sanitize.mjs";
+import { CAPTURE_INPUTS } from "./provenance.mjs";
+import { buildClientEnv, CLIENT_ENV_ALLOWLIST } from "./capture.mjs";
 import { scanText } from "../../../scripts/privacy-scan.mjs";
 
 const cat = (...parts) => parts.join("");
 
-const EXPECTED = { promptSha256: "a".repeat(64), nonce: "nonce-fixture-0001", completionMarker: "PROBE_DONE" };
+const EXPECTED = {
+  promptSha256: "a".repeat(64),
+  promptInstanceSha256: "1".repeat(64),
+  nonce: "nonce-fixture-0001",
+  completionMarker: "PROBE_DONE",
+};
+
+/** A full capture-input pin, built from the declared list so the fixture cannot drift from it. */
+const capturePins = () => Object.fromEntries(CAPTURE_INPUTS.map((rel, i) => [rel, String(i % 10).repeat(64)]));
 
 /** A clean stream-statistics block; `over` breaks exactly one counter. */
 const stats = (over = {}) => ({
@@ -48,14 +58,16 @@ function passingRecord() {
     client: "claude-code",
     candidate: "v2",
     promptSha256: EXPECTED.promptSha256,
+    promptInstanceSha256: EXPECTED.promptInstanceSha256,
     nonce: EXPECTED.nonce,
     spawn: { client: { ok: true }, server: { ok: true } },
     environmental: null,
-    isolation: { hostileConfigExecuted: false },
+    isolation: { hostileConfigExecuted: false, userConfigIsolated: true },
     timedOut: false,
     lastPhase: "called",
     clientExit: { code: 0, signal: null },
     serverTermination: { signal: null },
+    wrapper: { spawned: true, closed: true, forwardErrors: 0 },
     frames: [
       { type: "response", method: "initialize", protocolVersion: "2025-06-18" },
       { type: "response", method: "tools/list", toolNames: ["spendbar_probe"] },
@@ -69,7 +81,12 @@ function passingRecord() {
     clientToServer: stats({ bytes: 512 }),
     serverStdout: stats(),
     serverStderr: { hasReadyLine: true, containsFrames: false },
-    clientStdout: { hasCompletionMarker: true, containsNonce: false, containsAllowlistedEnvValue: false },
+    clientStdout: {
+      hasCompletionMarker: true,
+      containsNonce: false,
+      containsAllowlistedEnvValue: false,
+      truncated: false,
+    },
   };
 }
 
@@ -264,6 +281,48 @@ test("every unaccounted-for byte counter fails, on BOTH directions", () => {
   }
 });
 
+test("the tee wrapper's own witnesses are pass clauses, not decoration", () => {
+  // A tee that recorded bytes it could not deliver is not a record of an exchange, and streams
+  // that never closed mean the capture may be missing its tail.
+  const undelivered = passingRecord();
+  undelivered.wrapper.forwardErrors = 2;
+  assert.equal(classify(undelivered, EXPECTED).outcome, "conformance-fail");
+
+  // But NOT `closed`: a real client tears the session down by killing the server process,
+  // which is the wrapper, so it never survives to see its child's streams close. Requiring it
+  // failed all four honest captures — a clause that is unsatisfiable in production is as bad
+  // as one that is unfailable.
+  const neverClosed = passingRecord();
+  neverClosed.wrapper.closed = false;
+  assert.equal(classify(neverClosed, EXPECTED).outcome, "pass");
+
+  const truncated = passingRecord();
+  truncated.clientStdout.truncated = true;
+  assert.equal(classify(truncated, EXPECTED).outcome, "conformance-fail");
+});
+
+test("a missing wrapper witness is invalid evidence, not a silently unjudged channel", () => {
+  for (const mutate of [(r) => delete r.wrapper, (r) => delete r.wrapper.spawned, (r) => (r.wrapper.forwardErrors = "0")]) {
+    const r = passingRecord();
+    mutate(r);
+    assert.throws(() => classify(r, EXPECTED), InvalidRecordError);
+  }
+});
+
+test("the prompt actually passed is checked, not only the template it came from", () => {
+  // Hashing the uninstantiated template left prompt construction free to mutate — a changed
+  // argv still matched the recorded hash and still classified as a pass.
+  const r = passingRecord();
+  r.promptInstanceSha256 = "9".repeat(64);
+  const c = classify(r, EXPECTED);
+  assert.equal(c.outcome, "conformance-fail");
+  assert.ok(c.reasons.some((x) => x.includes("actually passed to the client")), c.reasons.join("; "));
+
+  // A verifier that does not supply the instantiated hash does not silently fail every record.
+  const { promptInstanceSha256, ...withoutIt } = EXPECTED;
+  assert.equal(classify(passingRecord(), withoutIt).outcome, "pass");
+});
+
 test("nonzero client exit and signal-terminated server each fail", () => {
   const exit = passingRecord();
   exit.clientExit = { code: 1, signal: null };
@@ -296,28 +355,38 @@ function rawManifest() {
     candidate: "v2",
     clientVersion: "2.1.220 (Claude Code)",
     promptSha256: EXPECTED.promptSha256,
+    promptInstanceSha256: EXPECTED.promptInstanceSha256,
     nonce: EXPECTED.nonce,
     executablePath: cat("/Users", "/jdoe/.local/bin/claude"),
     executableIdentity: "sha256:" + "b".repeat(64),
     commandLine: ["-p", "fixed prompt", "--strict-mcp-config", "--mcp-config", cat("/Users", "/jdoe/tmp/mcp.json")],
     env: { PATH: cat("/Users", "/jdoe/bin:/usr/bin"), SPENDBAR_RESOLVE_LOG: "/tmp/r.ndjson" },
     cwd: cat("/Users", "/jdoe/scratch"),
+    captureInputs: capturePins(),
     spawn: { client: { ok: true }, server: { ok: true } },
     environmental: null,
-    isolation: { hostileConfigExecuted: false },
+    isolation: { hostileConfigExecuted: false, userConfigIsolated: true },
     timedOut: false,
     lastPhase: "called",
     clientExit: { code: 0, signal: null },
     serverTermination: { signal: null },
+    wrapper: { spawned: true, closed: true, forwardErrors: 0 },
     frames: [{ type: "response", method: "initialize", protocolVersion: "2025-06-18" }],
     clientToServer: stats({ bytes: 512 }),
     serverStdout: stats(),
     serverStderr: { hasReadyLine: true, containsFrames: false },
-    clientStdout: { hasCompletionMarker: true, containsNonce: false, containsAllowlistedEnvValue: false },
+    clientStdout: {
+      hasCompletionMarker: true,
+      containsNonce: false,
+      containsAllowlistedEnvValue: false,
+      truncated: false,
+    },
     digests: {
       clientToServerSha256: "c".repeat(64),
       serverStdoutSha256: "d".repeat(64),
       serverStderrSha256: "e".repeat(64),
+      clientStdoutSha256: "0".repeat(64),
+      clientStderrSha256: "1".repeat(64),
       derivationDigest: "f".repeat(64),
     },
     retries: [],
@@ -490,6 +559,40 @@ test("the declared placeholders are the ONLY substitutions the checker will acce
   s.cwd = "<path:somewhere-else>";
   assert.ok(checkPreservation(raw, s).some((v) => v.includes("cwd")));
   assert.equal(PLACEHOLDER.path("cwd"), "<path:cwd>");
+});
+
+test("the client environment is an allowlist, and the manifest records what was passed", () => {
+  // The critical chunk-10 finding: the client was spawned with no `env` option at all, so it
+  // inherited every credential in the shell while the manifest recorded `{ PATH }`.
+  const hostile = {
+    PATH: "/usr/bin",
+    HOME: cat("/Users", "/jdoe"),
+    AWS_SECRET_ACCESS_KEY: "should-never-be-passed",
+    NPM_TOKEN: "should-never-be-passed",
+    GITHUB_TOKEN: "should-never-be-passed",
+  };
+  const env = buildClientEnv(hostile);
+  assert.deepEqual(Object.keys(env).sort(), ["HOME", "PATH"]);
+  for (const name of Object.keys(env)) assert.ok(CLIENT_ENV_ALLOWLIST.includes(name), name);
+
+  // HOME is on the list deliberately — it is the credential channel both clients authenticate
+  // through — so the allowlist must not be mistaken for "no credentials reach the client".
+  assert.ok(CLIENT_ENV_ALLOWLIST.includes("HOME"));
+
+  // And what the manifest records is that same object, names only.
+  const raw = { ...rawManifest(), env };
+  assert.deepEqual(sanitize(raw).env, ["HOME", "PATH"]);
+  assert.deepEqual(checkPreservation(raw, sanitize(raw)), []);
+});
+
+test("the capture-input pin is exactly the declared set — no additions, no omissions", () => {
+  const short = rawManifest();
+  delete short.captureInputs[CAPTURE_INPUTS[0]];
+  assert.throws(() => sanitize(short), SanitizeError);
+
+  const padded = rawManifest();
+  padded.captureInputs["scripts/something-else.mjs"] = "a".repeat(64);
+  assert.throws(() => sanitize(padded), SanitizeError);
 });
 
 test("the T-024 scanner catches a real-shaped path planted in a committed-manifest fixture", () => {
