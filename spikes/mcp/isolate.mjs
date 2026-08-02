@@ -119,8 +119,14 @@ function installReapHandlers() {
 
 /**
  * Copy one candidate workspace to an isolated root outside the repository.
- * Returns `{ root, resolveLog, cleanup }`; the caller owns cleanup (try/finally), with the
- * signal handlers above as backstop.
+ * Returns `{ root, resolveLog, treeSha256, cleanup }`; the caller owns cleanup (try/finally),
+ * with the signal handlers above as backstop.
+ *
+ * `treeSha256` is the digest of the installed dependency tree this root was assembled from —
+ * already computed here for the byte-identity invariant, and returned so a caller can PIN what
+ * actually executed. A lockfile pins what should have been installed; only this pins what was
+ * (review round 1, chunk 13: a locally modified or half-reinstalled node_modules produced a
+ * capture whose lockfile digests were still perfectly valid).
  */
 export function assembleCandidateRoot(candidate, { repo = REPO } = {}) {
   const candidateDir = join(HERE, "candidates", candidate);
@@ -160,11 +166,20 @@ export function assembleCandidateRoot(candidate, { repo = REPO } = {}) {
     if (source !== copied) {
       throw new Error(`assembled ${candidate} root differs from the verified install`);
     }
-    return { root, resolveLog: join(scratch, "resolve.ndjson"), cleanup };
+    return { root, resolveLog: join(scratch, "resolve.ndjson"), treeSha256: source, cleanup };
   } catch (error) {
     cleanup();
     throw error;
   }
+}
+
+/**
+ * The digest of a candidate's installed dependency tree, as it stands right now. The receipt
+ * recomputes this and compares it against the pin the capture took, so "the server ran from the
+ * dependencies this repository currently holds" is checked rather than assumed.
+ */
+export function candidateTreeDigest(candidate) {
+  return treeDigest(join(HERE, "candidates", candidate, "node_modules"));
 }
 
 /**

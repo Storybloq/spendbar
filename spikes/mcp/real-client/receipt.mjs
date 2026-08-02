@@ -42,6 +42,7 @@ import {
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { candidateTreeDigest } from "../isolate.mjs";
 import { parseStrictJson } from "../strict-json.mjs";
 import { classify, toCellStatus, InvalidRecordError } from "./classify.mjs";
 import { normalize } from "./normalize.mjs";
@@ -76,14 +77,18 @@ const OPTIONAL_FILES = ["server-exit.json"];
  * file roster must be exact, and every resolved path must stay beneath the retained root —
  * otherwise a crafted entry can make the verifier read, and then commit, something else.
  */
-export function openCapture(id, retainedDir = RETAINED_DIR) {
+export function openCapture(id, retainedDir = RETAINED_DIR, { uid = process.getuid() } = {}) {
   const dir = join(retainedDir, id);
   const problems = [];
   const st = lstatSync(dir, { throwIfNoEntry: false });
   if (!st) return { problems: [`${id}: disappeared while being verified`] };
-  if (!st.isDirectory()) return { problems: [`${id}: is not a directory`] };
+  // Symlink first, and specifically: under lstat a symlink to a directory is not a directory,
+  // so testing that first reported every redirected capture as "not a directory" and the
+  // symlink refusal itself was unreachable (review round 1, chunk 13).
   if (st.isSymbolicLink()) return { problems: [`${id}: is a symlink`] };
-  if (st.uid !== process.getuid()) problems.push(`${id}: is not owned by the current user`);
+  if (!st.isDirectory()) return { problems: [`${id}: is not a directory`] };
+  // The uid is a parameter so the refusal is falsifiable without root; production passes none.
+  if (st.uid !== uid) problems.push(`${id}: is not owned by the current user`);
   if ((st.mode & 0o777) !== 0o700) problems.push(`${id}: directory mode is not 0700`);
   if (resolve(dir) !== join(resolve(retainedDir), id)) problems.push(`${id}: resolves outside the retained root`);
 
@@ -174,10 +179,27 @@ export function verifyCapture(id, bytes, evidenceDir) {
     note(`${id}: the recorded server-spawn outcome disagrees with the wrapper's witness`);
   }
 
-  // 6. Provenance: the digests pinned before the run must still describe this working tree.
+  // 6. Provenance: the digests pinned before the run must still describe this working tree, and
+  //    the dependency tree the server executed must still be the one installed here. A lockfile
+  //    is a claim about what should have been installed; the tree digest is what was.
   const { stale, extra } = staleCaptureInputs(raw.captureInputs);
   if (stale.length) note(`${id}: capture input(s) changed since the run: ${stale.join(", ")}`);
   if (extra.length) note(`${id}: capture inputs record undeclared entries: ${extra.join(", ")}`);
+  if (raw.candidate !== "v1" && raw.candidate !== "v2") {
+    // Refused rather than resolved: `candidate` names a directory below, and a manifest is not
+    // trusted to name one until the sanitizer's enum has passed judgement on it.
+    note(`${id}: raw manifest names an unknown candidate`);
+  } else {
+    let installed = null;
+    try {
+      installed = candidateTreeDigest(raw.candidate);
+    } catch (error) {
+      note(`${id}: the installed ${raw.candidate} dependency tree cannot be digested (${error.message})`);
+    }
+    if (installed !== null && raw.candidateTreeSha256 !== installed) {
+      note(`${id}: the ${raw.candidate} dependency tree changed since the run`);
+    }
+  }
 
   // 7. Re-sanitize and require the committed manifest to be exactly what this produces, and
   //    re-classify and require the committed cell to be exactly what that produces. These are
@@ -259,23 +281,40 @@ export function writeDurable(path, value) {
   if (readFileSync(path, "utf8") !== text) throw new Error(`${path} did not read back as written`);
 }
 
-function main() {
-  const evidenceDir = EVIDENCE_REAL;
-  if (!existsSync(RETAINED_DIR)) {
-    process.stderr.write("receipt: no retained captures exist — nothing to verify\n");
-    process.exit(2);
+/**
+ * The whole three-phase transaction, as a function rather than as the body of `main` — because
+ * the ORDER is the property that matters (verify all, publish durably, only then delete) and a
+ * property that only exists inside a process-exiting `main` cannot be tested (review round 1,
+ * chunk 13). `write` is injectable for exactly one reason: to prove that a failure at any point
+ * during publication leaves every raw capture on disk.
+ *
+ * Returns `{ code, messages, written, deleted }` and never exits; `main` does that.
+ */
+export function publishReceipts({
+  retainedDir = RETAINED_DIR,
+  evidenceDir = EVIDENCE_REAL,
+  write = writeDurable,
+  uid = process.getuid(),
+} = {}) {
+  const messages = [];
+  const say = (m) => messages.push(m);
+  const done = (code) => ({ code, messages, written: [], deleted: [] });
+
+  if (!existsSync(retainedDir)) {
+    say("receipt: no retained captures exist — nothing to verify");
+    return done(2);
   }
-  const entries = readdirSync(RETAINED_DIR);
+  const entries = readdirSync(retainedDir);
   if (entries.length === 0) {
-    process.stderr.write("receipt: retained-capture directory is empty — nothing to verify\n");
-    process.exit(2);
+    say("receipt: retained-capture directory is empty — nothing to verify");
+    return done(2);
   }
 
   // ---- phase 1: verify EVERYTHING, delete nothing --------------------------------------------
   const verified = [];
   const failures = [];
   for (const id of entries.sort()) {
-    const opened = openCapture(id);
+    const opened = openCapture(id, retainedDir, { uid });
     if (opened.problems.length) {
       // Fail closed. An entry that is not a complete, well-formed capture used to be skipped
       // silently, so a partial capture left the batch "successful" and unapproved.
@@ -291,17 +330,17 @@ function main() {
   }
 
   if (failures.length) {
-    process.stderr.write(`receipt: FAILED verification, nothing written and nothing deleted:\n`);
-    for (const f of failures) process.stderr.write(`  ${f}\n`);
-    process.exit(1);
+    say("receipt: FAILED verification, nothing written and nothing deleted:");
+    for (const f of failures) say(`  ${f}`);
+    return done(1);
   }
 
   // ---- phase 2: merge with what is already receipted -----------------------------------------
   const receiptPath = join(evidenceDir, "receipt.json");
   const existing = existsSync(receiptPath) ? parseStrictJson(readFileSync(receiptPath, "utf8")) : [];
   if (!Array.isArray(existing)) {
-    process.stderr.write("receipt: the existing receipt.json is not an array — refusing to replace it\n");
-    process.exit(1);
+    say("receipt: the existing receipt.json is not an array — refusing to replace it");
+    return done(1);
   }
   // Merging preserves receipts from OTHER cells, which is the point — a per-cell capture run
   // must not erase the receipts of cells whose raw bytes are already gone. It must not preserve
@@ -313,7 +352,7 @@ function main() {
   const referenced = referencedCaptureIds(cells);
   const superseded = existing.filter((entry) => !referenced.has(entry.captureId));
   for (const entry of superseded) {
-    process.stderr.write(`receipt: dropping ${entry.captureId} — no current cell claims it as an attempt\n`);
+    say(`receipt: dropping ${entry.captureId} — no current cell claims it as an attempt`);
   }
   const byId = new Map(existing.filter((entry) => referenced.has(entry.captureId)).map((e) => [e.captureId, e]));
 
@@ -327,12 +366,13 @@ function main() {
       reproduced: { ...v.raw.digests },
       rawStatistics: { clientToServer: v.raw.clientToServer, serverStdout: v.raw.serverStdout },
       captureInputs: { ...v.raw.captureInputs },
+      candidateTreeSha256: v.raw.candidateTreeSha256,
       note: "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such",
     };
     const prior = byId.get(v.id);
     if (prior && JSON.stringify(prior) !== JSON.stringify(entry)) {
-      process.stderr.write(`receipt: ${v.id} already has a DIFFERENT receipt — refusing to overwrite it\n`);
-      process.exit(1);
+      say(`receipt: ${v.id} already has a DIFFERENT receipt — refusing to overwrite it`);
+      return done(1);
     }
     byId.set(v.id, entry);
   }
@@ -345,30 +385,54 @@ function main() {
   // claims to describe all of them.
   const pins = new Set(merged.map((entry) => JSON.stringify(entry.captureInputs)));
   if (pins.size !== 1) {
-    process.stderr.write(
+    say(
       `receipt: the ${merged.length} receipted captures were taken under ${pins.size} different capture-input sets — ` +
-        "recapture the whole set rather than publishing a pin that describes only some of them\n",
+        "recapture the whole set rather than publishing a pin that describes only some of them",
     );
-    process.exit(1);
+    return done(1);
   }
 
   // ---- phase 3: publish durably, THEN delete -------------------------------------------------
-  writeDurable(receiptPath, merged);
-  // The capture-time pin, taken from the manifests rather than recomputed now: recomputing it
-  // here would bind whatever the working tree happens to hold to a run that predates it.
-  writeDurable(join(evidenceDir, "capture-inputs.json"), { files: JSON.parse([...pins][0]) });
+  // Every failure in this phase — a failed write, a failed rename, a read-back that does not
+  // match — must leave the raw captures intact, so publication completes as a unit BEFORE the
+  // first deletion. The catch is what makes that true of a partial write too: capture-inputs
+  // failing after receipt.json succeeded is a failed publication, and the bytes stay.
+  const written = [];
+  let durable;
+  try {
+    write(receiptPath, merged);
+    written.push(receiptPath);
+    // The capture-time pin, taken from the manifests rather than recomputed now: recomputing it
+    // here would bind whatever the working tree happens to hold to a run that predates it.
+    const inputsPath = join(evidenceDir, "capture-inputs.json");
+    write(inputsPath, { files: JSON.parse([...pins][0]) });
+    written.push(inputsPath);
+    // Read back from disk, inside the guard: the permission to delete comes from what the file
+    // system holds now, not from the fact that a write call returned.
+    durable = new Set(parseStrictJson(readFileSync(receiptPath, "utf8")).map((e) => e.captureId));
+  } catch (error) {
+    say(`receipt: publishing failed (${error.message}) — every raw capture is kept`);
+    return { code: 1, messages, written, deleted: [] };
+  }
 
-  const durable = new Set(parseStrictJson(readFileSync(receiptPath, "utf8")).map((e) => e.captureId));
+  const deleted = [];
   for (const v of verified) {
     if (!durable.has(v.id)) {
-      process.stderr.write(`receipt: ${v.id} is missing from the receipt that was just written — keeping its raw capture\n`);
+      say(`receipt: ${v.id} is missing from the receipt that was just written — keeping its raw capture`);
       continue;
     }
     rmSync(v.dir, { recursive: true, force: true });
-    process.stderr.write(`receipt: ${v.id} verified and its raw capture deleted\n`);
+    deleted.push(v.id);
+    say(`receipt: ${v.id} verified and its raw capture deleted`);
   }
-  process.stderr.write(`receipt: wrote ${receiptPath} (${merged.length} capture(s), schema ${RECEIPT_SCHEMA_VERSION})\n`);
-  process.exit(0);
+  say(`receipt: wrote ${receiptPath} (${merged.length} capture(s), schema ${RECEIPT_SCHEMA_VERSION})`);
+  return { code: 0, messages, written, deleted };
+}
+
+function main() {
+  const { code, messages } = publishReceipts();
+  for (const m of messages) process.stderr.write(`${m}\n`);
+  process.exit(code);
 }
 
 // Direct-entry guard: importing this module must not run the receipt tool (which sweeps

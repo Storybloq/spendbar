@@ -1,17 +1,17 @@
 [
   {
-    "schemaVersion": "receipt/2",
-    "captureId": "claude-code-v1-bd96ad6e",
+    "schemaVersion": "receipt/3",
+    "captureId": "claude-code-v1-5490512f",
     "client": "claude-code",
     "candidate": "v1",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "24a023c694785ee21544fa3c0af9b2712ff48515dab3e4a6e46f3ee442916859",
-      "serverStdoutSha256": "d879aca148c1015828579e56165b96fab3ea749698b235e2f6389dc817dfae12",
-      "serverStderrSha256": "0621126d97c9184da748481fa9fe3705cfaff7a785fe554fc16ca5763a48ebc4",
+      "clientToServerSha256": "437dca43ac65b485689840e7e17814b21b07d482cb9c4101c45744437cfab0ef",
+      "serverStdoutSha256": "33d466ec4539f73a0ff8be37a54cfc13bd5ff1d4ed69dc55fa73f89bcac04298",
+      "serverStderrSha256": "61552ad26ebfbf5cbe039cde611082110c1078beccaae706ea8ead22117ec0ac",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
       "clientStderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "derivationDigest": "2928b57b84c817df9123b574d71e1bd2398e86b2499a6384884db0d769d3165a"
+      "derivationDigest": "7c93dbb21532595e8d34658486c545fef2f7bea500f75f921739ee5be9b8f9a9"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -35,32 +35,36 @@
     },
     "captureInputs": {
       "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
+      "spikes/mcp/isolate.mjs": "3c05d300f76033b7915673cb0a277a420da9c853873da1cfca3fa2f24c98b1f4",
       "spikes/mcp/candidates/v1/server.mjs": "950f44b0294a482f6f166cc618deeba2208a9a5a66c558794d3632d6724159fa",
       "spikes/mcp/candidates/v2/server.mjs": "0a84d7fa0f79dfc7a3d5942d756ce7292211369d855ea35f135680028606c237",
+      "spikes/mcp/candidates/v1/package.json": "ece0f056b6546ca1f1bc8046f45ca27f9c60572356a927262ca6f419245a8412",
+      "spikes/mcp/candidates/v2/package.json": "9bc6ce15358bbc5ace84ebb88e27b926938da1453657451c1b8ea509d1f015ec",
       "spikes/mcp/candidates/v1/package-lock.json": "ed8fde3e4ba03f1abc84bc64121eada03d47e5f9adc340eb2cafcab76547e30b",
       "spikes/mcp/candidates/v2/package-lock.json": "fa646e3069a4937fab5a5ef9905d461e98a51da9aaac4334e2585ce2d3e85db9",
-      "spikes/mcp/real-client/capture.mjs": "39e670cf87cf734f11f5cb9c4d81e7636d8fa150081072956210b45f83c7f03d",
+      "spikes/mcp/real-client/capture.mjs": "5d9858488f1dfad071fb309a5e75a0ab43419bb234b77fd368cf85e1ae5cb9c5",
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
-      "spikes/mcp/real-client/sanitize.mjs": "7d954a2f12ecb656736944e1438669905d31ec1264c54bbec5945249f2f1e9f7",
+      "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
       "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
       "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
       "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
     },
+    "candidateTreeSha256": "61ba8ac0da1e899ac8edef782d53a1e993d3fdb6f165aba412e553e7b18aaa45",
     "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
   },
   {
-    "schemaVersion": "receipt/2",
-    "captureId": "claude-code-v2-c5d74695",
+    "schemaVersion": "receipt/3",
+    "captureId": "claude-code-v2-b7caaf29",
     "client": "claude-code",
     "candidate": "v2",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "0ebfb4042ffe7029154e1ab1be39d6aa7b10eb8925ac9cd0d0c07d3f8b99944a",
-      "serverStdoutSha256": "6f110fc9851eadfc6c24316c5f846607be4eeb7e24bc7ed35a69a89565db8418",
-      "serverStderrSha256": "2036470070008314d70de6d3fbf0f458c8dc23ca57ae5f37475669b7a60453f0",
+      "clientToServerSha256": "e24d46cb73423725f85f0c3e542e05a0db36a6fe5b8a43f0bc694c4913281585",
+      "serverStdoutSha256": "5c2be411f61da3391604e51537bf6a43885ebe258e76532980c462afe498602f",
+      "serverStderrSha256": "9c321f406454827a5e2f888a049792117526676dbb4ade5375ee428337ffa8fe",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
       "clientStderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "derivationDigest": "7ba90c4336b923112173b9bf37b57647d770ce39f116a2f7cbc13cff5dfc98e2"
+      "derivationDigest": "7b88e81e213476849ef265f6dfb943c31918515e0042745c5a412f8bb41efcd9"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -84,32 +88,36 @@
     },
     "captureInputs": {
       "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
+      "spikes/mcp/isolate.mjs": "3c05d300f76033b7915673cb0a277a420da9c853873da1cfca3fa2f24c98b1f4",
       "spikes/mcp/candidates/v1/server.mjs": "950f44b0294a482f6f166cc618deeba2208a9a5a66c558794d3632d6724159fa",
       "spikes/mcp/candidates/v2/server.mjs": "0a84d7fa0f79dfc7a3d5942d756ce7292211369d855ea35f135680028606c237",
+      "spikes/mcp/candidates/v1/package.json": "ece0f056b6546ca1f1bc8046f45ca27f9c60572356a927262ca6f419245a8412",
+      "spikes/mcp/candidates/v2/package.json": "9bc6ce15358bbc5ace84ebb88e27b926938da1453657451c1b8ea509d1f015ec",
       "spikes/mcp/candidates/v1/package-lock.json": "ed8fde3e4ba03f1abc84bc64121eada03d47e5f9adc340eb2cafcab76547e30b",
       "spikes/mcp/candidates/v2/package-lock.json": "fa646e3069a4937fab5a5ef9905d461e98a51da9aaac4334e2585ce2d3e85db9",
-      "spikes/mcp/real-client/capture.mjs": "39e670cf87cf734f11f5cb9c4d81e7636d8fa150081072956210b45f83c7f03d",
+      "spikes/mcp/real-client/capture.mjs": "5d9858488f1dfad071fb309a5e75a0ab43419bb234b77fd368cf85e1ae5cb9c5",
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
-      "spikes/mcp/real-client/sanitize.mjs": "7d954a2f12ecb656736944e1438669905d31ec1264c54bbec5945249f2f1e9f7",
+      "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
       "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
       "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
       "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
     },
+    "candidateTreeSha256": "9fc50349e6b8cc6b757efa5968cc33a8cc155f412d1af08335f88fb3162f57a9",
     "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
   },
   {
-    "schemaVersion": "receipt/2",
-    "captureId": "codex-v1-35c0d29d",
+    "schemaVersion": "receipt/3",
+    "captureId": "codex-v1-8f177450",
     "client": "codex",
     "candidate": "v1",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "96523601059053ebe23c96e5e20bb32324c16aa81060e94fdfc725fcb15797a0",
-      "serverStdoutSha256": "ad47883816d61549183ae8d2321efc327871a899e2d41f794895eda530a289da",
-      "serverStderrSha256": "770afae2f9dbfe977afd81b35d388770739f31e127ebe1635413f0a718043357",
+      "clientToServerSha256": "c14164077e73328826018edf409d692d7584b97317567cb0739f68b431d32be0",
+      "serverStdoutSha256": "d466e026c7085fec5a42f4ace18fa8d02c2fd0fc88a591e642afd2432027217a",
+      "serverStderrSha256": "63734531677386d6ba4cf71d3febd3a0fe23b3231259a17c494e96597dc8a1fa",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
-      "clientStderrSha256": "0d7506c3229477744f71f991a47e50101b50e7c820e1366a470b88a46ccf8a29",
-      "derivationDigest": "23828e4744e03da6115f08970a497e607a0909dcdb26731fac8f5b1a25752eb4"
+      "clientStderrSha256": "1e50bbc00773f057b1242104e940585672ede38dcb98950ca5a88727b1b5e141",
+      "derivationDigest": "8a7ba89c5511c74f2a4d95e29f32ee89fcfa270933da7ec7851c161612cb5146"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -133,32 +141,36 @@
     },
     "captureInputs": {
       "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
+      "spikes/mcp/isolate.mjs": "3c05d300f76033b7915673cb0a277a420da9c853873da1cfca3fa2f24c98b1f4",
       "spikes/mcp/candidates/v1/server.mjs": "950f44b0294a482f6f166cc618deeba2208a9a5a66c558794d3632d6724159fa",
       "spikes/mcp/candidates/v2/server.mjs": "0a84d7fa0f79dfc7a3d5942d756ce7292211369d855ea35f135680028606c237",
+      "spikes/mcp/candidates/v1/package.json": "ece0f056b6546ca1f1bc8046f45ca27f9c60572356a927262ca6f419245a8412",
+      "spikes/mcp/candidates/v2/package.json": "9bc6ce15358bbc5ace84ebb88e27b926938da1453657451c1b8ea509d1f015ec",
       "spikes/mcp/candidates/v1/package-lock.json": "ed8fde3e4ba03f1abc84bc64121eada03d47e5f9adc340eb2cafcab76547e30b",
       "spikes/mcp/candidates/v2/package-lock.json": "fa646e3069a4937fab5a5ef9905d461e98a51da9aaac4334e2585ce2d3e85db9",
-      "spikes/mcp/real-client/capture.mjs": "39e670cf87cf734f11f5cb9c4d81e7636d8fa150081072956210b45f83c7f03d",
+      "spikes/mcp/real-client/capture.mjs": "5d9858488f1dfad071fb309a5e75a0ab43419bb234b77fd368cf85e1ae5cb9c5",
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
-      "spikes/mcp/real-client/sanitize.mjs": "7d954a2f12ecb656736944e1438669905d31ec1264c54bbec5945249f2f1e9f7",
+      "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
       "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
       "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
       "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
     },
+    "candidateTreeSha256": "61ba8ac0da1e899ac8edef782d53a1e993d3fdb6f165aba412e553e7b18aaa45",
     "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
   },
   {
-    "schemaVersion": "receipt/2",
-    "captureId": "codex-v2-01728e46",
+    "schemaVersion": "receipt/3",
+    "captureId": "codex-v2-717bf7f9",
     "client": "codex",
     "candidate": "v2",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "2bc7d9204799be1640cad89f5ccb07a6f3e6cf514e627b7ea72d565a23e290f7",
-      "serverStdoutSha256": "bc0581cb4cd1aa52e6fe67576ffe93cdfc3e0accc1e6e91fd4cb2755a370cae8",
-      "serverStderrSha256": "80fce5d7d2534db43d4ac7d67078eb096fa6288061efa554db6e77890215e2c5",
+      "clientToServerSha256": "f5f7ab42d3538a0f874601fe4432e1d3f9edd688b7863bff0481b15978d3e549",
+      "serverStdoutSha256": "a09c0ef14b4c6995c77af1728d536af355f15577e907d61cd3cb2d71e0b94950",
+      "serverStderrSha256": "0e8e1589798c463bf08e910b4826edc698604ea6d96d0e12ea0d85316475e328",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
-      "clientStderrSha256": "6581b5779153a5c5a03cde14d5675cc4616c273a67c3fc8a3ae2f11deb4e5e8f",
-      "derivationDigest": "ae0ec717bed7a34a8833edf151a60f9cec5f0d0bec1e61207d7cde2b36b77504"
+      "clientStderrSha256": "a1f657c2d8eafd26b5a17011bb069da4631716ae2504ab977378c8620d1ad0f8",
+      "derivationDigest": "3b14a222cbef011aa186497af5a4dc227a5d3dae355827cb92b4982d9040c8f1"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -182,17 +194,21 @@
     },
     "captureInputs": {
       "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
+      "spikes/mcp/isolate.mjs": "3c05d300f76033b7915673cb0a277a420da9c853873da1cfca3fa2f24c98b1f4",
       "spikes/mcp/candidates/v1/server.mjs": "950f44b0294a482f6f166cc618deeba2208a9a5a66c558794d3632d6724159fa",
       "spikes/mcp/candidates/v2/server.mjs": "0a84d7fa0f79dfc7a3d5942d756ce7292211369d855ea35f135680028606c237",
+      "spikes/mcp/candidates/v1/package.json": "ece0f056b6546ca1f1bc8046f45ca27f9c60572356a927262ca6f419245a8412",
+      "spikes/mcp/candidates/v2/package.json": "9bc6ce15358bbc5ace84ebb88e27b926938da1453657451c1b8ea509d1f015ec",
       "spikes/mcp/candidates/v1/package-lock.json": "ed8fde3e4ba03f1abc84bc64121eada03d47e5f9adc340eb2cafcab76547e30b",
       "spikes/mcp/candidates/v2/package-lock.json": "fa646e3069a4937fab5a5ef9905d461e98a51da9aaac4334e2585ce2d3e85db9",
-      "spikes/mcp/real-client/capture.mjs": "39e670cf87cf734f11f5cb9c4d81e7636d8fa150081072956210b45f83c7f03d",
+      "spikes/mcp/real-client/capture.mjs": "5d9858488f1dfad071fb309a5e75a0ab43419bb234b77fd368cf85e1ae5cb9c5",
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
-      "spikes/mcp/real-client/sanitize.mjs": "7d954a2f12ecb656736944e1438669905d31ec1264c54bbec5945249f2f1e9f7",
+      "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
       "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
       "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
       "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
     },
+    "candidateTreeSha256": "9fc50349e6b8cc6b757efa5968cc33a8cc155f412d1af08335f88fb3162f57a9",
     "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
   }
 ]

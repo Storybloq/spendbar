@@ -53,6 +53,8 @@ export const BOUND_INPUTS = [
   "spikes/mcp/probe-def.mjs",
   "spikes/mcp/candidates/v1/server.mjs",
   "spikes/mcp/candidates/v2/server.mjs",
+  "spikes/mcp/candidates/v1/package.json",
+  "spikes/mcp/candidates/v2/package.json",
   "spikes/mcp/candidates/v1/package-lock.json",
   "spikes/mcp/candidates/v2/package-lock.json",
   "spikes/mcp/conformance.mjs",
@@ -155,6 +157,7 @@ const MANIFEST_SPEC = {
   env: { type: "array" },
   cwd: { type: "string" },
   captureInputs: { type: "object" },
+  candidateTreeSha256: { type: "string" },
   spawn: { type: "object" },
   wrapper: { type: "object" },
   environmental: { type: "object", nullable: true },
@@ -183,6 +186,7 @@ const RECEIPT_SPEC = {
   reproduced: { type: "object" },
   rawStatistics: { type: "object" },
   captureInputs: { type: "object" },
+  candidateTreeSha256: { type: "string" },
   note: { type: "string", optional: true },
 };
 
@@ -514,6 +518,18 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       const receipt = matching.find((r) => r.captureId === finalId);
       if (JSON.stringify(receipt.reproduced) !== JSON.stringify(manifest.digests)) {
         refuse(`${what} receipt digests disagree with the manifest — the derivation was not reproduced`);
+      }
+      // The dependency tree the server ran from. Checking it against the installed tree needs a
+      // working tree and belongs to the receipt; what is checkable offline is that every record
+      // of this candidate names the SAME tree, so a set assembled from two different installs
+      // cannot be published as one comparison.
+      for (const entry of matching) {
+        if (entry.candidateTreeSha256 !== receipt.candidateTreeSha256) {
+          refuse(`${what} attempts were taken against different ${candidate} dependency trees`);
+        }
+      }
+      if (manifest.candidateTreeSha256 !== receipt.candidateTreeSha256) {
+        refuse(`${what} manifest names a different ${candidate} dependency tree than its receipt`);
       }
 
       // The recomputation: classifier over the sanitized record, against the committed

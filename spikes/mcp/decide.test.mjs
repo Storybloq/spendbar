@@ -659,6 +659,8 @@ const EXPECTED_BOUND_PRODUCERS = [
   "spikes/mcp/probe-def.mjs",
   "spikes/mcp/candidates/v1/server.mjs",
   "spikes/mcp/candidates/v2/server.mjs",
+  "spikes/mcp/candidates/v1/package.json",
+  "spikes/mcp/candidates/v2/package.json",
   "spikes/mcp/candidates/v1/package-lock.json",
   "spikes/mcp/candidates/v2/package-lock.json",
   "spikes/mcp/conformance.mjs",

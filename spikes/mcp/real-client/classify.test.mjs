@@ -12,6 +12,9 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { classify, toCellStatus, ENVIRONMENTAL_CONDITIONS, OUTCOMES, InvalidRecordError } from "./classify.mjs";
 import {
@@ -381,6 +384,7 @@ function rawManifest() {
     env: { PATH: cat("/Users", "/jdoe/bin:/usr/bin"), SPENDBAR_RESOLVE_LOG: "/tmp/r.ndjson" },
     cwd: cat("/Users", "/jdoe/scratch"),
     captureInputs: capturePins(),
+    candidateTreeSha256: "9".repeat(64),
     spawn: { client: { ok: true }, server: { ok: true } },
     environmental: null,
     isolation: { hostileConfigExecuted: false, userConfigIsolated: true },
@@ -464,6 +468,7 @@ const EXPECTED_FIELD_MAP = {
   env: "env-names",
   cwd: "placeholder-path",
   captureInputs: "digest-map",
+  candidateTreeSha256: "sha256",
   spawn: "spawn",
   environmental: "environmental",
   isolation: "isolation",
@@ -802,15 +807,45 @@ test("the capture-input list itself equals an independent literal", () => {
     "scripts/privacy-scan.mjs",
     "scripts/privacy-synthetic.json",
     "spikes/mcp/candidates/v1/package-lock.json",
+    "spikes/mcp/candidates/v1/package.json",
     "spikes/mcp/candidates/v1/server.mjs",
     "spikes/mcp/candidates/v2/package-lock.json",
+    "spikes/mcp/candidates/v2/package.json",
     "spikes/mcp/candidates/v2/server.mjs",
+    "spikes/mcp/isolate.mjs",
     "spikes/mcp/probe-def.mjs",
     "spikes/mcp/real-client/capture-wrapper.mjs",
     "spikes/mcp/real-client/capture.mjs",
     "spikes/mcp/real-client/normalize.mjs",
     "spikes/mcp/real-client/sanitize.mjs",
   ]);
+});
+
+test("every module that shapes what a capture observes is pinned, or excluded on the record", () => {
+  // The list above is a literal, so it can be edited to agree with an omission. This checks the
+  // PROPERTY instead: every module the capture path imports is either pinned as a capture input
+  // or named here with the reason it is not (review round 1, chunk 13 — isolate.mjs was neither,
+  // and it decides what is copied into the assembled root and what environment the server runs
+  // under). A new import in either file fails this until it is classified one way or the other.
+  const excluded = {
+    "./classify.mjs": "re-run live by the verifier: a change re-derives rather than invalidates",
+    "./provenance.mjs": "the pin's own definition — pinning it would make every edit self-invalidating",
+    "./receipt.mjs": "covered by RECEIPT_SCHEMA_VERSION, which refuses receipts by version",
+  };
+  const here = dirname(fileURLToPath(import.meta.url));
+  for (const file of ["capture.mjs", "capture-wrapper.mjs"]) {
+    const source = readFileSync(join(here, file), "utf8");
+    const specifiers = [...source.matchAll(/^import[^;]*?from\s+"([^"]+)"/gms)].map((m) => m[1]);
+    for (const spec of specifiers) {
+      if (spec.startsWith("node:")) continue;
+      if (spec in excluded) continue;
+      const rel = `spikes/mcp/${spec.replace(/^\.\.\//, "").replace(/^\.\//, "real-client/")}`;
+      assert.ok(
+        CAPTURE_INPUTS.includes(rel),
+        `${file} imports ${spec} (${rel}) which is neither a capture input nor an excluded module`,
+      );
+    }
+  }
 });
 
 test("the T-024 scanner catches a real-shaped path planted in a committed-manifest fixture", () => {

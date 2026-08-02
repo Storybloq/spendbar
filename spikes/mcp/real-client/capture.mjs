@@ -252,7 +252,7 @@ async function captureCell(client, candidate, clientVersion, attempt) {
 
   const scratchCwd = mkdtempSync(join(tmpdir(), "t009-client-cwd-"));
   assertOutsideRepo(scratchCwd);
-  const { root, cleanup } = assembleCandidateRoot(candidate);
+  const { root, treeSha256, cleanup } = assembleCandidateRoot(candidate);
   const nonce = `t009-${randomBytes(8).toString("hex")}`;
   const prompt = PROMPT_TEMPLATE.replace("{{NONCE}}", nonce);
 
@@ -293,6 +293,9 @@ async function captureCell(client, candidate, clientVersion, attempt) {
     env: clientEnv,
     cwd: scratchCwd,
     captureInputs: captureInputDigests(),
+    // The dependency bytes the server is about to execute, not the lockfile that describes
+    // them. Taken by isolate.mjs from the tree it copied into the assembled root.
+    candidateTreeSha256: treeSha256,
     spawn: { client: { ok: false }, server: { ok: false } },
     environmental: null,
     // The hostile-config canary, recorded as a fact independently of any environmental claim:
