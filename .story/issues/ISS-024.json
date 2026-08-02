@@ -7,7 +7,7 @@
   "discoveredDate": "2026-08-01",
   "displayId": "ISS-024",
   "id": "ISS-024",
-  "impact": "src/ccusage.ts:36 emits `'<cmd>' not found. Install Node.js (node + npx), or set CCUSAGE_CMD to your ccusage command …` whenever the configured command cannot be spawned. VERIFIED byte-parity port of usage.py:117 — frozen-oracle text. The branch is reachable ONLY when the user set CCUSAGE_CMD to something nonexistent, and in exactly that situation installing npx fixes nothing.\n\nDECISION (recorded 2026-08-02, supervised publish turn, owner-authorized publish): ship 0.1.0 with the issue's option 2 — the T-023 README \"Known wording bug\" note already resolves the page/binary contradiction, which was the stated reason this gated T-007. The clean fix (option 1: reword + numbered ALLOWLIST entry + comparison-policy + parity coverage, through codex review) is deliberate harness surgery and gets its own reviewed cycle in 0.1.1 rather than being rushed minutes before an irreversible publish. This issue stays OPEN, rescoped to that 0.1.1 fix; it no longer gates T-007.\n",
+  "impact": "Shipped in 0.1.0 by recorded owner-authorized decision (2026-08-02, option 2): the README 'Known wording bug' note (README.md:97) documents the contradiction, so the user-facing harm is a misleading remedy in an error reachable only under a misconfigured CCUSAGE_CMD. Remaining scope is the 0.1.1 clean fix only: reword src/ccusage.ts:36's frozen-oracle text, add the numbered ALLOWLIST entry and comparison-policy update, and cover the deliberate divergence from usage.py:117 in the parity harness, through a reviewed cycle. Nothing gates on it.",
   "location": [
     "src/ccusage.ts:36",
     "usage.py:117",
@@ -21,7 +21,7 @@
   ],
   "resolution": null,
   "resolvedDate": null,
-  "severity": "high",
+  "severity": "low",
   "status": "open",
-  "title": "Frozen ENOENT diagnostic advises installing npx, which is never the remedy — gates T-007"
+  "title": "Frozen ENOENT diagnostic advises installing npx, which is never the remedy — reword in 0.1.1 (rescoped, shipped as-is in 0.1.0)"
 }

@@ -6,8 +6,9 @@
   "createdBy": "codex review, T-008 round 14",
   "dedupeKey": "t010-post-rename-recovery-impossible-2026-08-01",
   "discoveredDate": "2026-08-02",
+  "displayId": "ISS-040",
   "id": "ISS-040",
-  "impact": "T-010's acceptance criterion 1 requires recovery to serve the prior manifest after a failure at EVERY boundary, explicitly including failure of the parent-directory fsync AFTER the rename. Once renameSync succeeds the new manifest is live and the old one is gone; there is no way to restore it, and after a crash either directory state may legitimately persist.\n\nThis directly contradicts the rule T-008 established and pinned across three modules: past the irreversible step (link or rename), nothing may throw and no failure may be reported as a failure of the operation. An implementer satisfying criterion 1 as written would have to either reintroduce the stranded-state bug T-008 spent three review rounds eliminating, or discover the criterion is impossible partway through.\n\nSuggested fix: define rename as the commit boundary explicitly. Require pre-rename failures to preserve the prior manifest (already achievable), and require a post-rename parent-fsync failure to return committed-with-warning while retaining both referenced generations, with recovery accepting either complete valid manifest after a simulated crash.\n\nFound by codex review during T-008 round 14. Distinct from ISS-033 (which covers T-010/T-011/T-012/T-013 still specifying the rejected lockfile design); this is a separate impossible-guarantee defect in the same ticket.",
+  "impact": "The T-010 re-spec draft must rewrite criterion 1 to: (a) name the manifest renameSync as the commit boundary explicitly; (b) require every failure strictly BEFORE the rename — generation write/fsync, manifest temp write/fsync, and the rename itself (real errnos: ENOENT/EXDEV/EACCES, provoked not just injected) — to preserve the prior manifest, served intact afterward; (c) require any failure AFTER the rename (parent-directory fsync, candidate cleanup) to return committed-with-warning — never reported as a failed publish, never thrown — with both referenced generations retained; (d) require crash recovery to accept EITHER complete, checksum-valid manifest after a simulated crash at any boundary, never to demand restoring the pre-rename one; (e) encode the structural nothing-after-commit-may-throw rule: every hook/cleanup callable is read into a local before the commit step (the findings' three-review-round lesson — fix the rule, not the statement); (f) coordinate with ISS-030's durability decision: if the recorded no-fsync-for-snapshots policy is adopted, the 'ENOSPC during each of the fsyncs' clauses reduce to coordination-state fsyncs and criterion 1 must be reworded off the five-step fsync ladder entirely rather than left contradicting the settled policy.",
   "location": [
     ".story/tickets/T-010.json"
   ],
@@ -16,9 +17,9 @@
     "T-010",
     "T-008"
   ],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Fixed by the v0.2/v0.3 ticket re-spec applied 2026-08-02: T-010 acceptance criterion 1 now demands rename-boundary process-crash atomicity proven by failure injection — not the impossible post-rename recovery guarantee — and states the power-loss honesty explicitly. The full verified requirements record is preserved in this issue's impact field.",
+  "resolvedDate": "2026-08-02",
   "severity": "high",
-  "status": "open",
+  "status": "resolved",
   "title": "T-010 acceptance criterion 1 requires a post-rename recovery guarantee that cannot be implemented"
 }

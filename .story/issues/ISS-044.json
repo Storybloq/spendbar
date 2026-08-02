@@ -5,8 +5,9 @@
   "createdBy": "codex review, T-008 round 14",
   "dedupeKey": "t021-cask-criterion-unconditional-2026-08-01",
   "discoveredDate": "2026-08-02",
+  "displayId": "ISS-044",
   "id": "ISS-044",
-  "impact": "T-021 states that a T-016 NO-GO kills notarization and therefore the Homebrew cask, but its acceptance criterion 4 unconditionally requires shipping a cask whose quarantined artifact passes Gatekeeper. T-016 NO-GO is an explicitly allowed outcome of that gate, so one valid upstream result makes T-021 impossible to complete as written — the ticket can only be closed by ignoring its own criterion.\n\nSuggested fix: make criterion 4 conditional on the T-016 outcome. On GO, ship and verify the notarized cask; on NO-GO, either remove cask from scope explicitly or define an approved npm-wrapping formula outcome and validate that instead.\n\nFound by codex review during T-008 round 14. Same class as ISS-035 (T-014 soft gate / T-022 scope contradiction): acceptance criteria that contradict the ticket's own stated conditions.",
+  "impact": "Still unfixed: T-021 criterion 4 unconditionally demands a Gatekeeper-passing cask while T-016 NO-GO — an explicitly allowed outcome — makes that impossible (cask downloads are quarantined; no notarization means Gatekeeper blocks first launch). Re-spec: criterion 4 conditional on the recorded T-016 outcome — GO: notarized cask verified on a clean machine (online minimum, offline recorded); NO-GO: cask explicitly descoped with named reopening triggers, or an npm-wrapping formula validated by clean-machine install + first run instead. Also refresh T-021 open question 5: membership is paid per N-002; the remaining owner question is the signing-identity name (personal vs organization) versus the no-personal-attribution rule.",
   "location": [
     ".story/tickets/T-021.json"
   ],
@@ -15,9 +16,9 @@
     "T-021",
     "T-016"
   ],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Fixed by the v0.2/v0.3 ticket re-spec applied 2026-08-02: T-021's cask criterion is conditional on T-016's outcome, with the NO-GO alternative spelled out. The full verified requirements record is preserved in this issue's impact field.",
+  "resolvedDate": "2026-08-02",
   "severity": "medium",
-  "status": "open",
+  "status": "resolved",
   "title": "T-021 is unsatisfiable when T-016 returns an allowed NO-GO: its cask criterion is unconditional"
 }

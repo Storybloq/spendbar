@@ -19,7 +19,7 @@
   "relatedTickets": [],
   "resolution": null,
   "resolvedDate": null,
-  "severity": "high",
+  "severity": "medium",
   "status": "open",
   "title": "Three ccusage window-arg branches are unexercised by the case registry (blocks --since, daily --until, codex --until)"
 }

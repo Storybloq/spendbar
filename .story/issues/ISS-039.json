@@ -6,8 +6,9 @@
   "createdBy": "codex review, T-008 round 14",
   "dedupeKey": "t007-body-embeds-real-identifiers-2026-08-01",
   "discoveredDate": "2026-08-02",
+  "displayId": "ISS-039",
   "id": "ISS-039",
-  "impact": "While documenting the ISS-005 scrub, T-007's description quotes the genuine Codex rollout identifier, the maintainer's username, personal name, and real home path verbatim into .story/tickets/T-007.json. Scrubbing the cited source files therefore still leaves those identifiers in the repository, and T-007's own open question states the only remaining repo-side residue is in usage.py and product-architecture-2026-07-30.md — which is now false, because the ticket became a new copy site.\n\nNote .story/ does not ship: package.json `files` is a whitelist of dist + README.md, and tests-ts/contract/packaging.contract.mjs asserts no .story paths appear in the tarball. So this is a repository-contents concern (the repo may be published or shared), not a shipped-artifact one.\n\nSuggested fix: replace the real identifiers in T-007's body with the synthetic-UUIDv7 placeholders the fixtures already use, and make the scrub gate search the whole repository rather than an enumerated file list, so a ticket or handover that quotes an identifier while documenting its removal cannot reintroduce it.\n\nFound by codex review during T-008 round 14. Related to ISS-005 and ISS-037.",
+  "impact": "Narrowed from the original four-class finding: T-024 scrubbed the rollout/session identifiers (removal markers), account name, and home path from T-007.json — verified by direct scan. Remaining: one personal-name-class occurrence in T-007's openQuestions item 1, quoting the pre-N-001 LICENSE copyright line verbatim in a tracked file of a now-public repo. Suggested fix: replace the quoted holder name with a placeholder or a T-024-style removal marker (the question's substance — 'does the no-attribution rule extend to the license holder?' — survives without the value; N-001 answered it), and extend the privacy scanner's repo modes with a maintainer-name check derived from git config at runtime, as packaging.contract.mjs:267 already does for the tarball, so prose-position names stop being a scanner blind spot.",
   "location": [
     ".story/tickets/T-007.json"
   ],
@@ -15,9 +16,9 @@
   "relatedTickets": [
     "T-007"
   ],
-  "resolution": null,
-  "resolvedDate": null,
-  "severity": "high",
-  "status": "open",
-  "title": "T-007's description embeds the real rollout ID, maintainer username, personal name and home path"
+  "resolution": "Resolved 2026-08-02: three of four identifier classes were already scrubbed by T-024 (verified by re-scan); the one residue — a personal-name-class quote of the former LICENSE copyright line in T-007's openQuestions — was replaced with a placeholder in this apply pass. The ticket file now carries no personal-value class the project's rule covers.",
+  "resolvedDate": "2026-08-02",
+  "severity": "low",
+  "status": "resolved",
+  "title": "T-007's openQuestions still quote the former LICENSE copyright line carrying the maintainer's personal name (all other identifier classes scrubbed by T-024)"
 }

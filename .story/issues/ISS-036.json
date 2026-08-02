@@ -3,14 +3,15 @@
     "autonomous"
   ],
   "discoveredDate": "2026-08-02",
+  "displayId": "ISS-036",
   "id": "ISS-036",
   "impact": "FILED AS ISS-035, not fixed inline. T-014's description calls the deterministic size checks hard CI gates, but acceptance criterion 2 lets the 1 MB threshold merely 'flag' a revisit - so the ticket can close with an oversized package and the threshold enforces nothing. Exactly the 'reports rather than fails' defect round 9 found in T-008's own teardown. T-022's intent says none of its three items should be built inside the umbrella and its criteria require the own-the-parsing spike to be split out first, but Scope/In lists that spike as in scope, so substantial work could legitimately be done there, bypassing the child-ticket review and demand gate.",
   "location": [],
   "phase": null,
   "relatedTickets": [],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Duplicate of ISS-035. ISS-036's own body states 'FILED AS ISS-035, not fixed inline' — the deferred-finding auto-file of the same round-12 review finding ISS-035 was hand-filed for (the L-005 double-filing pattern). No unique content: same two defects (T-014 soft package-size gate, T-022 spike-in-scope contradiction), no distinct location or fix. ISS-035 is the survivor and canonical writeup; its severity is raised to medium to preserve this issue's assessment. All re-spec requirements are folded into ISS-035.",
+  "resolvedDate": "2026-08-02",
   "severity": "medium",
-  "status": "open",
+  "status": "resolved",
   "title": "[ticket-definition] FILED AS ISS-035, not fixed inline. T-014's description calls the deterministic "
 }

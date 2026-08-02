@@ -6,6 +6,7 @@
   "createdBy": "codex code review (T-023 CODE_REVIEW round 2)",
   "dedupeKey": "t023-review-r2:T-007-stale-runbook",
   "discoveredDate": "2026-08-01",
+  "displayId": "ISS-025",
   "id": "ISS-025",
   "impact": "Found by codex code review during T-023 (2026-08-01). NOT introduced by T-023 — T-007.json was last written before T-023 landed.\n\nT-007 is the ticket that performs `npm publish`, an irreversible outward-facing act. Its description is the runbook a future supervised session will follow, and it is now materially wrong:\n\n1. It calls T-007 \"the only remaining ticket\" while also listing T-023 as a blocker.\n2. It reports test counts of 314 unit / 16 contract. Actual at HEAD: 337 unit / 20 contract / parity --final 266-0-0 / 45-of-45 goldens.\n3. It says the script-disabled install matrix is unmet. It is met: scripts/install-matrix.mjs, 17 passed / 0 failed across npm, pnpm, yarn PnP and bun plus the documented `npm install -g` flow and three canary negatives.\n4. It carries six \"owner questions\" — LICENSE holder, repository field, publish identity, dist-tag, Windows/ISS-013, the usage.py:199 scrub — that note N-001 decided on 2026-08-01 and T-023 then implemented.\n5. MOST IMPORTANT: it requires proving ccusage resolves with \"no network access\". T-023's plan review explicitly retired that claim after four rounds, because nothing in the harness isolates the network and the word would be unearned. The matrix deliberately claims something narrower and provable: resolution and invocation succeed against the locally installed pinned copy with no package manager and no npx resolvable from the child, with canaries demonstrating no PATH fallback on three named failure paths. A publish session following T-007 as written would either chase evidence that does not exist or, worse, record an offline claim the project decided it cannot make.\n\nImpact: the operator instructions for the one irreversible action in the project are wrong in ways that could produce a false release record.\n\nSuggested rewrite: replace with a short post-T-023 runbook — cite T-023's recorded evidence (candidate sha256, matrix result, audit, dry-run), keep the standing rule that publish needs explicit in-session owner authorization for that specific version, keep ISS-024 as a blocker, and list only the remaining supervised steps: version bump off 0.1.0-dev, final full suite, publish, registry verification, git tag. Delete the settled questions and the offline assertion.",
   "location": [
@@ -16,9 +17,9 @@
     "T-007",
     "T-023"
   ],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Overtaken by T-007's completion (0.1.0 published 2026-08-02, supervised owner-authorized turn, handover 2026-08-02-01). The publish was executed from T-023's recorded evidence, not this description, so the false-release-record risk this issue existed to prevent can no longer occur. The stale text remains in the completed ticket as an authored-time historical record per T-024's no-fabricated-history principle; no residual doc fix is warranted.",
+  "resolvedDate": "2026-08-02",
   "severity": "high",
-  "status": "open",
+  "status": "resolved",
   "title": "T-007's description is a stale publish runbook that contradicts shipped state"
 }

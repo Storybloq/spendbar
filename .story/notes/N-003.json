@@ -1,0 +1,13 @@
+{
+  "content": "Decisions under the owner's standing delegation (N-001) plus one owner call, recorded for the T-009 session to consume.\n\n**T-009 open question 2 — how the SDK gets pinned in the root manifest (delegated decision):**\nFollow the ccusage precedent exactly. `@modelcontextprotocol/server` enters the root manifest pinned EXACT (`2.0.0`, no ^/~) as a regular dependency, and `zod` enters as an exact-pinned DIRECT dependency (per T-009's own phantom-dependency finding) — both only when the production adapter lands in `src/mcp` (T-013 consumption), never while candidates live in the isolated spikes workspace. Version bumps are deliberate acts gated by re-running T-009's conformance suite and supply-chain inspection — the same pattern as ccusage bumps being gated by the schema contract suite.\n\n**T-009 open question 3 — token-cost acceptance threshold (delegated decision):**\nT-009 keeps its amended equality-snapshot criterion unchanged (recorded canonical bytes + proxy tokens must EQUAL recorded values). The enforced budget lands in T-013: at T-013 completion, record the measured tools/list serialized size and proxy-token count for the 5 real tools as the committed baseline, and hard-gate CI at baseline +10%. Regressions past the ceiling are treated as breaking changes. No number is invented today; the rule is executable when the real tools exist.\n\n**History purge — OWNER DECISION (2026-08-02): purge AFTER T-009 lands.**\nThe public repo's historical blobs still carry scrubbed personal values (T-024 closing note). The owner chose to let the in-flight T-009 review finish on its current base (`1cc1ff9` and descendants remain stable — no diff regeneration needed mid-review). The moment T-009's session fully ends, the supervising session executes: content rewrite over all history (email → synthetic, home paths → /Users/testuser, rollout/session identifiers → zeroed forms), verification by running the T-024 privacy scanner in commit mode over EVERY rewritten commit, force-push, tag re-point, and an old→new SHA map published for reference. All commit SHAs will change at that point — sessions writing handovers before then should prefer ticket/issue references over bare SHAs where practical.\n",
+  "createdDate": "2026-08-02",
+  "id": "N-003",
+  "status": "active",
+  "tags": [
+    "decisions",
+    "t-009",
+    "history-purge"
+  ],
+  "title": "T-009 open-question decisions (delegated) + history-purge sequencing (owner, 2026-08-02)",
+  "updatedDate": "2026-08-02"
+}

@@ -5,8 +5,9 @@
   "createdBy": "codex review, T-008 round 15",
   "dedupeKey": "t020-unbounded-update-check-2026-08-01",
   "discoveredDate": "2026-08-02",
+  "displayId": "ISS-045",
   "id": "ISS-045",
-  "impact": "T-020 introduces a network update check on the UI path but specifies no timeout, no cancellation, and no background isolation. Its acceptance testing covers the \"no network\" case, which exercises an immediate connection error — the easy failure. A blackholed or stalled connection (accepted but never answered, the common shape behind a captive portal or a dropped VPN) leaves the menubar waiting indefinitely with nothing to cancel it.\n\nThis is the same bounded-wait rule T-008 applied throughout its prototypes: racing a timer does not cancel the underlying operation, so the deadline must also dispose of the resource. T-008's own suite had to fix exactly this twice — a wedged release reported into a runner that could not exit, and synchronous spawnSync child waits that no test-level timeout could interrupt.\n\nSuggested fix: require the update check to run off the rendering path with a validated finite deadline, abort the underlying request when the deadline fires (not merely stop waiting for it), and fall back to cached/no-line behaviour on every failure. Test it against a server that accepts the connection and never responds, asserting both that the request is disposed and that the UI stays responsive.\n\nFound by codex review during T-008 round 15.",
+  "impact": "Still unfixed: T-020 specifies a UI-path network call whose only tested failure is the easy immediate-error case; a stalled/blackholed connection has no bound and nothing cancels it. Re-spec: background check off the render path, cached result in spendbar's state dir with bounded cadence, validated finite deadline that aborts and disposes the underlying request when it fires, silent fallback to cached/absent-line on every failure, and an accept-but-never-respond server test asserting request disposal plus UI responsiveness — the same bounded-wait rule T-008 had to learn twice (findings doc lines 558-562 and 838-845).",
   "location": [
     ".story/tickets/T-020.json"
   ],
@@ -14,9 +15,9 @@
   "relatedTickets": [
     "T-020"
   ],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Fixed by the v0.2/v0.3 ticket re-spec applied 2026-08-02: T-020's update check is specified off the render path: background, cached result only, finite validated deadline, fail-silent, never self-mutating. The full verified requirements record is preserved in this issue's impact field.",
+  "resolvedDate": "2026-08-02",
   "severity": "medium",
-  "status": "open",
+  "status": "resolved",
   "title": "T-020's update check is an unbounded network call on the menubar render path"
 }

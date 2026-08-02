@@ -6,8 +6,9 @@
   "createdBy": "codex review, T-008 round 14",
   "dedupeKey": "t018-installer-overwrite-and-gui-path-2026-08-01",
   "discoveredDate": "2026-08-02",
+  "displayId": "ISS-043",
   "id": "ISS-043",
-  "impact": "Two defects in T-018 as specified:\n\n1. Data loss. Acceptance criterion 1 requires reruns to update the installed plugin in place but defines no ownership or divergence check. If the target filename already exists, or the user has edited an installed copy, rerunning silently overwrites their content. Suggested fix: record a checksum/version marker, update atomically only when the existing file matches a known spendbar version, and prompt or refuse with a backup path when the target is unknown or modified.\n\n2. Runtime environment. The preferred design shells out to `spendbar --cached`, but SwiftBar is GUI-launched and does not reliably inherit npm/nvm PATH entries — the surrounding tickets already identify this failure mode for GUI MCP clients. With no absolute launcher path and no minimal-PATH test, the plugin fails on common nvm-based installs. Suggested fix: generate the plugin with a validated absolute path to the stable launcher, and test it under a minimal poisoned PATH on both npm-global and nvm-style installations.\n\nFound by codex review during T-008 round 14.",
+  "impact": "Still unfixed in the current T-018 body. Criterion 1's in-place idempotent rerun with no ownership check makes silent overwrite of user-edited plugin copies the specified behavior; the CLI-mediated design plus SwiftBar's GUI launch environment reproduces the exact PATH failure the plan already documents for GUI-launched MCP clients, with no absolute-path requirement and no minimal-PATH test in the criteria. Re-spec: checksum/version-marked atomic updates that refuse or back up unknown/modified targets, and a validated absolute launcher path with a poisoned-PATH acceptance test on npm-global and nvm installs.",
   "location": [
     ".story/tickets/T-018.json"
   ],
@@ -15,9 +16,9 @@
   "relatedTickets": [
     "T-018"
   ],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Fixed by the v0.2/v0.3 ticket re-spec applied 2026-08-02: T-018's installer is now ownership-aware (marker-verified in-place update only for spendbar-shipped copies; refuse/prompt + backup otherwise) and resolves SwiftBar's plugin directory without assuming a GUI-inherited PATH. The full verified requirements record is preserved in this issue's impact field.",
+  "resolvedDate": "2026-08-02",
   "severity": "medium",
-  "status": "open",
+  "status": "resolved",
   "title": "T-018's SwiftBar installer can overwrite user-owned files and assumes a GUI-inherited PATH"
 }
