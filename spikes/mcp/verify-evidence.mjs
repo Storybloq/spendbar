@@ -300,28 +300,34 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
     }
   }
 
-  // 4. Audit record shape; `ran` must be true — an audit that did not run must not be
-  //    recorded as one that did.
+  // 4. Audit record: advisory evidence, never gating (§2) — but its SHAPE is still exact.
+  //    A ran audit carries its numbers; one that could not run carries its cause; anything
+  //    else is refused. Refusing ran=false outright would silently make audit gating.
   checkExactKeys(audit, ["v1", "v2"], "audit.json");
   for (const candidate of ["v1", "v2"]) {
-    const a = checkShape(
-      audit[candidate],
-      { advisoriesTotal: { type: "number" }, ran: { type: "boolean" }, vulnerabilities: { type: "object" } },
-      `audit.json ${candidate}`,
-    );
-    checkShape(
-      a.vulnerabilities,
-      {
-        critical: { type: "number" },
-        high: { type: "number" },
-        info: { type: "number" },
-        low: { type: "number" },
-        moderate: { type: "number" },
-        total: { type: "number" },
-      },
-      `audit.json ${candidate}.vulnerabilities`,
-    );
-    if (a.ran !== true) refuse(`audit.json ${candidate} records ran=false`);
+    const a = audit[candidate];
+    if (a?.ran === true) {
+      checkShape(
+        a,
+        { advisoriesTotal: { type: "number" }, ran: { type: "boolean" }, vulnerabilities: { type: "object" } },
+        `audit.json ${candidate}`,
+      );
+      checkShape(
+        a.vulnerabilities,
+        {
+          critical: { type: "number" },
+          high: { type: "number" },
+          info: { type: "number" },
+          low: { type: "number" },
+          moderate: { type: "number" },
+          total: { type: "number" },
+        },
+        `audit.json ${candidate}.vulnerabilities`,
+      );
+    } else {
+      checkShape(a, { ran: { type: "boolean" }, cause: { type: "string" } }, `audit.json ${candidate}`);
+      if (a.ran !== false) refuse(`audit.json ${candidate} has invalid ran value`);
+    }
   }
 
   // 5. Real-client cells. A recorded cell is NEVER taken at its word: its status is
