@@ -22,7 +22,7 @@
 // mean what it looks like it means.
 
 import { realpathSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 /**
  * @param {string} moduleUrl the caller's own `import.meta.url`
@@ -31,14 +31,17 @@ import { pathToFileURL } from "node:url";
 export function isDirectEntry(moduleUrl) {
   const entry = process.argv[1];
   if (!entry) return false; // `node -e`, a REPL, or an embedder: nothing was run from a file
-  let real;
   try {
-    real = realpathSync(entry);
+    // BOTH sides go through realpath, and the comparison happens on filesystem paths rather than
+    // URLs. Normalising only argv[1] was still wrong under `--preserve-symlinks-main` (settable
+    // via NODE_OPTIONS, so not an exotic invocation): that flag makes the main module URL keep
+    // the SYMLINK path while realpath resolves argv[1] to the target, and the two disagree again
+    // — silently, in the same direction as before (review round 2, chunk 2).
+    return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(entry);
   } catch {
-    // argv[1] does not name a file that exists, so it cannot be this module. Returning false
-    // rather than throwing keeps a merely-imported module importable; the only thing lost is a
-    // main() that was never going to be the right one to run.
+    // Either path does not name a file that exists, so this module cannot be the entry point.
+    // Returning false rather than throwing keeps a merely-imported module importable; the only
+    // thing lost is a main() that was never going to be the right one to run.
     return false;
   }
-  return moduleUrl === pathToFileURL(real).href;
 }

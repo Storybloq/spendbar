@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { scanText, isSynthetic, decode, scan, CLASSES } from "../scripts/privacy-scan.mjs";
+import { scanText, isSynthetic, decode, scan, CLASSES, compilePolicy } from "../scripts/privacy-scan.mjs";
 import { pushRange } from "../scripts/push-range.mjs";
 import { firstContentChangingArg } from "../scripts/guarded-commit.mjs";
 import { isDirectEntry } from "../scripts/direct-entry.mjs";
@@ -803,7 +803,13 @@ test("no module in the repository still uses the silently-failing entry idiom", 
   assert.ok(tracked.length > 10, "found suspiciously few tracked modules — the glob is wrong");
   const offenders = tracked.filter((rel) => {
     const src = readFileSync(join(REPO, rel), "utf8");
-    return src.includes("file://${process.argv[1]}") && !rel.endsWith("privacy-scan.test.mjs");
+    // direct-entry.mjs and this file both QUOTE the broken idiom in order to explain it; every
+    // other module must not contain it at all.
+    return (
+      src.includes("file://${process.argv[1]}") &&
+      !rel.endsWith("privacy-scan.test.mjs") &&
+      !rel.endsWith("scripts/direct-entry.mjs")
+    );
   });
   assert.deepEqual(offenders, [], `these modules would silently skip main(): ${offenders.join(", ")}`);
 });
@@ -833,4 +839,122 @@ test("guarded-commit refuses when the scanner exits 0 without reporting a scan",
       "the commit landed despite the refusal",
     );
   });
+});
+
+// ---------------------------------------------------------------------------
+// Review round 2, chunk 2: six ways the scanner could be made to report clean.
+// ---------------------------------------------------------------------------
+
+test("the direct-entry guard fires under --preserve-symlinks-main", () => {
+  // That flag (settable through NODE_OPTIONS, so not an exotic invocation) keeps the SYMLINK
+  // path in the module URL while argv[1] still realpaths to the target. Normalising only one
+  // side left them disagreeing, silently, in the same direction as the original bug.
+  const root = mkdtempSync(join(tmpdir(), "entry-preserve-"));
+  try {
+    const real = join(root, "real");
+    entryProbe(real);
+    symlinkSync(real, join(root, "link"));
+    const r = runNode(["--preserve-symlinks-main", join(root, "link", "probe.mjs")]);
+    assert.equal(r.status, 0);
+    assert.equal(JSON.parse(r.stdout).fixed, true, "the guard did not fire under --preserve-symlinks-main");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an UNSTAGED allowlist edit cannot clear a leak from the staged tree", () => {
+  // The gate judges the prospective commit. Taking its policy from the working tree meant an
+  // edit that is never staged could excuse a staged leak: the leak lands in the commit, the line
+  // that excused it does not, and nothing downstream can tell. The policy now travels with the
+  // domain, so index mode reads the STAGED allowlist.
+  withTempRepo((repo) => {
+    mkdirSync(join(repo, "scripts"), { recursive: true });
+    const policy = join(repo, "scripts", "privacy-synthetic.json");
+    const base = {
+      accounts: ["fixture"],
+      emailDomains: ["example.com"],
+      sessionIdPatterns: [],
+      workflowIdPatterns: [],
+      mangledHomePatterns: [],
+      binaryExtensions: [],
+    };
+    writeFileSync(policy, JSON.stringify(base, null, 2));
+    writeFileSync(join(repo, "leak.txt"), cat("/Users/", "notdeclared", "/x\n"));
+    gitIn(repo, ["add", "-A"]);
+
+    // Sanity: staged as-is, the value is a finding.
+    assert.equal(scan({ mode: "index", repo }).findings.length, 1, "the fixture leak was not detected at all");
+
+    // Now excuse it in the WORKING file only, leaving the index untouched.
+    writeFileSync(policy, JSON.stringify({ ...base, accounts: ["fixture", "notdeclared"] }, null, 2));
+    const after = scan({ mode: "index", repo });
+    assert.equal(after.policySource, "index", "index mode did not take its policy from the index");
+    assert.equal(after.findings.length, 1, "an unstaged allowlist edit cleared a staged leak");
+
+    // Staging the allowlist change does apply it — the change is then part of the commit under
+    // review, which is the difference that matters.
+    gitIn(repo, ["add", "scripts/privacy-synthetic.json"]);
+    assert.equal(scan({ mode: "index", repo }).findings.length, 0);
+  });
+});
+
+test("a configured allowlist pattern cannot substring-match", () => {
+  // `anchored()` did not anchor: a pattern as short as "abc" would have cleared every real
+  // session id containing it, contradicting this scanner's documented contract.
+  const policy = compilePolicy({
+    accounts: [],
+    emailDomains: [],
+    sessionIdPatterns: ["dead"],
+    workflowIdPatterns: [],
+    mangledHomePatterns: [],
+    binaryExtensions: [],
+  });
+  const uuid = cat("dead", "beef-", "0000-4000-8000-", "000000000000");
+  assert.equal(isSynthetic(uuid, "session-id", policy), false, "a substring pattern cleared a real-shaped id");
+  assert.equal(isSynthetic("dead", "session-id", policy), true, "an exact match stopped working");
+});
+
+test("a real name is not cleared because its first token is a declared account", () => {
+  // The capture used to stop at the first space, so `/Users/<declared> <RealSurname>/` matched
+  // the allowlist exactly and reported nothing — a real surname passing BECAUSE the prefix was
+  // synthetic. Verified against the live policy, which declares `fixture`.
+  assert.equal(scanText(cat("/Users/", "fixture", "/x"), "f").length, 0, "the declared account stopped being declared");
+  assert.equal(
+    scanText(cat("/Users/", "fixture", " Realsurname/x"), "f").length,
+    1,
+    "a real surname was cleared by its synthetic first token",
+  );
+  // Windows profile directories with a space are ordinary, and were missed entirely.
+  assert.equal(scanText(cat("C:\\Users\\", "Some Person", "\\x"), "f").length, 1);
+});
+
+test("an identifier adjacent to an underscore is still found", () => {
+  // \b finds no boundary between `_` and a hex digit, so `session_<uuid>` — the literal shape of
+  // a stored transcript filename — produced no finding at all.
+  const uuid = cat("550e8400-", "e29b-41d4-", "a716-", "446655440000");
+  assert.equal(scanText(uuid, "f").length, 1, "the bare id stopped being found");
+  assert.equal(scanText(`session_${uuid}.jsonl`, "f").length, 1, "an id after an underscore was missed");
+  assert.equal(scanText(`run_${cat("wf_", "abcdef", "-12")}`, "f").length, 1, "a workflow id after an underscore was missed");
+  // Still not a finding when it is genuinely part of a longer hex run.
+  assert.equal(scanText(`ff${uuid}`, "f").length, 0);
+});
+
+test("a UTF-32 file fails closed instead of decoding to unmatchable text", () => {
+  // UTF-32LE's BOM begins with the UTF-16LE BOM, so it was decoded as UTF-16LE into
+  // NUL-interleaved text that no pattern matches, counted as scanned, and reported clean — the
+  // one encoding that failed OPEN.
+  const body = Buffer.concat(
+    [...cat("/Users/", "realname", "/secret")].map((ch) => Buffer.from([ch.charCodeAt(0), 0, 0, 0])),
+  );
+  for (const bom of [[0xff, 0xfe, 0x00, 0x00], [0x00, 0x00, 0xfe, 0xff]]) {
+    const decoded = decode(Buffer.concat([Buffer.from(bom), body]));
+    assert.equal(decoded.malformed, true, `UTF-32 with BOM ${bom} was not reported as malformed`);
+    assert.equal(decoded.text, undefined);
+  }
+  // UTF-16LE, which shares the first two bytes, must still decode and still be scanned.
+  const u16 = Buffer.concat([
+    Buffer.from([0xff, 0xfe]),
+    Buffer.from(cat("/Users/", "realname", "/secret"), "utf16le"),
+  ]);
+  assert.equal(scanText(decode(u16).text, "f").length, 1, "UTF-16 stopped being scanned");
 });

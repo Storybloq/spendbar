@@ -132,7 +132,7 @@ function main(args) {
   // as a clean scan (review round 2 found exactly that bug in the guard idiom this repository
   // used everywhere). So the scanner must SAY what it did, and the count must be non-zero: this
   // wrapper trusts a report of work, never a bare exit code.
-  const proof = /^privacy-scan: .*?, (\d+) text files, clean$/m.exec(scan.stdout ?? "");
+  const proof = /^privacy-scan: .*?, (\d+) text files, clean\b/m.exec(scan.stdout ?? "");
   if (!proof || Number(proof[1]) === 0) {
     fail(
       2,
