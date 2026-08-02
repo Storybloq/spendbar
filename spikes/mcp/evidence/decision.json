@@ -7,5 +7,19 @@
   "versions": {
     "v1": "1.30.0",
     "v2": "2.0.0"
-  }
+  },
+  "qualifications": [
+    {
+      "candidate": "v1",
+      "cell": "real:codex",
+      "kind": "user-config-not-isolated",
+      "detail": "codex ran with the operator's own user configuration reachable; this cell is a pass on this machine, not from a fresh state"
+    },
+    {
+      "candidate": "v2",
+      "cell": "real:codex",
+      "kind": "user-config-not-isolated",
+      "detail": "codex ran with the operator's own user configuration reachable; this cell is a pass on this machine, not from a fresh state"
+    }
+  ]
 }

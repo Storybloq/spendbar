@@ -47,6 +47,7 @@ import {
   writeDurable,
   referencedCaptureIds,
   RECEIPT_SCHEMA_VERSION,
+  RECEIPT_NOTE,
 } from "./receipt.mjs";
 import { candidateTreeDigest } from "../isolate.mjs";
 import { normalize } from "./normalize.mjs";
@@ -600,4 +601,22 @@ test("the merge scope is exactly what the current cells claim", () => {
   assert.deepEqual([...referencedCaptureIds(cells)].sort(), ["a", "b", "c"]);
   assert.deepEqual([...referencedCaptureIds({})], []);
   assert.deepEqual([...referencedCaptureIds(undefined)], []);
+});
+
+test("the committed receipt's note is the generator's, and says what survives deletion", () => {
+  // The raw captures these receipts stand for are gone, so receipt.json can never be
+  // regenerated without paying for four more client runs. That makes its prose the one part
+  // of a generated artifact that can silently drift away from the generator — so pin it here:
+  // whatever a future regeneration would stamp is what the committed file already says.
+  const committed = JSON.parse(
+    readFileSync(join(import.meta.dirname, "..", "evidence", "real-clients", "receipt.json"), "utf8"),
+  );
+  assert.ok(committed.length > 0, "the committed receipt is empty — nothing is being pinned");
+  for (const record of committed) {
+    assert.equal(record.note, RECEIPT_NOTE, `${record.captureId} carries a note the generator would not write`);
+  }
+  // And the note must not claim recomputability, which is the specific overstatement that
+  // review round 1 caught: after deletion these digests are attestations, not checks.
+  assert.match(RECEIPT_NOTE, /COMMITMENTS/);
+  assert.doesNotMatch(RECEIPT_NOTE, /residual check/);
 });

@@ -118,7 +118,7 @@ test("a single not-run cell anywhere produces incomplete, never blocked", () => 
 
 // ---------- act1 ----------------------------------------------------------------------------
 
-function verifiedFixture(v2Status, v1Status) {
+function verifiedFixture(v2Status, v1Status, { qualifications = [] } = {}) {
   return {
     cells: { v2: cellsAll(v2Status), v1: cellsAll(v1Status) },
     sdk: { v2: "@modelcontextprotocol/server", v1: "@modelcontextprotocol/sdk" },
@@ -131,6 +131,7 @@ function verifiedFixture(v2Status, v1Status) {
         v1: { canonicalBytes: 933, proxyTokens: 234 },
       },
       notes: ["fixture note"],
+      qualifications,
     },
   };
 }
@@ -230,8 +231,59 @@ test("act1 on adopt-v2: decision document only — no ticket, no blocker", async
   assert.ok(deps.docs[0].includes("open question 3, an owner decision"));
   assert.deepEqual(deps.calls, ["decision-doc", "decision-record"]);
   assert.deepEqual(deps.records, [
-    { outcome: "adopt-v2", aggregates: { v2: "pass", v1: "pass" }, versions: { v2: "2.0.0", v1: "1.30.0" } },
+    {
+      outcome: "adopt-v2",
+      aggregates: { v2: "pass", v1: "pass" },
+      versions: { v2: "2.0.0", v1: "1.30.0" },
+      qualifications: [],
+    },
   ]);
+  // With nothing to qualify, the heading is absent rather than present-and-empty: a standing
+  // empty section trains a reader to skip it, which is exactly when the one that matters lands.
+  assert.ok(!deps.docs[0].includes("Qualified passes"));
+});
+
+test("a qualified pass reaches BOTH the decision document and the machine record", async () => {
+  // The failure this pins: a cell that passed under a weaker guarantee than the others, whose
+  // caveat lives only in a manifest nobody re-reads. adopt-v2 is the dangerous outcome for it —
+  // the run "succeeded", so nothing else in the pipeline is going to raise its hand.
+  const qualification = {
+    candidate: "v1",
+    cell: "real:codex",
+    kind: "user-config-not-isolated",
+    detail: "codex ran with the operator's own user configuration reachable",
+  };
+  const verified = verifiedFixture("pass", "pass", { qualifications: [qualification] });
+  const deps = spyDeps();
+  await act1(decide(verified), verified, deps);
+
+  const doc = deps.docs[0];
+  assert.ok(doc.includes("## Qualified passes"), "the document does not qualify the table it just printed");
+  assert.ok(doc.includes("user-config-not-isolated"));
+  assert.ok(doc.includes("real:codex"));
+  // Before "Reported, not gating", because it is a limit on the result rather than context
+  // beside it.
+  assert.ok(doc.indexOf("## Qualified passes") < doc.indexOf("## Reported, not gating"));
+  assert.deepEqual(deps.records[0].qualifications, [qualification]);
+  // The outcome itself is untouched: a qualification is not a downgrade, and a verifier that
+  // could silently turn a pass into something else would be overruling the classifier.
+  assert.equal(deps.records[0].outcome, "adopt-v2");
+});
+
+test("a qualification cannot break the document's structure with embedded markup", async () => {
+  // Qualification text is evidence-controlled, so it goes through the same md() escaping as
+  // every other rendered value — otherwise a newline or a pipe could make the document
+  // visually disagree with the record it was generated from.
+  const verified = verifiedFixture("pass", "pass", {
+    qualifications: [
+      { candidate: "v1", cell: "real:codex", kind: "k\ninjected", detail: "a | b\n## Fake heading" },
+    ],
+  });
+  const deps = spyDeps();
+  await act1(decide(verified), verified, deps);
+  const qualLine = deps.docs[0].split("\n").find((l) => l.includes("injected"));
+  assert.ok(qualLine.includes("\\|"), "a table pipe was rendered unescaped");
+  assert.ok(!deps.docs[0].includes("\n## Fake heading"), "an embedded heading survived into the document");
 });
 
 test("act1 on blocked: dedupe-keyed ticket, attach, read-back, then the document, exit 3", async () => {
@@ -439,6 +491,52 @@ test("the committed evidence verifies offline, with the full mandatory set", () 
   // go/no-go answers adopt-v2 — v1 is unselected, not failed. A future recapture that
   // changes this must change this line WITH the evidence, never instead of it.
   assert.equal(decide(verified).outcome, "adopt-v2");
+  // The Codex cells passed with the operator's own configuration reachable — a real pass, but
+  // not a fresh-state one. Pinned here because it is the caveat most likely to be quietly lost:
+  // the run succeeded, so nothing downstream has a reason to mention it (review round 1,
+  // chunk 17). If a recapture ever isolates Codex, this expectation is what has to change.
+  assert.deepEqual(
+    verified.report.qualifications.map((q) => `${q.candidate}/${q.cell}:${q.kind}`).sort(),
+    ["v1/real:codex:user-config-not-isolated", "v2/real:codex:user-config-not-isolated"],
+  );
+});
+
+test("a cell that ran without user-config isolation is qualified, not silently passed", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    // Flip the one client that IS isolated today. If the qualification were hardcoded to Codex,
+    // or read from anywhere but the manifest, this would not move.
+    mutate("real-clients/claude-code-v2.manifest.json", (m) => (m.isolation.userConfigIsolated = false));
+    const verified = verifyEvidence({ evidenceDir, repoRoot });
+    assert.ok(
+      verified.report.qualifications.some((q) => q.candidate === "v2" && q.cell === "real:claude-code"),
+      "an unisolated capture produced no qualification",
+    );
+    // Still a pass and still adopt-v2: the qualification records what the cell proves, it does
+    // not overrule the classifier that judged it.
+    assert.equal(verified.cells.v2["real:claude-code"].status, "pass");
+    assert.equal(decide(verified).outcome, "adopt-v2");
+  });
+});
+
+test("a capture that executed a hostile configuration is refused, not qualified", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    // The distinction the two isolation booleans encode: an unisolated user config weakens what
+    // a cell proves, but a hostile config that RAN means the client was taking instructions
+    // from the fixture. There is no honest reading of that capture, so it fails closed.
+    mutate("real-clients/codex-v1.manifest.json", (m) => (m.isolation.hostileConfigExecuted = true));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /ran a hostile configuration/);
+  });
+});
+
+test("a manifest whose isolation record is missing or mistyped is refused", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    mutate("real-clients/codex-v1.manifest.json", (m) => (m.isolation = { userConfigIsolated: "yes" }));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /manifest\.isolation/);
+  });
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    mutate("real-clients/codex-v1.manifest.json", (m) => (m.isolation = {}));
+    assert.throws(() => verifyEvidence({ evidenceDir, repoRoot }), /manifest\.isolation/);
+  });
 });
 
 test("with the real-client capture removed, decide() is incomplete", () => {

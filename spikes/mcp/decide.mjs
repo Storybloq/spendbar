@@ -126,6 +126,18 @@ export function renderDecisionDoc(verified, decision) {
     }
     lines.push("");
   }
+  // Qualifications come BEFORE the reported-not-gating section and are never folded into it:
+  // a dependency count is context, but "this cell passed on one machine rather than from a
+  // fresh state" is a limit on what the table above means. A reader who stops at the cell list
+  // must not come away with an unconditional pass (review round 1, chunk 17).
+  const qualifications = verified.report.qualifications ?? [];
+  if (qualifications.length > 0) {
+    lines.push(`## Qualified passes — read the table above with these`);
+    for (const q of qualifications) {
+      lines.push(`- ${md(q.candidate)} ${md(q.cell)} (${md(q.kind)}): ${md(q.detail)}`);
+    }
+    lines.push("");
+  }
   lines.push(`## Reported, not gating`);
   lines.push(`- dependency closure: v2 ${verified.report.closureSize.v2} packages, v1 ${verified.report.closureSize.v1} packages`);
   lines.push(
@@ -176,10 +188,13 @@ export async function act1(decision, verified, deps) {
     );
   }
 
+  // The machine-readable record packaging keys off. It carries the qualifications too, so a
+  // consumer reading only decision.json cannot conclude more than DECISION.md says.
   const decisionRecord = () => ({
     outcome: decision.outcome,
     aggregates: decision.aggregates,
     versions: verified.versions,
+    qualifications: verified.report.qualifications ?? [],
   });
 
   if (decision.outcome === "incomplete") {

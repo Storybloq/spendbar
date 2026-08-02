@@ -59,6 +59,25 @@ const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 // provenance.mjs so capture.mjs can pin the inputs BEFORE it spawns anything.
 export { CAPTURE_INPUTS, RECEIPT_SCHEMA_VERSION };
 
+/**
+ * The note stamped on every published receipt, and the honest description of what it is.
+ *
+ * The earlier wording called the digests and statistics a "residual check", which claims more
+ * than the file can deliver (review round 1, chunk 17): once the raw bytes are deleted, NOTHING
+ * can recompute a stream hash, re-run the normalizer, or re-evaluate the stdout predicates. The
+ * digests stop being checks and become COMMITMENTS — this tool's attestation that it performed
+ * those checks while the bytes still existed. What a later reader can still falsify is the
+ * cross-file consistency: receipt against manifest against cells.json, the capture-input
+ * digests against the working tree, and the candidate tree digest against the installed
+ * dependencies. That is a real and useful set of checks; it is just not the raw evidence, and
+ * saying so is the difference between a receipt and a claim.
+ */
+export const RECEIPT_NOTE =
+  "raw capture deleted on receipt; the digests and statistics below are COMMITMENTS this tool " +
+  "made while the bytes still existed, not checks a later reader can recompute — what remains " +
+  "falsifiable is consistency with the manifest, cells.json, the capture inputs and the " +
+  "installed dependency tree";
+
 /** Exactly the files a complete retained capture holds. Anything else is a refusal. */
 const REQUIRED_FILES = [
   "raw-manifest.json",
@@ -367,7 +386,7 @@ export function publishReceipts({
       rawStatistics: { clientToServer: v.raw.clientToServer, serverStdout: v.raw.serverStdout },
       captureInputs: { ...v.raw.captureInputs },
       candidateTreeSha256: v.raw.candidateTreeSha256,
-      note: "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such",
+      note: RECEIPT_NOTE,
     };
     const prior = byId.get(v.id);
     if (prior && JSON.stringify(prior) !== JSON.stringify(entry)) {

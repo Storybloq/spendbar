@@ -29,7 +29,7 @@
     "spikes/mcp/real-client/classify.mjs": "ae15f1562b68c840ef80ff34c2b7f902a91a78275428d7316d25934f73e67cc1",
     "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
     "spikes/mcp/real-client/provenance.mjs": "a5f020d8fecadcb3ad1ecf4b37f19466d4d768df1b7fae0f7b92dccef87f9d13",
-    "spikes/mcp/real-client/receipt.mjs": "c031b3ff16f44b52eae9ee87c80d25a829ede9ec5aa82a663b259dde8733dbc1",
+    "spikes/mcp/real-client/receipt.mjs": "dddf2c62f408cff727eb56500b177e5938476a537a054f0297723f17dc42fd68",
     "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
     "spikes/mcp/supply-chain.mjs": "0bd630f18240c83b26e692f659788db5e569256042b53e42b86785ac7e97b59c",
     "spikes/mcp/token-cost.mjs": "0932a60bc8327fb3d62adea7455f72676adff7f30c5e041395181b1a5fe7eee6"

@@ -50,7 +50,7 @@
       "scripts/privacy-synthetic.json": "15aebfa7b13e598a505f8774c6e49a1fd8c79295c879981cad2e9edbe465d867"
     },
     "candidateTreeSha256": "61ba8ac0da1e899ac8edef782d53a1e993d3fdb6f165aba412e553e7b18aaa45",
-    "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
+    "note": "raw capture deleted on receipt; the digests and statistics below are COMMITMENTS this tool made while the bytes still existed, not checks a later reader can recompute — what remains falsifiable is consistency with the manifest, cells.json, the capture inputs and the installed dependency tree"
   },
   {
     "schemaVersion": "receipt/3",
@@ -103,7 +103,7 @@
       "scripts/privacy-synthetic.json": "15aebfa7b13e598a505f8774c6e49a1fd8c79295c879981cad2e9edbe465d867"
     },
     "candidateTreeSha256": "9fc50349e6b8cc6b757efa5968cc33a8cc155f412d1af08335f88fb3162f57a9",
-    "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
+    "note": "raw capture deleted on receipt; the digests and statistics below are COMMITMENTS this tool made while the bytes still existed, not checks a later reader can recompute — what remains falsifiable is consistency with the manifest, cells.json, the capture inputs and the installed dependency tree"
   },
   {
     "schemaVersion": "receipt/3",
@@ -156,7 +156,7 @@
       "scripts/privacy-synthetic.json": "15aebfa7b13e598a505f8774c6e49a1fd8c79295c879981cad2e9edbe465d867"
     },
     "candidateTreeSha256": "61ba8ac0da1e899ac8edef782d53a1e993d3fdb6f165aba412e553e7b18aaa45",
-    "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
+    "note": "raw capture deleted on receipt; the digests and statistics below are COMMITMENTS this tool made while the bytes still existed, not checks a later reader can recompute — what remains falsifiable is consistency with the manifest, cells.json, the capture inputs and the installed dependency tree"
   },
   {
     "schemaVersion": "receipt/3",
@@ -209,6 +209,6 @@
       "scripts/privacy-synthetic.json": "15aebfa7b13e598a505f8774c6e49a1fd8c79295c879981cad2e9edbe465d867"
     },
     "candidateTreeSha256": "9fc50349e6b8cc6b757efa5968cc33a8cc155f412d1af08335f88fb3162f57a9",
-    "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
+    "note": "raw capture deleted on receipt; the digests and statistics below are COMMITMENTS this tool made while the bytes still existed, not checks a later reader can recompute — what remains falsifiable is consistency with the manifest, cells.json, the capture inputs and the installed dependency tree"
   }
 ]

@@ -457,6 +457,12 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       return r;
     });
   }
+  // Conditions under which a cell RAN and PASSED but proves less than an unqualified pass
+  // claims. These are not cell statuses — a qualification cannot turn a pass into a fail, and
+  // inventing a status for it would let this verifier overrule the classifier. What it can do
+  // is refuse to let the qualification be dropped on the way to the decision document, which
+  // is where an unconditional-looking "pass" was actually doing harm (review round 1, chunk 17).
+  const qualifications = [];
   for (const candidate of ["v1", "v2"]) {
     for (const client of REAL_CLIENTS) {
       if (captureInputsStale !== null) {
@@ -505,6 +511,32 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       checkShape(manifest.digests, DIGEST_SET_SPEC, `${what} manifest.digests`);
       for (const direction of ["clientToServer", "serverStdout"]) {
         checkShape(manifest[direction], STREAM_STATS_SPEC, `${what} manifest.${direction}`);
+      }
+
+      // The capture's own isolation facts, checked rather than carried as an opaque object.
+      const iso = checkShape(
+        manifest.isolation,
+        { hostileConfigExecuted: { type: "boolean" }, userConfigIsolated: { type: "boolean" } },
+        `${what} manifest.isolation`,
+      );
+      // A hostile config that actually executed is not a qualification, it is a broken capture:
+      // whatever the client did afterwards was under someone else's instructions.
+      if (iso.hostileConfigExecuted) {
+        refuse(`${what} ran a hostile configuration — the capture is not evidence about the SDK`);
+      }
+      // The Codex asymmetry, recorded rather than smoothed over: Claude Code accepts
+      // --strict-mcp-config plus --settings, so its user configuration is provably out of the
+      // run; `codex exec -c` has no equivalent, so those cells ran with the operator's own
+      // configuration reachable. The cell still passes — the probe really did reach the server
+      // and come back — but "passed on this machine" is not "passed from a fresh state", and
+      // the difference has to survive all the way into the decision document.
+      if (!iso.userConfigIsolated) {
+        qualifications.push({
+          candidate,
+          cell: `real:${client}`,
+          kind: "user-config-not-isolated",
+          detail: `${client} ran with the operator's own user configuration reachable; this cell is a pass on this machine, not from a fresh state`,
+        });
       }
 
       // Every attempt is receipted, including a superseded environmental one — the retry used
@@ -603,6 +635,7 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       },
       audit,
       notes: inputs.notes ?? [],
+      qualifications,
     },
   };
 }
