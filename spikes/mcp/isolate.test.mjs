@@ -40,6 +40,7 @@ import {
   CANDIDATES,
 } from "./isolate.mjs";
 import { descendantsFor } from "./conformance.mjs";
+import { SCRIPTED_CASES } from "./decide.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -194,7 +195,14 @@ test("the live candidate runs recorded zero violations and created no descendant
     assert.equal(isolation.everyCaseInstrumented, true, `${candidate}: a case ran uninstrumented`);
     assert.deepEqual(isolation.descendants, [], `${candidate}: a case created an unobserved context`);
     const cases = Object.entries(isolation.perCase);
-    assert.ok(cases.length > 0, `${candidate}: no instrumented cases recorded`);
+    // The whole case list, by name. `length > 0` credited a record covering ONE case as a
+    // clean run across all eight — the same "every case" that meant nothing which
+    // aggregateIsolation was carrying one level up (review round 2, chunk 14/15).
+    assert.deepEqual(
+      cases.map(([name]) => name).sort(),
+      [...SCRIPTED_CASES].sort(),
+      `${candidate}: the isolation record does not cover the scripted case list`,
+    );
     for (const [name, rec] of cases) {
       assert.ok(rec.total > 0, `${candidate}/${name}: instrumented but recorded no resolutions`);
       assert.equal(rec.violations, 0, `${candidate}/${name}: recorded ${rec.violations} violation(s)`);
@@ -570,10 +578,23 @@ test("an unwritable egress log stops the call rather than letting it through unr
     let stderr = "";
     child.stderr.on("data", (d) => (stderr += d));
     const closed = await awaitClose(child, 15_000);
-    // Either the connect threw inside the observer (exit 0 from the script's own check) or the
-    // preload itself refused to start. Both are fail-closed; what must NOT happen is exit 7,
-    // which means the socket connected with nothing recorded.
+    // `notEqual(code, 7)` was satisfied by ANY other outcome — a crash, an unrelated error, a
+    // SIGKILLed hang — so "the observer failed closed" was credited to every way the fixture
+    // could go wrong (review round 2, chunk 15). The two acceptable outcomes are named.
+    assert.equal(closed.timedOut, false, `the fixture hung rather than failing closed: ${stderr}`);
     assert.notEqual(closed.code, 7, `egress proceeded with an unwritable log: ${stderr}`);
+    if (closed.code === 0) {
+      // The script's own check: connect threw inside the observer, so nothing reached the wire.
+      assert.equal(stderr.trim(), "", `the fixture exited 0 but complained: ${stderr}`);
+    } else {
+      // The other fail-closed shape: the preload itself refused. It has to SAY so — a bare
+      // nonzero exit is indistinguishable from the fixture breaking for an unrelated reason.
+      assert.match(
+        stderr,
+        /net-observe/,
+        `the child failed (${closed.code}/${closed.signal}) without the observer explaining why: ${stderr}`,
+      );
+    }
   });
 });
 
@@ -736,6 +757,7 @@ test("positive control: DNS-only and descendant egress paths are recorded too", 
       },
     ];
 
+    assert.ok(cases.length >= 9, `the egress-path control table shrank to ${cases.length}`);
     for (const c of cases) {
       const script = join(dir, `${c.name.replace(/\W/g, "-")}.mjs`);
       const netLog = join(dir, `net-${c.name.replace(/\W/g, "-")}.ndjson`);
