@@ -10,6 +10,8 @@
     "stdout-purity"
   ],
   "files": {
+    "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
+    "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970",
     "spikes/mcp/candidates/v1/package-lock.json": "ed8fde3e4ba03f1abc84bc64121eada03d47e5f9adc340eb2cafcab76547e30b",
     "spikes/mcp/candidates/v1/server.mjs": "950f44b0294a482f6f166cc618deeba2208a9a5a66c558794d3632d6724159fa",
     "spikes/mcp/candidates/v2/package-lock.json": "fa646e3069a4937fab5a5ef9905d461e98a51da9aaac4334e2585ce2d3e85db9",
@@ -21,11 +23,11 @@
     "spikes/mcp/matrix.mjs": "4601aa14447527dd6cab0bbd01554d3dc67cd6b4e4d1773c9d578f83865b7707",
     "spikes/mcp/probe-def.mjs": "1b53117fecf9365089b9739b341bb3c73549c54b61832d7ba9c39087f54b6aec",
     "spikes/mcp/real-client/capture-wrapper.mjs": "c715be25baff7329d42c471bf384831f6b77f6e2d23ae5373d4193c6b3936549",
-    "spikes/mcp/real-client/capture.mjs": "a94268efe2d4e0e98a8a0f1bbecf00629459e8395dee2caba892d7fd9dbcdf6b",
-    "spikes/mcp/real-client/classify.mjs": "397fa206cde796b4ef6c229e462fe50b6c7093ca4fa1c30f323a94ea925962ab",
-    "spikes/mcp/real-client/normalize.mjs": "ac5b8b1811115299de9f27e396aaf3ce0122991e440da5c94dfff8832a8d388d",
-    "spikes/mcp/real-client/receipt.mjs": "3fad8c0ef434d0ae91e0e7750d7a853565d0bf58703ad12be332a11bee3a8730",
-    "spikes/mcp/real-client/sanitize.mjs": "bec24e4e1ded221e9d59e41db83daacc60ef23e0af91b908a87774268cac9a9f",
+    "spikes/mcp/real-client/capture.mjs": "ff40f42de71027a27cb3a9db65cd7bacc9d63879962a7dd1cbb6ccd554afb139",
+    "spikes/mcp/real-client/classify.mjs": "8b8bba3d870752b1caca65d0c9a385b57c91e9a6adef620da7415d507f7d81bf",
+    "spikes/mcp/real-client/normalize.mjs": "5e0d80235c8b6ed3a985c6cd80dd1aa2b60ae503a72314284cc7575694ec5269",
+    "spikes/mcp/real-client/receipt.mjs": "186725d910a9218cf04e70993e554b348aff3e92044b8108c4912ebf96200b68",
+    "spikes/mcp/real-client/sanitize.mjs": "b05e6734fa689f141d213add51ad87c1fbe783e5c2633dbbf23497b78520c8cc",
     "spikes/mcp/supply-chain.mjs": "0bd630f18240c83b26e692f659788db5e569256042b53e42b86785ac7e97b59c",
     "spikes/mcp/token-cost.mjs": "0932a60bc8327fb3d62adea7455f72676adff7f30c5e041395181b1a5fe7eee6"
   },

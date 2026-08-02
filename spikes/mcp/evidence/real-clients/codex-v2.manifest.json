@@ -1,10 +1,10 @@
 {
-  "captureId": "codex-v2-9791d5e6",
+  "captureId": "codex-v2-00c5913c",
   "client": "codex",
   "candidate": "v2",
   "clientVersion": "codex-cli 0.144.0",
   "promptSha256": "132d4baa74ecc6de23889d173bf2314a70fdd92615023a40fbce4f6da1ead2be",
-  "nonce": "t009-30e06aee2d3ec029",
+  "nonce": "t009-0d20883c52b6cf90",
   "executablePath": "<path:executablePath>",
   "executableIdentity": "resolved-at-spawn-via-PATH",
   "commandLine": [
@@ -14,7 +14,7 @@
     "<arg3:path>",
     "-c",
     "<arg5:path>",
-    "Call the MCP tool \"spendbar_probe\" exactly once, with the argument object {\"nonce\": \"t009-30e06aee2d3ec029\"}. Do not call any other tool. Do not repeat, quote, or mention the nonce value anywhere in your reply. After the tool call succeeds, reply with exactly this single line and nothing else: SPENDBAR_PROBE_DONE"
+    "Call the MCP tool \"spendbar_probe\" exactly once, with the argument object {\"nonce\": \"t009-0d20883c52b6cf90\"}. Do not call any other tool. Do not repeat, quote, or mention the nonce value anywhere in your reply. After the tool call succeeds, reply with exactly this single line and nothing else: SPENDBAR_PROBE_DONE"
   ],
   "env": [
     "PATH"
@@ -29,6 +29,9 @@
     }
   },
   "environmental": null,
+  "isolation": {
+    "hostileConfigExecuted": false
+  },
   "timedOut": false,
   "lastPhase": "called",
   "clientExit": {
@@ -54,15 +57,28 @@
     {
       "type": "response",
       "method": "tools/call",
-      "structuredNonce": "t009-30e06aee2d3ec029",
-      "text": "probe nonce=t009-30e06aee2d3ec029 blocked=false",
+      "structuredNonce": "t009-0d20883c52b6cf90",
+      "text": "probe nonce=t009-0d20883c52b6cf90 blocked=false",
       "isError": false
     }
   ],
+  "clientToServer": {
+    "bytes": 871,
+    "lines": 4,
+    "messages": 4,
+    "remainder": 0,
+    "encodingErrors": 0,
+    "parseErrors": 0,
+    "protocolErrors": 0
+  },
   "serverStdout": {
     "bytes": 1320,
+    "lines": 3,
+    "messages": 3,
     "remainder": 0,
-    "parseErrors": 0
+    "encodingErrors": 0,
+    "parseErrors": 0,
+    "protocolErrors": 0
   },
   "serverStderr": {
     "hasReadyLine": true,
@@ -74,10 +90,10 @@
     "containsAllowlistedEnvValue": false
   },
   "digests": {
-    "clientToServerSha256": "6e326f0cd65aa0a98f3c6974f7c6d5030fba96cf0917712e19a9226b78da2043",
-    "serverStdoutSha256": "1a787faa56e10c1d3c98b06a43545e36bfe8842c494a9dde16a8f1cec543f482",
-    "serverStderrSha256": "82234f5bc6f7b86cc2fe7682c9df39e794a70b6b24d8f11de07cc0de37adcf12",
-    "derivationDigest": "6ce155e5b7d746025b033765ca960b115f0bb3229d36a926d00a4a946fe4fa4d"
+    "clientToServerSha256": "a9497566d2b065aa5a8268b249737a16567fe89fb277cd68570b5dc59593ad75",
+    "serverStdoutSha256": "cc66f42123027dff7ba0d9835f6408e10c7d9d4494db94f74641accb62fad7c2",
+    "serverStderrSha256": "8dfd6ef9802e1fccaa1fd1480c6d712dac793c1d59e7ca6817e2cabe453effdf",
+    "derivationDigest": "e92854877b1e10af73c5d4f6410883166325c4660f19e39088c4e03fbd76de83"
   },
   "retries": []
 }

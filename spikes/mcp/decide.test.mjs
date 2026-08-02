@@ -674,10 +674,21 @@ const EXPECTED_BOUND_PRODUCERS = [
   "spikes/mcp/real-client/normalize.mjs",
   "spikes/mcp/real-client/sanitize.mjs",
   "spikes/mcp/real-client/receipt.mjs",
+  "scripts/privacy-scan.mjs",
+  "scripts/privacy-synthetic.json",
 ];
 
 test("the bound-input list equals this suite's independent literal — nothing dropped silently", () => {
   assert.deepEqual([...BOUND_INPUTS].sort(), [...EXPECTED_BOUND_PRODUCERS].sort());
+});
+
+test("every capture input is also a bound input — a capture-time pin the evidence never checks", () => {
+  // The two lists answer different questions (what a re-capture would invalidate vs what any
+  // evidence depends on), but the first is a subset of the second. A file pinned only at
+  // capture time would go unverified on every scripted run.
+  for (const rel of CAPTURE_INPUTS) {
+    assert.ok(BOUND_INPUTS.includes(rel), `${rel} is pinned at capture time but is not a bound input`);
+  }
 });
 
 test("EVERY bound producer's digest is enforced — a stale recorded digest for each file refuses", () => {

@@ -35,7 +35,8 @@ import { fileURLToPath } from "node:url";
 
 import { SCRIPTED_CASES, REAL_CLIENTS, MANDATORY_CELLS, STATUSES } from "./decide.mjs";
 import { parseStrictJson, JsonSyntaxError } from "./strict-json.mjs";
-import { classify, toCellStatus } from "./real-client/classify.mjs";
+import { classify, toCellStatus, InvalidRecordError } from "./real-client/classify.mjs";
+import { STREAM_STAT_KEYS } from "./real-client/sanitize.mjs";
 import { PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER } from "./real-client/capture.mjs";
 import { CAPTURE_INPUTS } from "./real-client/receipt.mjs";
 import { TOKEN_PROXY_VERSION } from "./token-cost.mjs";
@@ -67,6 +68,11 @@ export const BOUND_INPUTS = [
   "spikes/mcp/real-client/normalize.mjs",
   "spikes/mcp/real-client/sanitize.mjs",
   "spikes/mcp/real-client/receipt.mjs",
+  // The sanitizer runs the privacy classifier over its own output and refuses on a match, so
+  // these rules — and the synthetic-value declarations that decide what they let through —
+  // shape every committed manifest.
+  "scripts/privacy-scan.mjs",
+  "scripts/privacy-synthetic.json",
 ];
 
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -147,14 +153,18 @@ const MANIFEST_SPEC = {
   cwd: { type: "string" },
   spawn: { type: "object" },
   environmental: { type: "object", nullable: true },
+  isolation: { type: "object" },
   timedOut: { type: "boolean" },
   lastPhase: { type: "string" },
   clientExit: { type: "object", nullable: true },
   serverTermination: { type: "object", nullable: true },
   frames: { type: "array" },
-  serverStdout: { type: "object", optional: true, nullable: true },
-  serverStderr: { type: "object", optional: true, nullable: true },
-  clientStdout: { type: "object", optional: true, nullable: true },
+  // Both directions' statistics are required: the classifier judges the client->server stream
+  // too, and an absent block must be a refusal, never a silently unjudged channel.
+  clientToServer: { type: "object" },
+  serverStdout: { type: "object" },
+  serverStderr: { type: "object" },
+  clientStdout: { type: "object" },
   digests: { type: "object" },
   retries: { type: "array" },
 };
@@ -167,6 +177,9 @@ const RECEIPT_SPEC = {
   rawStatistics: { type: "object" },
   note: { type: "string", optional: true },
 };
+
+/** Both directions carry the same seven counters; the key set is the sanitizer's, not a copy. */
+const STREAM_STATS_SPEC = Object.fromEntries(STREAM_STAT_KEYS.map((key) => [key, { type: "number" }]));
 
 const DIGEST_SET_SPEC = {
   clientToServerSha256: { type: "string" },
@@ -407,9 +420,12 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       }
       checkShape(
         r.rawStatistics,
-        { bytes: { type: "number" }, remainder: { type: "number" }, parseErrors: { type: "number" } },
+        { clientToServer: { type: "object" }, serverStdout: { type: "object" } },
         `receipt.json[${index}].rawStatistics`,
       );
+      for (const direction of ["clientToServer", "serverStdout"]) {
+        checkShape(r.rawStatistics[direction], STREAM_STATS_SPEC, `receipt.json[${index}].rawStatistics.${direction}`);
+      }
       return r;
     });
   }
@@ -441,6 +457,9 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
         refuse(`${what} manifest names ${manifest.client}/${manifest.candidate}`);
       }
       checkShape(manifest.digests, DIGEST_SET_SPEC, `${what} manifest.digests`);
+      for (const direction of ["clientToServer", "serverStdout"]) {
+        checkShape(manifest[direction], STREAM_STATS_SPEC, `${what} manifest.${direction}`);
+      }
 
       const matching = receipts.filter((r) => r.client === client && r.candidate === candidate);
       if (matching.length !== 1) {
@@ -457,13 +476,21 @@ export function verifyEvidence({ evidenceDir = EVIDENCE_DIR, repoRoot = join(HER
       // The recomputation: classifier over the sanitized record, against the committed
       // template hash and the manifest's own recorded nonce (whose binding to the prompt is
       // separately checked by the classifier's frame clauses).
-      const derived = toCellStatus(
-        classify(manifest, {
-          promptSha256: PROMPT_TEMPLATE_SHA256,
-          nonce: manifest.nonce,
-          completionMarker: COMPLETION_MARKER,
-        }).outcome,
-      );
+      // A record the classifier cannot judge is a refusal, not an outcome: InvalidRecordError
+      // must never escape as an unhandled crash, and must never be read as "not-run".
+      let derived;
+      try {
+        derived = toCellStatus(
+          classify(manifest, {
+            promptSha256: PROMPT_TEMPLATE_SHA256,
+            nonce: manifest.nonce,
+            completionMarker: COMPLETION_MARKER,
+          }).outcome,
+        );
+      } catch (error) {
+        if (!(error instanceof InvalidRecordError)) throw error;
+        refuse(`${what} manifest is not usable evidence: ${error.message}`);
+      }
       if (derived !== rec.status) {
         refuse(`${what} records status '${rec.status}' but the manifest re-derives '${derived}'`);
       }

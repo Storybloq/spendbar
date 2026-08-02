@@ -33,6 +33,10 @@ const REPO = join(HERE, "..", "..", "..");
  *
  * classify.mjs and receipt.mjs are deliberately ABSENT: the verifier re-runs the classifier
  * live over the recorded manifest, so a change there re-derives rather than invalidates.
+ *
+ * The privacy classifier IS pinned (review round 1): the sanitizer now runs it over its own
+ * output and refuses on a match, so what those rules say is part of what a committed manifest
+ * means — and its synthetic-value declarations decide what the rules let through.
  */
 export const CAPTURE_INPUTS = [
   "spikes/mcp/probe-def.mjs",
@@ -44,6 +48,8 @@ export const CAPTURE_INPUTS = [
   "spikes/mcp/real-client/capture-wrapper.mjs",
   "spikes/mcp/real-client/sanitize.mjs",
   "spikes/mcp/real-client/normalize.mjs",
+  "scripts/privacy-scan.mjs",
+  "scripts/privacy-synthetic.json",
 ];
 
 /** Digest every capture input from the working tree, as a {path: sha256} record. */
@@ -108,7 +114,7 @@ function main() {
         serverStderrSha256: raw.digests.serverStderrSha256,
         derivationDigest: raw.digests.derivationDigest,
       },
-      rawStatistics: raw.serverStdout,
+      rawStatistics: { clientToServer: raw.clientToServer, serverStdout: raw.serverStdout },
       note: "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such",
     });
     rmSync(dir, { recursive: true, force: true });

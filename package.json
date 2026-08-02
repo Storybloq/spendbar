@@ -33,7 +33,7 @@
     "spike:socket-cred": "node spikes/socket-cred/probe.mjs",
     "test": "tsc -p tsconfig.json && node --test tests-ts/*.test.mjs && npm run test:python",
     "test:all": "npm test && npm run test:contract && npm run parity -- --final && npm run test:goldens && npm run test:oracle && npm run test:pure && npm run test:allowlist && npm run test:spikes && npm run test:mcp-spike && npm run verify:real-client-evidence",
-    "test:mcp-spike": "node spikes/mcp/supply-chain.test.mjs && node spikes/mcp/isolate.test.mjs && node spikes/mcp/conformance.test.mjs && node spikes/mcp/strict-json.test.mjs && node spikes/mcp/decide.test.mjs && node spikes/mcp/real-client/classify.test.mjs",
+    "test:mcp-spike": "node spikes/mcp/supply-chain.test.mjs && node spikes/mcp/isolate.test.mjs && node spikes/mcp/conformance.test.mjs && node spikes/mcp/strict-json.test.mjs && node spikes/mcp/decide.test.mjs && node spikes/mcp/real-client/normalize.test.mjs && node spikes/mcp/real-client/classify.test.mjs",
     "verify:real-client-evidence": "node spikes/mcp/verify-evidence.mjs > /dev/null && echo 'recorded T-009 evidence verified offline'",
     "capture:real-clients": "node spikes/mcp/real-client/capture.mjs",
     "test:allowlist": "tsc -p tsconfig.json && node scripts/allowlist-coverage.mjs",

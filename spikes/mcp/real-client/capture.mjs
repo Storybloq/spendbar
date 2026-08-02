@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import { assembleCandidateRoot, assertOutsideRepo } from "../isolate.mjs";
 import { classify, toCellStatus } from "./classify.mjs";
 import { normalize } from "./normalize.mjs";
-import { sanitize, checkPreservation } from "./sanitize.mjs";
+import { sanitize, checkPreservation, STREAM_STAT_KEYS } from "./sanitize.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EVIDENCE_REAL = join(HERE, "..", "evidence", "real-clients");
@@ -59,6 +59,8 @@ export const COMPLETION_MARKER = "SPENDBAR_PROBE_DONE";
 const RUN_DEADLINE_MS = 240_000;
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
+/** A fresh zeroed stat block per direction — the key set is the sanitizer's, not a second copy. */
+const emptyStreamStats = () => Object.fromEntries(STREAM_STAT_KEYS.map((key) => [key, 0]));
 
 // ---------- retained-capture lifecycle ------------------------------------------------------
 
@@ -182,12 +184,16 @@ async function captureCell(client, candidate, clientVersion, attempt) {
     cwd: scratchCwd,
     spawn: { client: { ok: false }, server: { ok: false } },
     environmental: null,
+    // The hostile-config canary, recorded as a fact independently of any environmental claim:
+    // the classifier admits a fresh-state-isolation claim only against this witness.
+    isolation: { hostileConfigExecuted: false },
     timedOut: false,
     lastPhase: "pre-spawn",
     clientExit: { code: null, signal: null },
     serverTermination: { signal: null },
     frames: [],
-    serverStdout: { bytes: 0, remainder: 0, parseErrors: 0 },
+    clientToServer: emptyStreamStats(),
+    serverStdout: emptyStreamStats(),
     serverStderr: { hasReadyLine: false, containsFrames: false },
     clientStdout: { hasCompletionMarker: false, containsNonce: false, containsAllowlistedEnvValue: false },
     digests: {},
@@ -239,6 +245,7 @@ async function captureCell(client, candidate, clientVersion, attempt) {
   }
   const derived = normalize(c2s, s2c);
   raw.frames = derived.frames;
+  raw.clientToServer = derived.clientToServer;
   raw.serverStdout = derived.serverStdout;
   const errText = serverErr.toString("utf8");
   raw.serverStderr = {
@@ -266,8 +273,10 @@ async function captureCell(client, candidate, clientVersion, attempt) {
     derivationDigest: derived.derivationDigest,
   };
 
-  // Positively observed environmental conditions, from the record.
-  if (existsSync(hostileCanary)) {
+  // Positively observed environmental conditions, from the record. The canary is recorded as
+  // a witness FIRST and separately: the classifier will not honor the claim without it.
+  raw.isolation = { hostileConfigExecuted: existsSync(hostileCanary) };
+  if (raw.isolation.hostileConfigExecuted) {
     raw.environmental = { condition: "fresh-state-isolation-failure", detail: "hostile project config executed" };
   } else if (!raw.spawn.client.ok || !raw.spawn.server.ok) {
     // spawn-failure handled by the classifier from raw.spawn

@@ -3,19 +3,44 @@
 //
 // The two classes that must never collapse into each other, each pinned by fixture:
 // a post-spawn pre-handshake timeout is `conformance-fail`; a spawn failure is
-// `infrastructure-unavailable`. Real-shaped leak fixtures are assembled at runtime from
-// fragments so this file stays self-compliant under the T-024 scanner.
+// `infrastructure-unavailable`. Review round 1 added the third thing that must not collapse:
+// a MISSING structural field is invalid evidence, not an observation — because reading absent
+// spawn data as "spawn was observed to fail" turned a deletion into a not-run.
+//
+// Real-shaped leak fixtures are assembled at runtime from fragments so this file stays
+// self-compliant under the T-024 scanner.
 
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { classify, toCellStatus, ENVIRONMENTAL_CONDITIONS, OUTCOMES } from "./classify.mjs";
-import { sanitize, checkPreservation, SanitizeError, FIELD_MAP } from "./sanitize.mjs";
+import { classify, toCellStatus, ENVIRONMENTAL_CONDITIONS, OUTCOMES, InvalidRecordError } from "./classify.mjs";
+import {
+  sanitize,
+  checkPreservation,
+  SanitizeError,
+  FIELD_MAP,
+  TRANSFORM_NAMES,
+  SCHEMA,
+  PLACEHOLDER,
+  STREAM_STAT_KEYS,
+} from "./sanitize.mjs";
 import { scanText } from "../../../scripts/privacy-scan.mjs";
 
 const cat = (...parts) => parts.join("");
 
 const EXPECTED = { promptSha256: "a".repeat(64), nonce: "nonce-fixture-0001", completionMarker: "PROBE_DONE" };
+
+/** A clean stream-statistics block; `over` breaks exactly one counter. */
+const stats = (over = {}) => ({
+  bytes: 2048,
+  lines: 3,
+  messages: 3,
+  remainder: 0,
+  encodingErrors: 0,
+  parseErrors: 0,
+  protocolErrors: 0,
+  ...over,
+});
 
 /** A record that satisfies every clause — each test then breaks exactly one thing. */
 function passingRecord() {
@@ -26,8 +51,9 @@ function passingRecord() {
     nonce: EXPECTED.nonce,
     spawn: { client: { ok: true }, server: { ok: true } },
     environmental: null,
+    isolation: { hostileConfigExecuted: false },
     timedOut: false,
-    lastPhase: "completed",
+    lastPhase: "called",
     clientExit: { code: 0, signal: null },
     serverTermination: { signal: null },
     frames: [
@@ -40,7 +66,8 @@ function passingRecord() {
         text: `probe nonce=${EXPECTED.nonce} blocked=false`,
       },
     ],
-    serverStdout: { bytes: 2048, remainder: 0, parseErrors: 0 },
+    clientToServer: stats({ bytes: 512 }),
+    serverStdout: stats(),
     serverStderr: { hasReadyLine: true, containsFrames: false },
     clientStdout: { hasCompletionMarker: true, containsNonce: false, containsAllowlistedEnvValue: false },
   };
@@ -63,16 +90,77 @@ test("a post-spawn pre-handshake timeout is conformance-fail, never environmenta
 test("a spawn failure is infrastructure-unavailable", () => {
   const r = passingRecord();
   r.spawn.server = { ok: false, error: "ENOENT" };
+  r.frames = []; // nothing spawned, so nothing was exchanged
   const c = classify(r, EXPECTED);
   assert.equal(c.outcome, "infrastructure-unavailable");
 });
 
-test("every enumerated environmental condition claims infrastructure-unavailable", () => {
+test("a recorded spawn failure that the trace contradicts is a failure, not a not-run", () => {
+  // Frames cannot exist without the processes that exchanged them. Taking the spawn booleans
+  // at face value here would let one edited field turn a failing run into "never ran".
+  const r = passingRecord();
+  r.spawn.server = { ok: false };
+  const c = classify(r, EXPECTED);
+  assert.equal(c.outcome, "conformance-fail");
+  assert.ok(c.reasons.some((x) => x.includes("contradicts itself")), c.reasons.join("; "));
+});
+
+// ---------- environmental claims need witnesses -----------------------------------------------
+
+/** The same claim, with the condition-specific observation that entitles it. */
+function witnessedRecord(condition) {
+  const r = passingRecord();
+  r.environmental = { condition, detail: "observed by preflight" };
+  if (condition === "fresh-state-isolation-failure") {
+    r.isolation.hostileConfigExecuted = true;
+    return r; // the one condition whose meaning survives a run that otherwise went fine
+  }
+  // Every other condition means the run did not happen: no protocol progress, no completion.
+  r.frames = [];
+  r.clientExit = { code: 1, signal: null };
+  r.clientStdout.hasCompletionMarker = false;
+  if (condition === "binary-missing" || condition === "spawn-failure") r.spawn.client = { ok: false };
+  return r;
+}
+
+test("every enumerated environmental condition claims infrastructure-unavailable — WITH its witness", () => {
+  for (const condition of ENVIRONMENTAL_CONDITIONS) {
+    assert.equal(classify(witnessedRecord(condition), EXPECTED).outcome, "infrastructure-unavailable", condition);
+  }
+});
+
+test("an environmental claim with no witness in the record does not stick", () => {
+  // The laundering route this closes: a capture that FAILED conformance appends an
+  // `environmental` block, and the cell silently becomes not-run instead of fail.
   for (const condition of ENVIRONMENTAL_CONDITIONS) {
     const r = passingRecord();
-    r.environmental = { condition, detail: "observed by preflight" };
-    assert.equal(classify(r, EXPECTED).outcome, "infrastructure-unavailable", condition);
+    r.clientExit = { code: 1, signal: null }; // a real conformance failure
+    r.environmental = { condition, detail: "claimed, not observed" };
+    const c = classify(r, EXPECTED);
+    assert.equal(c.outcome, "conformance-fail", condition);
+    assert.ok(
+      c.reasons.some((x) => x.includes("no witness") || x.includes("contradicts the trace")),
+      `${condition}: ${c.reasons.join("; ")}`,
+    );
   }
+});
+
+test("an environmental claim contradicted by protocol progress is rejected", () => {
+  const r = passingRecord();
+  r.spawn.client = { ok: false }; // would witness binary-missing on its own...
+  r.environmental = { condition: "binary-missing", detail: "claimed" };
+  // ...but the frames say initialize/tools-list/tools-call all came back, so the run ran.
+  const c = classify(r, EXPECTED);
+  assert.equal(c.outcome, "conformance-fail");
+  assert.ok(c.reasons.some((x) => x.includes("contradicts the trace")), c.reasons.join("; "));
+});
+
+test("an observed hostile-config canary is infrastructure-unavailable even with no claim made", () => {
+  const r = passingRecord();
+  r.isolation.hostileConfigExecuted = true;
+  const c = classify(r, EXPECTED);
+  assert.equal(c.outcome, "infrastructure-unavailable");
+  assert.ok(c.reasons[0].includes("fresh-state-isolation-failure"));
 });
 
 test("a NON-enumerated environmental claim does not stick — the default stands", () => {
@@ -80,6 +168,33 @@ test("a NON-enumerated environmental claim does not stick — the default stands
   r.environmental = { condition: "felt-slow" };
   assert.equal(classify(r, EXPECTED).outcome, "conformance-fail");
 });
+
+// ---------- missing structure is invalid evidence, not an outcome -----------------------------
+
+test("missing or malformed structural data throws InvalidRecordError instead of classifying", () => {
+  // Every one of these previously read as an observation. `spawn` was the dangerous one:
+  // deleting it produced infrastructure-unavailable, i.e. a fail downgraded to a not-run.
+  const mutations = [
+    ["spawn deleted", (r) => delete r.spawn],
+    ["spawn.server deleted", (r) => delete r.spawn.server],
+    ["spawn.client.ok is a string", (r) => (r.spawn.client.ok = "false")],
+    ["isolation deleted", (r) => delete r.isolation],
+    ["isolation.hostileConfigExecuted missing", (r) => (r.isolation = {})],
+    ["serverStdout deleted", (r) => delete r.serverStdout],
+    ["clientToServer deleted", (r) => delete r.clientToServer],
+    ["a counter is missing", (r) => delete r.serverStdout.protocolErrors],
+    ["a counter is negative", (r) => (r.serverStdout.parseErrors = -1)],
+    ["frames is not an array", (r) => (r.frames = {})],
+    ["environmental is a string", (r) => (r.environmental = "auth-failure")],
+  ];
+  for (const [label, mutate] of mutations) {
+    const r = passingRecord();
+    mutate(r);
+    assert.throws(() => classify(r, EXPECTED), InvalidRecordError, label);
+  }
+});
+
+// ---------- conformance clauses ---------------------------------------------------------------
 
 test("a missing tools/list under verified fresh state is conformance-fail", () => {
   const r = passingRecord();
@@ -95,6 +210,14 @@ test("frame order is part of the claim: list before initialize fails", () => {
   const c = classify(r, EXPECTED);
   assert.equal(c.outcome, "conformance-fail");
   assert.ok(c.reasons.some((x) => x.includes("order")));
+});
+
+test("an unattributable response — a reused request id — is conformance-fail", () => {
+  const r = passingRecord();
+  r.frames.push({ type: "response", method: "ambiguous" });
+  const c = classify(r, EXPECTED);
+  assert.equal(c.outcome, "conformance-fail");
+  assert.ok(c.reasons.some((x) => x.includes("reused a request id")), c.reasons.join("; "));
 });
 
 test("an extra advertised tool, a wrong nonce, or a nonce-free text fallback each fail", () => {
@@ -127,6 +250,20 @@ test("stream discipline: remainder bytes, frames on stderr, and a nonce on clien
   assert.ok(c.reasons.some((x) => x.includes("nonce-secret")));
 });
 
+test("every unaccounted-for byte counter fails, on BOTH directions", () => {
+  // The client->server stream was judged by nothing at all before review round 1: junk there
+  // was silently skipped, so a trace could look clean while half the requests never parsed.
+  for (const counter of ["encodingErrors", "parseErrors", "protocolErrors"]) {
+    for (const direction of ["serverStdout", "clientToServer"]) {
+      const r = passingRecord();
+      r[direction][counter] = 2;
+      const c = classify(r, EXPECTED);
+      assert.equal(c.outcome, "conformance-fail", `${direction}.${counter}`);
+      assert.ok(c.reasons.some((x) => x.includes("2")), `${direction}.${counter}: ${c.reasons.join("; ")}`);
+    }
+  }
+});
+
 test("nonzero client exit and signal-terminated server each fail", () => {
   const exit = passingRecord();
   exit.clientExit = { code: 1, signal: null };
@@ -157,7 +294,7 @@ function rawManifest() {
     captureId: "cap-0001",
     client: "claude-code",
     candidate: "v2",
-    clientVersion: "2.1.220",
+    clientVersion: "2.1.220 (Claude Code)",
     promptSha256: EXPECTED.promptSha256,
     nonce: EXPECTED.nonce,
     executablePath: cat("/Users", "/jdoe/.local/bin/claude"),
@@ -167,15 +304,22 @@ function rawManifest() {
     cwd: cat("/Users", "/jdoe/scratch"),
     spawn: { client: { ok: true }, server: { ok: true } },
     environmental: null,
+    isolation: { hostileConfigExecuted: false },
     timedOut: false,
-    lastPhase: "completed",
+    lastPhase: "called",
     clientExit: { code: 0, signal: null },
     serverTermination: { signal: null },
     frames: [{ type: "response", method: "initialize", protocolVersion: "2025-06-18" }],
-    serverStdout: { bytes: 2048, remainder: 0, parseErrors: 0 },
+    clientToServer: stats({ bytes: 512 }),
+    serverStdout: stats(),
     serverStderr: { hasReadyLine: true, containsFrames: false },
     clientStdout: { hasCompletionMarker: true, containsNonce: false, containsAllowlistedEnvValue: false },
-    digests: { serverStdoutSha256: "c".repeat(64), serverStderrSha256: "d".repeat(64) },
+    digests: {
+      clientToServerSha256: "c".repeat(64),
+      serverStdoutSha256: "d".repeat(64),
+      serverStderrSha256: "e".repeat(64),
+      derivationDigest: "f".repeat(64),
+    },
     retries: [],
   };
 }
@@ -189,6 +333,7 @@ test("sanitize: paths become typed placeholders, env values vanish, evidence sur
   assert.deepEqual(s.commandLine, ["-p", "fixed prompt", "--strict-mcp-config", "--mcp-config", "<arg4:path>"]);
   assert.deepEqual(s.digests, raw.digests);
   assert.deepEqual(s.serverStdout, raw.serverStdout);
+  assert.deepEqual(s.clientToServer, raw.clientToServer);
   assert.deepEqual(checkPreservation(raw, s), []);
 });
 
@@ -198,9 +343,72 @@ test("a raw field with no declared transformation is a hard error, not a pass-th
   assert.throws(() => sanitize(raw), SanitizeError);
 });
 
+test("a DECLARED field that is absent is equally a hard error", () => {
+  // The other half of the same hole: iterating only the fields that happened to be present
+  // meant a manifest missing `isolation` sanitized cleanly and simply carried no witness.
+  for (const field of Object.keys(SCHEMA)) {
+    const raw = rawManifest();
+    delete raw[field];
+    assert.throws(() => sanitize(raw), SanitizeError, `absent '${field}' was accepted`);
+  }
+});
+
 test("every declared transformation is from the allowlist", () => {
-  for (const t of Object.values(FIELD_MAP)) {
-    assert.ok(["copy", "placeholder-path", "argv-map", "env-names-only"].includes(t), t);
+  for (const t of Object.values(FIELD_MAP)) assert.ok(TRANSFORM_NAMES.includes(t), t);
+  assert.ok(!TRANSFORM_NAMES.includes("copy"), "an unrestricted pass-through transformation exists again");
+});
+
+test("an attached flag value that is a path is placeholdered, and the flag NAME survives", () => {
+  // `--name=<path>` used to short-circuit on `startsWith("-")` and ship the path verbatim.
+  const raw = rawManifest();
+  raw.commandLine = ["--settings=" + cat("/Users", "/jdoe/settings.json"), "--verbose=true"];
+  const s = sanitize(raw);
+  assert.equal(s.commandLine[0], "--settings=<arg0:path>");
+  assert.equal(s.commandLine[1], "--verbose=true", "a path-free attached value is evidence and must survive");
+  assert.deepEqual(checkPreservation(raw, s), []);
+  assert.ok(!JSON.stringify(s).includes("jdoe"));
+});
+
+test("a spawn failure message is reduced to its errno — the path inside it never ships", () => {
+  const raw = rawManifest();
+  raw.spawn.client = { ok: false, error: cat("Error: spawn /Users", "/jdoe/.local/bin/claude ENOENT") };
+  const s = sanitize(raw);
+  assert.deepEqual(s.spawn.client, { ok: false, errorCode: "ENOENT" });
+  assert.ok(!JSON.stringify(s).includes("jdoe"));
+});
+
+test("personal data nested inside a schema-allowed field is refused by the privacy backstop", () => {
+  // The schemas are an allowlist of SHAPES. This is the allowlist of MEANINGS: a home path
+  // that arrives inside a field whose shape is perfectly legal still cannot be committed.
+  const raw = rawManifest();
+  raw.frames = [
+    { type: "response", method: "tools/call", structuredNonce: EXPECTED.nonce, text: cat("/Users", "/jdoe/x"), isError: false },
+  ];
+  assert.throws(
+    () => sanitize(raw),
+    (e) => {
+      assert.ok(e instanceof SanitizeError);
+      assert.match(e.message, /macos-home/);
+      assert.ok(!e.message.includes("jdoe"), "the refusal quoted the value it was refusing");
+      return true;
+    },
+  );
+});
+
+test("the sanitized manifest shares no structure with the raw one", () => {
+  const raw = rawManifest();
+  const s = sanitize(raw);
+  raw.frames[0].protocolVersion = "mutated-after-the-fact";
+  raw.serverStdout.bytes = 999_999;
+  raw.spawn.client.ok = false;
+  assert.equal(s.frames[0].protocolVersion, "2025-06-18");
+  assert.equal(s.serverStdout.bytes, 2048);
+  assert.equal(s.spawn.client.ok, true);
+});
+
+test("the stream-statistics key set is shared with the classifier's required counters", () => {
+  for (const key of ["bytes", "remainder", "encodingErrors", "parseErrors", "protocolErrors"]) {
+    assert.ok(STREAM_STAT_KEYS.includes(key), `${key} must be recorded for the classifier to judge it`);
   }
 });
 
@@ -237,6 +445,15 @@ test("mutation: altering a flag name or an adverse process fact is rejected", ()
   assert.ok(checkPreservation(raw, s2).some((v) => v.includes("clientExit")));
 });
 
+test("mutation: a rewritten stream counter or spawn outcome is rejected", () => {
+  const raw = rawManifest();
+  const s = sanitize(raw);
+  s.clientToServer = stats({ bytes: 512, protocolErrors: 0, parseErrors: 0 });
+  raw.clientToServer.protocolErrors = 4; // the raw run carried unaccounted-for messages
+  const v = checkPreservation(raw, s);
+  assert.ok(v.some((x) => x.includes("clientToServer")), v.join("; "));
+});
+
 test("two materially different commands never normalize to the same representation", () => {
   const a = rawManifest();
   const b = rawManifest();
@@ -249,6 +466,30 @@ test("an environment VALUE surviving anywhere in the sanitized manifest is a vio
   const s = sanitize(raw);
   s.frames = [...s.frames, { type: "note", text: raw.env.PATH }];
   assert.ok(checkPreservation(raw, s).some((v) => v.includes("environment VALUE")));
+});
+
+test("a bare binary name in a path field is not mistaken for a leak of itself", () => {
+  // Real captures record `executablePath: "claude"` — resolved through PATH, not a path. A
+  // plain substring test flagged that as leaked because "claude" occurs inside "claude-code",
+  // failing every honest capture. Only path-shaped raw values are searched for.
+  const raw = rawManifest();
+  raw.executablePath = "claude";
+  const s = sanitize(raw);
+  assert.equal(s.executablePath, "<path:executablePath>");
+  assert.deepEqual(checkPreservation(raw, s), []);
+
+  // The protection it exists for is intact: a real path that survived is still a violation.
+  const leaked = sanitize(rawManifest());
+  leaked.frames = [{ type: "response", method: "unknown", note: rawManifest().cwd }];
+  assert.ok(checkPreservation(rawManifest(), leaked).some((v) => v.includes("survived")));
+});
+
+test("the declared placeholders are the ONLY substitutions the checker will accept", () => {
+  const raw = rawManifest();
+  const s = sanitize(raw);
+  s.cwd = "<path:somewhere-else>";
+  assert.ok(checkPreservation(raw, s).some((v) => v.includes("cwd")));
+  assert.equal(PLACEHOLDER.path("cwd"), "<path:cwd>");
 });
 
 test("the T-024 scanner catches a real-shaped path planted in a committed-manifest fixture", () => {

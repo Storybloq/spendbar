@@ -5,9 +5,11 @@
     "spikes/mcp/candidates/v2/server.mjs": "0a84d7fa0f79dfc7a3d5942d756ce7292211369d855ea35f135680028606c237",
     "spikes/mcp/candidates/v1/package-lock.json": "ed8fde3e4ba03f1abc84bc64121eada03d47e5f9adc340eb2cafcab76547e30b",
     "spikes/mcp/candidates/v2/package-lock.json": "fa646e3069a4937fab5a5ef9905d461e98a51da9aaac4334e2585ce2d3e85db9",
-    "spikes/mcp/real-client/capture.mjs": "a94268efe2d4e0e98a8a0f1bbecf00629459e8395dee2caba892d7fd9dbcdf6b",
+    "spikes/mcp/real-client/capture.mjs": "ff40f42de71027a27cb3a9db65cd7bacc9d63879962a7dd1cbb6ccd554afb139",
     "spikes/mcp/real-client/capture-wrapper.mjs": "c715be25baff7329d42c471bf384831f6b77f6e2d23ae5373d4193c6b3936549",
-    "spikes/mcp/real-client/sanitize.mjs": "bec24e4e1ded221e9d59e41db83daacc60ef23e0af91b908a87774268cac9a9f",
-    "spikes/mcp/real-client/normalize.mjs": "ac5b8b1811115299de9f27e396aaf3ce0122991e440da5c94dfff8832a8d388d"
+    "spikes/mcp/real-client/sanitize.mjs": "b05e6734fa689f141d213add51ad87c1fbe783e5c2633dbbf23497b78520c8cc",
+    "spikes/mcp/real-client/normalize.mjs": "5e0d80235c8b6ed3a985c6cd80dd1aa2b60ae503a72314284cc7575694ec5269",
+    "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
+    "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
   }
 }

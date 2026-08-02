@@ -2,24 +2,24 @@
   "v2": {
     "claude-code": {
       "status": "pass",
-      "traceDigest": "7e0cd940e453d58fd1d488d02848a5cfe0ac339a21e9b3b1c0bb1e09dc445c08",
+      "traceDigest": "83e46628de1f39eece393bc76b7007ddcb444f6b034bc36d646afe4b67134df8",
       "clientVersion": "2.1.220 (Claude Code)"
     },
     "codex": {
       "status": "pass",
-      "traceDigest": "6ce155e5b7d746025b033765ca960b115f0bb3229d36a926d00a4a946fe4fa4d",
+      "traceDigest": "e92854877b1e10af73c5d4f6410883166325c4660f19e39088c4e03fbd76de83",
       "clientVersion": "codex-cli 0.144.0"
     }
   },
   "v1": {
     "claude-code": {
       "status": "pass",
-      "traceDigest": "02d8dc7d14c022a7a64bec1ebc48022cf86197491ef2c8436a17cbbe38e99424",
+      "traceDigest": "5b2e6556d97574d6520b785c5718bafd69e5cb959fbf09d22380fe0e405f6d8a",
       "clientVersion": "2.1.220 (Claude Code)"
     },
     "codex": {
       "status": "pass",
-      "traceDigest": "be0bca2db013ae6c09ce19851d68952c7f9d109db96771be89c15eb46c107e7b",
+      "traceDigest": "cdda5ee38dd004621b2482066dfc6c964279ed38df938a53e5f88f31466d6a33",
       "clientVersion": "codex-cli 0.144.0"
     }
   }
