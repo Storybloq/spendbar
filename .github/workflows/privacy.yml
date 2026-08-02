@@ -1,0 +1,56 @@
+# Privacy audit (T-024 criterion 5b): every commit in every push is scanned for personal data.
+#
+# EVERY commit, not the checked-out tip. A two-commit push can introduce a leak in the first
+# commit and remove it in the second; auditing only HEAD passes while the forbidden value sits
+# in remote history permanently. So the job enumerates the push range and runs the scanner's
+# commit mode against each new commit individually.
+#
+# This is the DETECTION half of the T-024 enforcement boundary. The guarded-commit wrapper is
+# the local half; it can be bypassed (--no-verify, direct git, other tools), and this workflow
+# is what notices when it was.
+
+name: privacy-audit
+
+on:
+  push:
+
+jobs:
+  scan-pushed-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the push range below walks commits the shallow default would not have.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Scan every commit in the push range
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -u
+          # A new branch or a force push has no usable `before` (all zeros, or a commit no
+          # longer reachable). Fall back to every commit not on any other ref, and if that is
+          # empty (e.g. the default branch's first push), to the tip alone — never to nothing.
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
+            COMMITS=$(git rev-list "$AFTER" --not --exclude="$GITHUB_REF" --branches --remotes)
+            [ -n "$COMMITS" ] || COMMITS="$AFTER"
+          else
+            COMMITS=$(git rev-list "$BEFORE..$AFTER")
+          fi
+
+          [ -n "$COMMITS" ] || { echo "no commits resolved from push range — refusing to pass vacuously"; exit 2; }
+
+          STATUS=0
+          for sha in $COMMITS; do
+            echo "::group::privacy-scan $sha"
+            if ! node scripts/privacy-scan.mjs --mode=commit --rev="$sha"; then
+              STATUS=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $STATUS

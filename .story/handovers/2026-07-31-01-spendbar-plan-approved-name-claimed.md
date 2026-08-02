@@ -9,7 +9,7 @@ The repo entered the session as `usage.py` — a 784-line stdlib-only Python CLI
 
 ## The plan (the central artifact)
 
-`product-architecture-2026-07-30.md` in the repo root. Produced by a 9-agent research workflow (7 lenses incl. live empirical tests on the owner's machine — Swift helper compiled+run, Gatekeeper/quarantine tested, ccusage timed at 60–80 s full-scan over 65 GiB with `--since` giving NO speedup), then hardened through **4 rounds of external Codex review** (codex-bridge session `00000000-0000-4000-8000-000000000000`, findings 24→16→7→0 majors, verdict **approve**). Continue that session_id into `review_code` when implementation starts.
+`product-architecture-2026-07-30.md` in the repo root. Produced by a 9-agent research workflow (7 lenses incl. live empirical tests on the owner's machine — Swift helper compiled+run, Gatekeeper/quarantine tested, ccusage timed at 60–80 s full-scan over 65 GiB with `--since` giving NO speedup), then hardened through **4 rounds of external Codex review** (codex-bridge session `<session id removed — T-024>`, findings 24→16→7→0 majors, verdict **approve**). Continue that session_id into `review_code` when implementation starts.
 
 Architecture headline: one npm package / one bin; headless `spendbar service run` is the SOLE snapshot writer (ships v0.2 with durable install/start/stop); menubar is a *view* on it (v0.3); MCP = `spendbar mcp` subcommand (5 tools in v0.2, `usage_hourly` deferred); readers use ephemeral computation leases; zero npm lifecycle scripts; ccusage pinned exact-version; launcher-shim LaunchAgent (no `env node` — launchd PATH); byte-parity-modulo-published-allowlist port contract with dual-run harness.
 
@@ -25,9 +25,9 @@ Architecture headline: one npm package / one bin; headless `spendbar service run
 
 ## npm state (externally visible — handle with care)
 
-- **`spendbar@0.0.2` is LIVE**, published from the owner's `ashayegh` account. **Owner explicitly wants NO personal-name attribution**: 0.0.1 (which carried an author field) was unpublished; 0.0.2 has no author. **Future publishes must omit `author`.**
+- **`spendbar@0.0.2` is LIVE**, published from the owner's `<owner-npm-account>` account. **Owner explicitly wants NO personal-name attribution**: 0.0.1 (which carried an author field) was unpublished; 0.0.2 has no author. **Future publishes must omit `author`.**
 - storybloq npm org (owner is org owner) has team read-write on `spendbar` → listed under the org. `@storybloq/spendbar` left unclaimed deliberately.
-- Residue: maintainers sidebar still shows `ashayegh`; fix requires a brand account (e.g. `storybloq-bot`) + `npm owner add`/`rm` — owner must create the account.
+- Residue: maintainers sidebar still shows `<owner-npm-account>`; fix requires a brand account (e.g. `storybloq-bot`) + `npm owner add`/`rm` — owner must create the account.
 
 ## Open items, in order
 

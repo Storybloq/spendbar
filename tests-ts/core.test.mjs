@@ -27,7 +27,7 @@ function mkCtx(overrides = {}, config = {}) {
 // ---------------------------------------------------------------- config / names
 
 test("encodePath replaces every non-alphanumeric with a dash", () => {
-  assert.equal(encodePath("/Users/testuser/Developer/alpha"), "-Users-testuser");
+  assert.equal(encodePath("/Users/fixture/Developer/alpha"), "-Users-fixture-Developer-alpha");
   assert.equal(encodePath("/tmp/a.b_c"), "-tmp-a-b-c");
 });
 
@@ -179,7 +179,7 @@ test("validate rejects canonical-integer keys in projects (JS would reorder them
     );
   }
   // NOT canonical integers — JS preserves their insertion order, so they must pass.
-  for (const key of ["-Users-testuser", "007", "01", "1.0", "1e3", "-1", "1n", " 1"]) {
+  for (const key of ["-Users-fixture-Developer-ghost", "007", "01", "1.0", "1e3", "-1", "1n", " 1"]) {
     assert.doesNotThrow(
       () => validateInstances({ projects: { [key]: [] }, totals: CLAUDE_TOTALS }),
       `${JSON.stringify(key)} is not a canonical integer and must be accepted`,

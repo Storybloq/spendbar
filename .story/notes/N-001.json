@@ -1,0 +1,13 @@
+{
+  "content": "Owner declaration, 2026-08-01 (supersedes any monetization/positioning ambiguity):\n\n- **spendbar is free forever and open source.**\n- Owner's priorities, in their words: functionality, robustness, maintainability, quality, UX and aesthetics. **Everything else — licensing details, repository/branding, publish identity — is delegated to Claude to decide.**\n- **UI ships through the npm-installed tool** (no separate download, no website): macOS first, **Windows and Linux later**. Consequence for ISS-013: the ntpath `~` fix belongs to the future Windows milestone; 0.1.0's README must caveat Windows/Linux as experimental rather than advertise parity.\n- **Second consumer**: this project is the exploration vehicle for storybloq's own UI — moving its visual dashboard off the separate Mac app (`~/Developer/CPM`) onto the same npm-delivered mechanism. Architectural choices in T-014 (Swift helper), T-011 (service/view split), and the IPC design should be made portable across both products: helper as pure view, all business logic host-side, versioned message schema.\n\nDecisions taken under this delegation (2026-08-01):\n- LICENSE: MIT, holder \"spendbar contributors\" (satisfies the standing no-personal-attribution rule; removes the LICENSE exemption from the tarball scan).\n- Repository field: public GitHub home under the storybloq org (repo creation is an owner/console action; field lands with it).\n- Publish identity: `ashayegh` + 2FA for 0.1.0; brand account later, non-blocking.\n- 0.1.0 takes the `latest` dist-tag off 0.0.2 — intended.\n- usage.py:199 rollout-ID comment: scrub before the repo goes public, with a full parity + golden re-run proving zero behavioral change (comment-only exemption to the frozen-oracle rule, witnessed by the harness).\n- ISS-023: accepted as-is (CCUSAGE_CMD is an explicit power-user override; byte parity with usage.py is the contract).\n- package.json description/keywords: trim to what 0.1.0 ships; roadmap lives in the README.\n",
+  "createdDate": "2026-08-01",
+  "id": "N-001",
+  "status": "active",
+  "tags": [
+    "product-direction",
+    "ux",
+    "open-source"
+  ],
+  "title": "Product direction (owner, 2026-08-01): free forever, open source, npm-delivered UI, storybloq-UI testbed",
+  "updatedDate": "2026-08-01"
+}

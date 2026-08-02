@@ -47,7 +47,7 @@ const CORPUS = [
   "café",
   "日本語",
   "𝐀𝐁",
-  "/Users/testuser/Dev/\u{1F600}proj",
+  "/Users/fixture/Dev/\u{1F600}proj",
   "~/proj",
   "\uD800",
   "  padded  ",

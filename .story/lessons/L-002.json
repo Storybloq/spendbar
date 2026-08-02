@@ -1,0 +1,19 @@
+{
+  "content": "When a fix widens what an input validator accepts (a regex, a schema, a type guard), audit every positional or index-based operation downstream of it before committing. Those operations were previously protected by the narrower rule, not by their own correctness, and the widening silently promotes them from unreachable to live.",
+  "context": "ISS-016 replaced JS ASCII `\\d` with CPython's Unicode Nd in three codex.ts regexes. That was correct in isolation, but usage.py:209/:289 carve date fields out of rollout filenames by POSITION (`session_file[8:18]`), and the old ASCII regex had been the only thing guaranteeing those positions held single-code-unit characters. With astral digits admitted, `slice(8, 18)` cut a surrogate pair in half and produced the window key \"𝟎𝟏𝟐𝟑\\ud835\" where CPython produces eight digits — a corruption of the key that decides which window a session lands in, so it moves reported totals. No test caught it; it was found by asking \"what else now sees inputs it never saw before?\" and then measuring. Fixed in the same commit (765accd) by widening pySlice to the full s[start:end] contract. Shipping the regex change alone would have traded a strictness divergence for a corruption one.",
+  "createdDate": "2026-08-01",
+  "id": "L-002",
+  "lastValidated": "2026-08-01",
+  "reinforcements": 0,
+  "source": "correction",
+  "status": "active",
+  "supersedes": null,
+  "tags": [
+    "parity",
+    "unicode",
+    "review",
+    "regex"
+  ],
+  "title": "Widening an acceptance rule makes downstream positional operations reachable",
+  "updatedDate": "2026-08-01"
+}

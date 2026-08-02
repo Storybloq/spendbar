@@ -1,0 +1,17 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-01",
+  "displayId": "ISS-028",
+  "id": "ISS-028",
+  "impact": "T-008's go/no-go gate between a third-party lock and a custom lockfile is already assumed resolved in favour of the custom one by T-008's own acceptance criterion and by T-010/T-011/T-012; plus scope self-contradictions in T-011/T-014/T-015/T-020/T-022, factual drift about blocks contract coverage and what the packaging contract enforces, an unaddressed parity/ALLOWLIST obligation for T-013's --cached and T-017's wizard, and T-012 planning to reuse the synchronous runner in a daemon. PRE-EXISTING. Filed as ISS-026.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": "Duplicate of ISS-026, as its own impact text states. Auto-filed by the autonomous guide from a review finding reported with disposition \"deferred\". Track the planning-consistency drift in ISS-026. Note that this issue's headline premise is now settled: T-008 ran the go/no-go and REJECTED both lockfile candidates outright (see docs/v0.2-prototype-findings.md and ISS-030), so the remaining live part of ISS-026 is the non-locking drift it also lists.",
+  "resolvedDate": "2026-08-01",
+  "severity": "medium",
+  "status": "resolved",
+  "title": "[planning consistency] T-008's go/no-go gate between a third-party lock and a custom lockfile is alread"
+}

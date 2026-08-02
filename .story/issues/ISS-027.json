@@ -1,0 +1,17 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-01",
+  "displayId": "ISS-027",
+  "id": "ISS-027",
+  "impact": "T-007's description is a stale publish runbook: obsolete test counts, settled owner questions still open, the install matrix reported unmet, and a required proof of 'no network access' that T-023's plan review explicitly retired as unearnable. PRE-EXISTING, not from this ticket. Filed as ISS-025.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": "Duplicate of ISS-025, as its own impact text states. Auto-filed by the autonomous guide from a review finding reported with disposition \"deferred\". Track the stale T-007 publish runbook in ISS-025.",
+  "resolvedDate": "2026-08-01",
+  "severity": "medium",
+  "status": "resolved",
+  "title": "[release documentation correctness] T-007's description is a stale publish runbook: obsolete test counts, settled ow"
+}

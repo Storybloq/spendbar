@@ -5,7 +5,7 @@
   "discoveredDate": "2026-08-02",
   "displayId": "ISS-038",
   "id": "ISS-038",
-  "impact": "T-007's 'Current state' section and pre-publish gates describe work already completed and cite a line range that has moved: the attribution test is at packaging.contract.mjs:261-270 not :111-119; the recorded 'greps only package.json' blind spot is closed by the content-wide scan at :225; gate 1's real Codex rollout ID is no longer in src/ (src/codex.ts:52 carries the synthetic convention); gate 2's USER=amirshayegh / real home path no longer appear in src/. Risk is specific to a publish checklist: gates that are already met invite the executor to discount the list, and the 'no autonomous publish' hard rule sits at the top of the same description. Filed as ISS-037 rather than fixed inline because T-007 is a different ticket.",
+  "impact": "T-007's 'Current state' section and pre-publish gates describe work already completed and cite a line range that has moved: the attribution test is at packaging.contract.mjs:261-270 not :111-119; the recorded 'greps only package.json' blind spot is closed by the content-wide scan at :225; gate 1's real Codex rollout ID is no longer in src/ (src/codex.ts:52 carries the synthetic convention); gate 2's real-account-name and real-home-path strings no longer appear in src/. Risk is specific to a publish checklist: gates that are already met invite the executor to discount the list, and the 'no autonomous publish' hard rule sits at the top of the same description. Filed as ISS-037 rather than fixed inline because T-007 is a different ticket.",
   "location": [],
   "phase": null,
   "relatedTickets": [],

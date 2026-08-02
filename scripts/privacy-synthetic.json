@@ -1,0 +1,93 @@
+{
+  "_comment": [
+    "Documented synthetic values, permitted by scripts/privacy-scan.mjs. This is an ALLOWLIST, not",
+    "a denylist: anything matching a personal-data class and absent from here is reported. That",
+    "direction matters. A denylist would have to contain this machine's real values -- which is the",
+    "violation it exists to prevent -- and would still miss the next contributor's.",
+    "",
+    "THIS FILE IS SCANNED BY THE SCANNER. Never write a complete forbidden-shaped value here, not even",
+    "as an example: describe it, or spell it with angle-bracket placeholders. Review round 8 found 25",
+    "such self-violations across the scanner, this config and the tests.",
+    "",
+    "Adding an entry is a deliberate act. Add the synthetic value you introduced; never add a real one",
+    "to silence a finding.",
+    "",
+    "accounts: matched by EXACT EQUALITY, never by prefix. Applies to the delimited path forms, where",
+    "the separator marks the account boundary exactly. Entries must be COLLISION-RESISTANT: the",
+    "scanner cannot tell a fixture using an allowed name from a contributor whose real account has the",
+    "same name, so a generic token here silently exempts a real person's home path. Review round 9",
+    "removed 'alice', 'bob', 'someone', 'user', 'example', 'runner', 'me', 'u' and 'x' for exactly",
+    "that reason. Only names no real account would plausibly carry belong here.",
+    "",
+    "mangledHomePatterns: EXACT complete mangled project directories, enumerated one by one. Claude",
+    "Code's mangling is lossy -- the hyphen is both separator and a legal account character -- so the",
+    "account boundary cannot be recovered from the mangled string. An earlier version anchored the",
+    "pattern but left an optional '(-anything)?' tail, which is prefix allowlisting wearing anchors:",
+    "it cleared a run whose account could equally have been '<declared>-<something-else>'. There is no",
+    "pattern that resolves the ambiguity, so nothing is inferred and each real fixture path is listed.",
+    "Adding a fixture project directory means adding a line here, which is the intended friction.",
+    "",
+    "sessionIdPatterns / workflowIdPatterns: ANCHORED regular expressions matching a COMPLETE",
+    "identifier, never a prefix -- prefix allowlisting accepted a synthetic prefix followed by",
+    "arbitrary real-looking hex. The 019c0000- family is this repo's convention for fabricated Codex",
+    "rollout ids: it keeps the UUIDv7 shape so fixtures exercise real parsing, and the pattern pins the",
+    "zero padding that makes it obviously fake.",
+    "",
+    "emailDomains: domains non-deliverable by standard (RFC 2606) or by convention.",
+    "",
+    "binaryExtensions: files whose bytes cannot be text-scanned. Anything binary and NOT listed here",
+    "is reported as unscannable rather than skipped, because a silent skip is how a scan reports clean",
+    "without having looked."
+  ],
+  "accounts": [
+    "testuser",
+    "fixture",
+    "realperson"
+  ],
+  "mangledHomePatterns": [
+    "^-users-fixture$",
+    "^-users-fixture-developer-alpha$",
+    "^-users-fixture-developer-beta$",
+    "^-users-fixture-developer-ghost$",
+    "^-users-testuser$"
+  ],
+  "sessionIdPatterns": [
+    "^019c0000-0000-7000-8000-0{8}[0-9a-f]{4}$",
+    "^019f4500-0000-7000-8000-0{8}[0-9a-f]{4}$",
+    "^019f4b78-4100-7000-8000-0{8}[0-9a-f]{4}$",
+    "^0{8}-0{4}-[0-9a-f]{4}-[0-9a-f]{4}-0{12}$",
+    "^11111111-2222-4333-8444-555555555555$"
+  ],
+  "workflowIdPatterns": [
+    "^wf_0{8}-0{3}$"
+  ],
+  "emailDomains": [
+    "example.com",
+    "example.org",
+    "example.net",
+    "test",
+    "invalid",
+    "localhost"
+  ],
+  "binaryExtensions": [
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".ico",
+    ".webp",
+    ".pdf",
+    ".zip",
+    ".gz",
+    ".tgz",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".db",
+    ".db-shm",
+    ".db-wal",
+    ".pyc",
+    ".node",
+    ".wasm"
+  ]
+}

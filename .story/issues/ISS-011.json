@@ -1,16 +1,17 @@
 {
   "components": [
-    "autonomous"
+    "allowlist"
   ],
   "discoveredDate": "2026-07-31",
+  "displayId": "ISS-011",
   "id": "ISS-011",
   "impact": "ALLOWLIST entry 9's claim that the int/float distinction 'never affects a success-path byte' has two measured counterexamples: JSON token -0 renders as $-0.00 vs Python's $0.00, and cost fields are not safe-integer checked so an integral cost above 2^53 silently rounds. Both low-realism, neither worth a behaviour change alone. Entry 9 predates T-006, which owns only entries 13-15, so filed as ISS-008.",
   "location": [],
   "phase": null,
   "relatedTickets": [],
-  "resolution": null,
-  "resolvedDate": null,
-  "severity": "medium",
-  "status": "open",
+  "resolution": "Duplicate of ISS-008 (auto-filed review-round record of the same finding). Triage 2026-07-31: both bodies verified against the code at the same sites; ISS-008 is the hand-filed canonical and strictly supersedes this record — nothing to merge.",
+  "resolvedDate": "2026-07-31",
+  "severity": "low",
+  "status": "resolved",
   "title": "[allowlist-accuracy] ALLOWLIST entry 9's claim that the int/float distinction 'never affects a succes"
 }

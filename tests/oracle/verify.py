@@ -291,8 +291,8 @@ def verify_privacy(root, canonical_home):
     text = "\n".join(blob)
 
     # Every home-shaped path must be the canonical one, in either slash or encoded form. The
-    # literal "-Users-testuser" prefix is hardcoded in fixtures.py:152 as a synthetic project
-    # key and names no real account.
+    # synthetic project keys hardcoded in fixtures.py:152 all begin with the `-Users-fixture`
+    # account, followed by a dash and a project name; none names a real account.
     for m in re.finditer(r"(?:/(?:Users|home)/|-(?:Users|home)-)[A-Za-z0-9_.]+", text):
         s = m.group(0)
         ctx = text[max(0, m.start() - 12):m.end()]

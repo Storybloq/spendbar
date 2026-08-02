@@ -1,16 +1,17 @@
 {
   "components": [
-    "autonomous"
+    "config"
   ],
   "discoveredDate": "2026-07-31",
+  "displayId": "ISS-009",
   "id": "ISS-009",
   "impact": "encodePath uses /[^A-Za-z0-9]/g with no `u` flag, iterating UTF-16 units where Python's re.sub iterates code points, so any astral character yields two dashes instead of one. Reachable via the codex cwd path and via homeEnc, where it changes prefix stripping and the displayed project name. PRE-EXISTING in src/config.ts, untouched by and independent of T-006 — filed as ISS-006 rather than fixed inline.",
   "location": [],
   "phase": null,
   "relatedTickets": [],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Duplicate of ISS-006 (auto-filed review-round record of the same finding). Triage 2026-07-31: both bodies verified against the code at the same sites; ISS-006 is the hand-filed canonical and strictly supersedes this record — nothing to merge.",
+  "resolvedDate": "2026-07-31",
   "severity": "high",
-  "status": "open",
+  "status": "resolved",
   "title": "[byte-parity-divergence] encodePath uses /[^A-Za-z0-9]/g with no `u` flag, iterating UTF-16 units where P"
 }

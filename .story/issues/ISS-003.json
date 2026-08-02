@@ -1,16 +1,17 @@
 {
   "components": [
-    "autonomous"
+    "stderr-truncation"
   ],
   "discoveredDate": "2026-07-31",
+  "displayId": "ISS-003",
   "id": "ISS-003",
   "impact": "FILED AS ISS-001, not fixed inline (pre-existing, outside T-006's files): src/ccusage.ts:49 slices stderr by UTF-16 code units where usage.py:124 slices code points, an unsanctioned divergence in a frozen message that can also emit U+FFFD.",
   "location": [],
   "phase": null,
   "relatedTickets": [],
-  "resolution": null,
-  "resolvedDate": null,
-  "severity": "medium",
-  "status": "open",
+  "resolution": "Duplicate of ISS-001 (auto-filed review-round record of the same finding). Triage 2026-07-31: both bodies verified against the code at the same sites; ISS-001 is the hand-filed canonical and strictly supersedes this record — nothing to merge.",
+  "resolvedDate": "2026-07-31",
+  "severity": "low",
+  "status": "resolved",
   "title": "[parity] FILED AS ISS-001, not fixed inline (pre-existing, outside T-006's files): src/cc"
 }

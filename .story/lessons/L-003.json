@@ -1,0 +1,19 @@
+{
+  "content": "After fixing a parity divergence and adding tests, revert each changed site individually and confirm a test actually fails. If the suite stays green, the fix is unguarded and will silently regress. Do this per site, not per fix — a multi-site fix can be guarded at one site and bare at another.",
+  "context": "ISS-015 moved three `.trim()` sites to a Python-faithful strip and the suite was green. Reverting src/runner.ts to `.trim()` then passed all 318 tests: that site's guard had cases for blank and non-blank stdout but none distinguishing Python's whitespace set from JS's, so it was watching a representation the failure would not take (the same defect class T-005's review found four instances of). A dedicated test was added and the reversion now fails. The technique paid off repeatedly in the same session: it showed ISS-001's helper tests and its end-to-end diagnostic test are separately load-bearing (reverting only the call site leaves every helper test green), and that ISS-016 needs both an ASCII-`\\d` parity test and a pinned-table test, because reverting to ASCII `\\d` fails only the first while switching to V8's `\\p{Nd}` fails only the second.",
+  "createdDate": "2026-08-01",
+  "id": "L-003",
+  "lastValidated": "2026-08-01",
+  "reinforcements": 0,
+  "source": "review",
+  "status": "active",
+  "supersedes": null,
+  "tags": [
+    "testing",
+    "parity",
+    "mutation-testing",
+    "review"
+  ],
+  "title": "Mutation-verify every parity fix by reverting it; a green suite does not prove the guard works",
+  "updatedDate": "2026-08-01"
+}

@@ -1,0 +1,19 @@
+{
+  "content": "Before implementing an issue's suggested resolution, reproduce each claim it makes. Issues are written from a review round with partial context, and their measurements can be wrong. This matters most when the issue is itself about inaccurate claims — implementing a bad counterexample there makes the documentation worse than leaving it alone.",
+  "context": "ISS-008 reported two counterexamples to an ALLOWLIST claim and suggested softening the entry to name both. The first (the JSON token `-0` formatting as $-0.00 in JS and $0.00 in Python) reproduced end-to-end through the CLI. The second did not: it claimed an integral cost above 2^53 makes the port print ...992 where Python prints ...993, but Python's f\"{v:,.2f}\" converts to binary64 too, and every cost accumulator in usage.py is seeded 0.0, so both implementations print byte-identical output — verified end-to-end with costs of 9007199254740993 and 1. Following the suggested resolution literally would have written a fresh false claim into the very ALLOWLIST entry the issue was filed about, in a file whose recurring defect is overstated prose. The true residue (cost fields really are exempt from the safe-integer bound) was recorded separately with its measurement. Related: [[mutation-verify-every-parity-fix-by-reverting-it-a-green-suite-does-not-prove-the-guard-works]].",
+  "createdDate": "2026-08-01",
+  "id": "L-004",
+  "lastValidated": "2026-08-01",
+  "reinforcements": 0,
+  "source": "correction",
+  "status": "active",
+  "supersedes": null,
+  "tags": [
+    "review",
+    "parity",
+    "documentation",
+    "verification"
+  ],
+  "title": "Reproduce an issue's own evidence before acting on it; a filed claim is a hypothesis",
+  "updatedDate": "2026-08-01"
+}

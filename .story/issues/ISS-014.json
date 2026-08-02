@@ -1,16 +1,17 @@
 {
   "components": [
-    "autonomous"
+    "windows-path-expansion"
   ],
   "discoveredDate": "2026-07-31",
+  "displayId": "ISS-014",
   "id": "ISS-014",
   "impact": "Entry 17 sanctioned POSIX ~ expansion on Windows, which README.md:58 advertises as supported (x64+arm64). Python there uses ntpath.expanduser, which ignores HOME entirely, reads USERPROFILE / HOMEDRIVE+HOMEPATH, treats backslash as a separator, and resolves ~user differently — so the port can read a different session tree than usage.py. FILED as ISS-013 rather than fixed: expandUser predates T-006 (T-003 wrote it; T-006 corrected only the POSIX tails), and no measurement could back an implementation here since the reference interpreter never runs on Windows. Entry 17 rewritten to record it as a KNOWN GAP, explicitly NOT a sanctioned delta — sanctioning a divergence on an advertised platform would be overclaiming.",
   "location": [],
   "phase": null,
   "relatedTickets": [],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Duplicate of ISS-013 (auto-filed review-round record of the same finding). Triage 2026-07-31: both bodies verified against the code at the same sites; ISS-013 is the hand-filed canonical and strictly supersedes this record — nothing to merge. Its one unique contribution, the high severity rating, was carried over to ISS-013.",
+  "resolvedDate": "2026-07-31",
   "severity": "high",
-  "status": "open",
+  "status": "resolved",
   "title": "[platform-compatibility] Entry 17 sanctioned POSIX ~ expansion on Windows, which README.md:58 advertises "
 }

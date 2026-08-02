@@ -1,16 +1,17 @@
 {
   "components": [
-    "autonomous"
+    "schema-validation"
   ],
   "discoveredDate": "2026-07-31",
+  "displayId": "ISS-004",
   "id": "ISS-004",
   "impact": "FILED AS ISS-002, not fixed inline: `blocks --json` has no validator and no contract coverage. Harmless today (no TS consumer) but T-004 ports cmd_blocks, and usage.py:590's costUSD/totalCost fallback silently zeroes in both languages.",
   "location": [],
   "phase": null,
   "relatedTickets": [],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Duplicate of ISS-002 (auto-filed review-round record of the same finding). Triage 2026-07-31: both bodies verified against the code at the same sites; ISS-002 is the hand-filed canonical and strictly supersedes this record — nothing to merge.",
+  "resolvedDate": "2026-07-31",
   "severity": "medium",
-  "status": "open",
+  "status": "resolved",
   "title": "[schema-validation] FILED AS ISS-002, not fixed inline: `blocks --json` has no validator and no cont"
 }

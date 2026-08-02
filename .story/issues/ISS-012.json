@@ -1,27 +1,27 @@
 {
   "components": [
-    "aggregate",
-    "byte-parity",
-    "format"
+    "pysort"
   ],
   "createdBy": "code review R7 (self-review; agent reviewers hit a session limit)",
   "dedupeKey": "string-ordering-utf16-vs-codepoint",
   "discoveredDate": "2026-07-31",
+  "displayId": "ISS-012",
   "id": "ISS-012",
-  "impact": "JS relational operators and Array.prototype.sort compare strings by UTF-16 code unit; Python's min/max/sorted compare by code point. The two disagree for every pair where one string has an astral character (>= U+10000, encoded as a surrogate pair starting at 0xD800) and the other has a BMP character above 0xD800.\n\nMeasured: for a = U+10000 and b = U+FFFD, Python says a > b; JS says a < b, because the lead surrogate 0xD800 sorts below 0xFFFD.\n\nREACHABLE END-TO-END TODAY, at `src/aggregate.ts` first/last, which mirrors usage.py:186-187's min/max. Driving both implementations on an --instances payload whose project has two rows with dates U+10000 and U+FFFD:\n  PY  last = U+10000\n  TS  last = U+FFFD\nBoth exit 0. Different output, no error, no test or golden catches it. Realism is very low for a date field, so this is filed rather than treated as urgent.\n\nWHY IT MATTERS MUCH MORE FOR T-004: usage.py calls sorted() in nine places (lines 394, 405, 429, 526, 574, 646, 650, 666, 684). Several sort by a numeric key, but ties fall back to insertion order and some sort strings directly. Project display names are derived from real filesystem paths and can contain astral characters — that is exactly the input class ISS-006 documents for encodePath. So every renderer T-004 adds is a new site for this divergence, and the failure mode is a silently reordered table rather than an error.\n\nThis is the FOURTH distinct defect from one root cause — JS counting/comparing UTF-16 code units where Python uses code points. The others: ISS-006 (encodePath missing the `u` flag), ISS-007 (padRight/padLeft padding by code units), and the splitCommand whitespace-class bug fixed in T-006 R6.\n\nSUGGESTED RESOLUTION: treat this as a project-wide rule rather than three separate patches. Add a single comparator that orders by code point (e.g. compare [...a] against [...b], or use the fact that swapping surrogates for a code-point-ordered key restores Python's order), use it at every min/max/sort site, and add a CPython differential test over an astral/BMP corpus. Worth doing BEFORE T-004 writes the renderers, so the sorts are correct as written rather than retrofitted.\n\nPRE-EXISTING and independent of T-006: the comparison operators predate this ticket and nothing T-006 changed affects reachability (an astral date passed validation before and after). Filed per the autonomous-session rule rather than fixed inline. Found by self-review in code review R7.",
+  "impact": "Real as filed but already fixed: src/pysort.ts (commit be56785) supplies code-point ordering and every min/max/sort site in the port — aggregate.ts:118-119 and all eleven renderer sort sites — routes through it, verified by passing CPython differential tests. Residual exposure is nil on parity paths; the only bare .sort() left is over ASCII package names in a resolver error message. Pre-fix impact was silently reordered success-path table rows, but only for the exotic pairing of an astral string against a BMP string above U+D800 (or an astral date), never for ordinary ASCII/BMP data.",
   "location": [
-    "src/aggregate.ts (first/last min/max)",
-    "usage.py:186-187",
-    "usage.py sorted() at 394,405,429,526,574,646,650,666,684"
+    "src/pysort.ts:30",
+    "src/aggregate.ts:118",
+    "src/renderers.ts:103",
+    "tests-ts/unicode-parity.test.mjs:135"
   ],
   "phase": null,
   "relatedTickets": [
     "T-004",
     "T-005"
   ],
-  "resolution": null,
-  "resolvedDate": null,
-  "severity": "high",
-  "status": "open",
+  "resolution": "Fixed in commit be56785 (T-004): src/pysort.ts supplies code-point ordering (pyCompareStr/pySorted/pyMinStr/pyMaxStr with CPython tie behavior); aggregate.ts:118-119 and all eleven renderer sort sites route through it. The only bare .sort() left in src/ is over ASCII package names inside a resolver error message (diagnostic path). Pinned by tests-ts/unicode-parity.test.mjs:135-150 against a CPython oracle; verified passing at triage 2026-07-31. Severity recorded as medium (down from high): the trigger required an astral-vs-BMP-above-U+D800 string comparison at a sort key — exotic — and numeric-key sorts never compare strings.",
+  "resolvedDate": "2026-07-31",
+  "severity": "medium",
+  "status": "resolved",
   "title": "String ordering diverges from Python above U+FFFF (JS compares UTF-16 units, Python code points)"
 }

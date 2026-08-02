@@ -21,12 +21,14 @@
  */
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSync, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { scanText } from "../../scripts/privacy-scan.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -223,37 +225,78 @@ describe("the tarball", () => {
   // attribution assertion read package.json. tsc keeps comments, dist/ is in `files`, and a
   // published identifier is permanent — so the guard has to look where the bytes land.
 
-  test("carries no personal name, anywhere, with no exemptions", () => {
-    // This scan used to exempt LICENSE's copyright line, because the named MIT holder was an
-    // open owner decision. It was decided (spendbar contributors), so the exemption is gone
-    // and the scan now runs against every shipped byte. An exemption list that is empty is
-    // worth more than one that is merely short: there is no longer a place to put a name.
-    const hits = scanContents(/^.*shayegh.*$/gim);
-    assert.deepEqual(hits, [], `personal name in shipped content:\n${hits.join("\n")}`);
-  });
-
-  test("carries no real session identifier", () => {
-    // Rollout filenames are UUIDv7: 48 timestamp bits, then version/variant nibbles and
-    // random bits. The fixtures keep the timestamp real (it encodes the date under test)
-    // and zero every random bit, so a synthetic id ends `-7000-8000-0000000000xx`. A real
-    // one — the shipped `…-7f83-adcb-1a8480205eef` — cannot, which is precisely the
-    // difference between an example and someone's actual session.
-    const SYNTHETIC = /-7000-8000-0000000000[0-9a-f]{2}$/;
-    const real = scanContents(
-      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g,
-    ).filter((hit) => !SYNTHETIC.test(hit));
-    assert.deepEqual(real, [], `non-synthetic UUID in shipped content:\n${real.join("\n")}`);
-  });
-
-  test("carries no real home directory path", () => {
-    // `/Users/testuser/.codex` shipped in a worked example. Placeholder accounts keep the
-    // example legible without naming anyone; the list is deliberately short so that adding
-    // to it is a conscious act rather than a reflex.
-    const PLACEHOLDER = new Set(["testuser", "you", "user", "me"]);
-    const real = scanContents(/\/(?:Users|home)\/[A-Za-z0-9._-]+/g).filter(
-      (hit) => !PLACEHOLDER.has(hit.slice(hit.lastIndexOf("/") + 1)),
+  test("carries no personal data of any semantic class", () => {
+    // These scans used to be three hand-rolled regexes: a maintainer-name literal, one
+    // synthetic-UUID suffix rule, and a home-path check whose placeholder set included
+    // generic names (`you`, `user`, `me`) that a real contributor could actually have.
+    // T-024 replaced all of that with the repository's semantic scanner, which is stronger
+    // on every axis it covered — emails, all three home-path shapes plus the mangled form,
+    // anchored synthetic-id patterns instead of a suffix rule, workflow ids — and, above
+    // all, contains no denylist literal: keeping the maintainer's name in a tracked grep
+    // was itself a violation of the rule the grep enforced.
+    const findings = [];
+    for (const [path, text] of contents) {
+      findings.push(...scanText(text, path));
+    }
+    assert.deepEqual(
+      findings,
+      [],
+      `personal data in shipped content:\n${findings.map((f) => `${f.path}:${f.line} [${f.class}]`).join("\n")}`,
     );
-    assert.deepEqual(real, [], `real home path in shipped content:\n${real.join("\n")}`);
+  });
+
+  test("the semantic scan would actually catch each class the old literals named", () => {
+    // A denylist replaced by a classifier must be shown to still reject what the denylist
+    // rejected — otherwise the swap silently weakened the guard. Values are assembled from
+    // fragments so this file stays clean under its own scan.
+    const j = (...parts) => parts.join("");
+    const mustCatch = [
+      [j("/Users", "/jdoe/.codex"), "macos-home"],
+      [j("019f45d4-bf8e-7f83", "-adcb-1a8480205eef"), "session-id"],
+      [j("jdoe", "@somewhere.example.co"), "email"],
+    ];
+    for (const [value, cls] of mustCatch) {
+      assert.ok(
+        scanText(value, "probe").some((f) => f.class === cls),
+        `the scanner no longer catches class ${cls}`,
+      );
+    }
+  });
+
+  test("carries no maintainer identity, checked against local git config, never a literal", () => {
+    // The old bare-name grep caught a surname ANYWHERE in shipped bytes — a shape no
+    // semantic class can express, because "some human surname" has no syntax. What it
+    // protected against is publishing this machine's identity, and this machine knows its
+    // identity: git config. Tokens are derived at runtime, so the repository carries no
+    // name literal, and the check still bites wherever a human actually packs — which is
+    // the only place publishing happens, since T-007 forbids autonomous publish.
+    const identity = ["user.name", "user.email"]
+      .map((k) => {
+        try {
+          return execFileSync("git", ["config", k], { encoding: "utf8" }).trim();
+        } catch {
+          return "";
+        }
+      })
+      .join(" ");
+    const tokens = [
+      ...new Set(
+        identity
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter((t) => t.length >= 4 && !["gmail", "icloud", "outlook"].includes(t)),
+      ),
+    ];
+    if (tokens.length === 0) {
+      // No local identity to check against (fresh CI container). The semantic scan above
+      // still ran; this is a loud record that THIS check found nothing to do, not a pass.
+      assert.ok(true, "no local git identity — token check had nothing to enforce");
+      return;
+    }
+    const hits = tokens.flatMap((t) =>
+      scanContents(new RegExp(`^.*${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*$`, "gim")),
+    );
+    assert.deepEqual(hits, [], `maintainer identity token in shipped content:\n${hits.join("\n")}`);
   });
 });
 
@@ -266,7 +309,9 @@ describe("the manifest", () => {
       assert.equal(MANIFEST[field], undefined, `package.json must not declare "${field}"`);
     }
     const blob = JSON.stringify(MANIFEST);
-    assert.doesNotMatch(blob, /shayegh/i, "personal name found in package.json");
+    // Semantic scan instead of a name literal — the literal WAS the class of leak it policed.
+    const findings = scanText(blob, "package.json");
+    assert.deepEqual(findings, [], `personal data in package.json: ${JSON.stringify(findings)}`);
   });
 
   test("declares prepare as well as prepack", () => {

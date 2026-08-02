@@ -1,0 +1,17 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-01",
+  "displayId": "ISS-031",
+  "id": "ISS-031",
+  "impact": "T-010/T-011/T-012/T-013 still specify the rejected lockfile architecture (pid/start-time/token lockfiles, inode revalidation before every publish, snapshot fsync ordering contradicting the recorded no-fsync decision, lease expiry/takeover semantics incompatible with the port primitive); T-014 makes a now-false claim about spikes/ contents. Out of T-008's scope — rewriting four downstream tickets is a deliberate separate act, not a rider on a spike commit. Filed as ISS-030 with reproduction and per-ticket detail.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": "Duplicate of ISS-030. Auto-filed by the autonomous guide from a T-008 round-4 review finding reported with disposition \"deferred\"; ISS-030 is the deliberate filing of the same problem and carries the reproduction, the per-ticket breakdown (T-010 fsync contradiction, T-011 inode revalidation, T-012 fast-tier publish, T-013 lease expiry, T-014 stale spikes/ claim), the location list and the related tickets. Track the work there.",
+  "resolvedDate": "2026-08-01",
+  "severity": "medium",
+  "status": "resolved",
+  "title": "[tracker-consistency] T-010/T-011/T-012/T-013 still specify the rejected lockfile architecture (pid/st"
+}

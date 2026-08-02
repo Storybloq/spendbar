@@ -2,12 +2,15 @@
 
 > Drafted 2026-07-30 from a 9-agent research workflow (7 lenses → synthesis → adversarial
 > critique). Revised 2026-07-31 through **three rounds of external Codex review**
-> (session `00000000-0000-4000-8000-000000000000`; round 1: 24 major/3 minor; round 2:
+> (round 1: 24 major/3 minor; round 2:
 > 16 major/3 minor incl. three overclaim retractions; round 3: 7 major/3 minor — "most round-2
 > findings adequately resolved or correctly prototype-gated". All findings accepted.) Empirical claims verified live on the owner's machine (macOS 26.5.1 / Apple
-> Silicon / Node v22.18.0) or the live npm registry on 2026-07-30 unless flagged. Research
-> transcripts:
-> `~/.claude/projects/-Users-testuser/00000000-0000-4000-8000-000000000000/subagents/workflows/wf_00000000-000/journal.jsonl`
+> Silicon / Node v22.18.0) or the live npm registry on 2026-07-30 unless flagged.
+>
+> Research transcripts are retained locally under this repository's Claude Code project
+> directory. The exact path is machine-specific and carries an account name and session
+> identifiers, so it is not recorded here (T-024); the owner can reconstruct it from the
+> drafting date.
 
 ## Vision
 

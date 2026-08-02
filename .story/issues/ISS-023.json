@@ -6,6 +6,7 @@
   "createdBy": "claude-code autonomous session 15f591bf (ISS-002)",
   "dedupeKey": "iss-002-followup:ccusage-cmd-bypasses-blocks-contract-gate",
   "discoveredDate": "2026-08-01",
+  "displayId": "ISS-023",
   "id": "ISS-023",
   "impact": "Residual risk left open deliberately by ISS-002, which closed the contract-gate half. Needs an owner decision, not an autonomous change.\n\nTHE GAP. ISS-002's fix pins `blocks --json` in tests-ts/contract/schema.contract.mjs, which is sound because ccusage is pinned exactly (20.0.19) and bundled — a rename can only arrive via a deliberate version bump, which that gate now stops. But `CCUSAGE_CMD` overrides the bundled binary entirely (src/main-deps.ts:5,48: \"an explicit CCUSAGE_CMD always\" wins, verified), so a user pointing at a different ccusage runs an unpinned payload the contract gate never saw. The other four payloads have runtime validators that would fail loud on a rename; `blocks` alone has none, so it would render a clean table of $0.00 at exit 0.\n\nWHY IT WAS NOT SIMPLY FIXED. Adding a validator is a parity decision, not a bug fix, and the repo has recorded the opposite decision in two places: src/renderers.ts cmdBlocks says \"ISS-002 leaves this unvalidated; the port reproduces the fallback rather than tightening it\", and tests/fake_ccusage.py:blocks_malformed exists specifically to \"freeze the current behaviour rather than asserting a desired one\". Eight blocks_* parity cases pin Python's permissive handling across all four payload shapes (measured: only a null `blocks` diverged). usage.py has no validator either, so any validator the port adds is a divergence from the frozen oracle on malformed input — the same class as ALLOWLIST entries 6-7, and it would need its own entry.\n\nTHE DECISION. Either (a) accept the gap, on the grounds that CCUSAGE_CMD is an explicit user override of a pinned dependency and the tool's contract is byte parity with usage.py, which behaves identically; or (b) add a narrow presence check (a processed block dict must carry costUSD or totalCost), sanction it as a new ALLOWLIST entry, and re-verify the eight blocks_* goldens. Note for (b): the current fixtures would likely survive it — blocks_malformed's two blocks both carry costUSD (one as the string \"100.0\"), and the other seven modes never reach a block dict — so the cost is an ALLOWLIST entry and a golden re-run, not a redesign.\n\nNot a defect in shipped behavior today: under the bundled pin, which is what an ordinary install runs, the contract gate is sufficient.",
   "location": [
@@ -19,8 +20,8 @@
   "relatedTickets": [
     "T-007"
   ],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "Accepted (option a), owner-delegated decision 2026-08-01: CCUSAGE_CMD is an explicit user override of a pinned dependency, and the product contract is byte parity with usage.py, which behaves identically on the same payload. Adding a validator would be an unsanctioned divergence from the frozen oracle (the repo records that decision twice: renderers.ts cmdBlocks and fake_ccusage.py blocks_malformed). Under the bundled pin — what every ordinary install runs — the contract gate added by ISS-002 is sufficient. Revisit only if own-the-parsing (T-022c) replaces ccusage and the oracle relationship changes.",
+  "resolvedDate": "2026-08-01",
   "severity": "low",
   "sourceRefs": [
     {
@@ -40,6 +41,6 @@
       "startLine": 363
     }
   ],
-  "status": "open",
+  "status": "resolved",
   "title": "CCUSAGE_CMD bypasses the pinned binary, and blocks is the one payload with no runtime validator to notice"
 }
