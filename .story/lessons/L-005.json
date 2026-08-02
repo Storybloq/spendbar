@@ -1,0 +1,18 @@
+{
+  "content": "Reporting a review finding with disposition \"deferred\" AUTO-FILES a storybloq issue. So for any out-of-scope finding, do exactly one of two things: (a) report it as \"deferred\" and let the guide file it, or (b) call storybloq_issue_create yourself with full metadata (location, relatedTickets, dedupeKey) and report the finding as \"addressed\" or \"open\" with a note naming the issue ID. Doing both creates a duplicate every time.",
+  "context": "Happened twice in the same T-008 autonomous session. First: ISS-034 duplicated ISS-033 (2026-07-31). Second: ISS-038 duplicated ISS-037 (2026-08-01), after I had already written the explanation of the first occurrence into ISS-034's resolution field. Both duplicates had to be closed by hand.\n\nThe recurrence is the point. Writing an accurate post-mortem into a resolution field changed nothing, because nothing about the next filing decision forced me to re-read it — the same shape as this ticket's dominant code defect (fixing a class in one place and not its siblings). A lesson is the structural version: it is loaded at session start, before the filing decision, rather than sitting in a closed issue nobody re-opens.\n\nPrefer (b) when the issue needs locations or dedupeKey, which is most of the time; the auto-filed version carries only the description text.",
+  "createdDate": "2026-08-02",
+  "id": "L-005",
+  "lastValidated": "2026-08-02",
+  "reinforcements": 0,
+  "source": "correction",
+  "status": "active",
+  "supersedes": null,
+  "tags": [
+    "storybloq",
+    "autonomous-mode",
+    "issue-hygiene"
+  ],
+  "title": "Never both hand-file an issue and report the same finding as \"deferred\"",
+  "updatedDate": "2026-08-02"
+}

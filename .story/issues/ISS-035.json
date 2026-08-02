@@ -1,0 +1,15 @@
+{
+  "components": [],
+  "dedupeKey": "t014-soft-size-gate-t022-scope-contradiction",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-035",
+  "impact": "Two ticket-definition defects found by review round 12 while reviewing T-008's diff. Neither is T-008's to fix, and both would let a ticket pass while its stated intent was unmet.\n\n**T-014 — a hard gate written as a soft one.** The description says the deterministic size checks are hard CI gates, but acceptance criterion 2 permits the 1 MB threshold merely to \"flag\" a revisit. As written the ticket can be closed with an oversized package and the threshold enforces nothing — a gate that only warns is not a gate, which is the same \"reports rather than fails\" defect round 9 found in T-008's own teardown (it printed leaked resources and exited 0). Criterion 2 should require CI to FAIL above 1 MB, with exceeding it also opening the platform-split revisit.\n\n**T-022 — scope contradicts intent and acceptance criteria.** The intent says none of the three items should be built inside this umbrella, and the acceptance criteria require the own-the-parsing spike to be split into its own ticket first — but the Scope/In section lists that spike itself as in scope. An implementer could legitimately do substantial spike work directly under T-022, bypassing the child-ticket review and the demand gate the ticket exists to enforce. The spike should be removed from Scope/In, with the ticket stating it only creates and links a child spike ticket when scheduled.\n\nFiled rather than fixed: both are outside T-008, and the autonomous guide directs out-of-scope problems to issues.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "low",
+  "status": "open",
+  "title": "T-014's package-size gate is optional, and T-022 contradicts itself on whether the spike is in scope"
+}

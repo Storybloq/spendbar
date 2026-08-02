@@ -30,14 +30,16 @@
     "prepack": "npm run build",
     "prepare": "npm run build",
     "spike:rounding": "node spikes/rounding/spike.mjs",
+    "spike:socket-cred": "node spikes/socket-cred/probe.mjs",
     "test": "tsc -p tsconfig.json && node --test tests-ts/*.test.mjs && npm run test:python",
-    "test:all": "npm test && npm run test:contract && npm run parity -- --final && npm run test:goldens && npm run test:oracle && npm run test:pure && npm run test:allowlist",
+    "test:all": "npm test && npm run test:contract && npm run parity -- --final && npm run test:goldens && npm run test:oracle && npm run test:pure && npm run test:allowlist && npm run test:spikes",
     "test:allowlist": "tsc -p tsconfig.json && node scripts/allowlist-coverage.mjs",
     "test:contract": "tsc -p tsconfig.json && node --test tests-ts/contract/*.contract.mjs",
     "test:goldens": "python3 tests/golden/capture.py --check",
     "test:oracle": "python3 tests/oracle/verify.py && python3 tests/oracle/build.py --regen-check && python3 tests/oracle/mutation_check.py",
     "test:pure": "tsc -p tsconfig.json && node scripts/test-pure.mjs",
-    "test:python": "python3 tests/test_usage.py && python3 tests/golden/test_capture_recovery.py"
+    "test:python": "python3 tests/test_usage.py && python3 tests/golden/test_capture_recovery.py",
+    "test:spikes": "node --test spikes/lifecycle.test.mjs spikes/locking/publish.test.mjs spikes/locking/lock.race.test.mjs spikes/locking/portlock.test.mjs spikes/locking/bootstrap.test.mjs spikes/socket-cred/auth.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

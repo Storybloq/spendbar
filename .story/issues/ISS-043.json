@@ -1,0 +1,23 @@
+{
+  "components": [
+    "menubar",
+    "installer"
+  ],
+  "createdBy": "codex review, T-008 round 14",
+  "dedupeKey": "t018-installer-overwrite-and-gui-path-2026-08-01",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-043",
+  "impact": "Two defects in T-018 as specified:\n\n1. Data loss. Acceptance criterion 1 requires reruns to update the installed plugin in place but defines no ownership or divergence check. If the target filename already exists, or the user has edited an installed copy, rerunning silently overwrites their content. Suggested fix: record a checksum/version marker, update atomically only when the existing file matches a known spendbar version, and prompt or refuse with a backup path when the target is unknown or modified.\n\n2. Runtime environment. The preferred design shells out to `spendbar --cached`, but SwiftBar is GUI-launched and does not reliably inherit npm/nvm PATH entries — the surrounding tickets already identify this failure mode for GUI MCP clients. With no absolute launcher path and no minimal-PATH test, the plugin fails on common nvm-based installs. Suggested fix: generate the plugin with a validated absolute path to the stable launcher, and test it under a minimal poisoned PATH on both npm-global and nvm-style installations.\n\nFound by codex review during T-008 round 14.",
+  "location": [
+    ".story/tickets/T-018.json"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-018"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "T-018's SwiftBar installer can overwrite user-owned files and assumes a GUI-inherited PATH"
+}

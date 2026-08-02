@@ -1,0 +1,24 @@
+{
+  "components": [
+    "snapshot-store",
+    "tracker-hygiene"
+  ],
+  "createdBy": "codex review, T-008 round 14",
+  "dedupeKey": "t010-post-rename-recovery-impossible-2026-08-01",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-040",
+  "impact": "T-010's acceptance criterion 1 requires recovery to serve the prior manifest after a failure at EVERY boundary, explicitly including failure of the parent-directory fsync AFTER the rename. Once renameSync succeeds the new manifest is live and the old one is gone; there is no way to restore it, and after a crash either directory state may legitimately persist.\n\nThis directly contradicts the rule T-008 established and pinned across three modules: past the irreversible step (link or rename), nothing may throw and no failure may be reported as a failure of the operation. An implementer satisfying criterion 1 as written would have to either reintroduce the stranded-state bug T-008 spent three review rounds eliminating, or discover the criterion is impossible partway through.\n\nSuggested fix: define rename as the commit boundary explicitly. Require pre-rename failures to preserve the prior manifest (already achievable), and require a post-rename parent-fsync failure to return committed-with-warning while retaining both referenced generations, with recovery accepting either complete valid manifest after a simulated crash.\n\nFound by codex review during T-008 round 14. Distinct from ISS-033 (which covers T-010/T-011/T-012/T-013 still specifying the rejected lockfile design); this is a separate impossible-guarantee defect in the same ticket.",
+  "location": [
+    ".story/tickets/T-010.json"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-010",
+    "T-008"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "status": "open",
+  "title": "T-010 acceptance criterion 1 requires a post-rename recovery guarantee that cannot be implemented"
+}

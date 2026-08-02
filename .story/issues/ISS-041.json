@@ -1,0 +1,27 @@
+{
+  "components": [
+    "control-plane",
+    "lifecycle"
+  ],
+  "createdBy": "codex review, T-008 round 14",
+  "dedupeKey": "t011-t015-probe-then-unlink-toctou-2026-08-01",
+  "discoveredDate": "2026-08-02",
+  "displayId": "ISS-041",
+  "id": "ISS-041",
+  "impact": "Both T-011's stop flow and T-015's cleanup sequence require probing a socket, concluding it is dead, and then unlinking it. That is read-then-act: between the probe and the unlink another process can bind or adopt the pathname, so the stop command removes a LIVE server's socket. Both tickets carry an acceptance criterion asserting the opposite property (\"a live server's socket must never be unlinked\"), so the specified procedure cannot satisfy the criterion it is paired with.\n\nREFINED after T-008 review round 15 — the first version of this issue proposed \"unlink only while holding the T-008 singleton lock\" as the fix. That is too weak to be called safe: the singleton lock serializes COOPERATING spendbar instances only. It does not stop an unrelated or hostile process running as the SAME UID from binding the pathname between the probe and the unlink, so holding it narrows the window without closing it. A test that demonstrates selected schedules under the lock would therefore prove less than the acceptance criterion claims.\n\nThe real options for T-011/T-015 are:\n(a) design an endpoint protocol that never deletes a pathname on the strength of an earlier observation — for example a per-instance socket path published through the write-once allocation, so no pathname is ever reused and nothing needs reclaiming; or\n(b) explicitly accept and document the residual same-UID denial-of-service, and drop the acceptance criterion that claims a live socket can never be unlinked.\n\nEither way the criterion as written cannot be met. This is the same shape as the finding that eliminated the lockfile design in T-008: reclaiming a resource whose owner may still be alive needs an atomic compare-and-act that POSIX does not offer through Node — which is why the adopted primitive makes ownership a held kernel resource that dies with the process rather than a name that must be reclaimed.\n\nIf (a) is chosen, add an adversarial test with a competing binder in the probe/unlink window rather than only cooperative failure injection.\n\nT-008's own Scope has been corrected to state this accurately instead of pointing at the lock as a solution.",
+  "location": [
+    ".story/tickets/T-011.json",
+    ".story/tickets/T-015.json"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-011",
+    "T-015",
+    "T-008"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "status": "open",
+  "title": "T-011 and T-015 specify probe-then-unlink for stale sockets, which is a TOCTOU that can delete a live server's socket"
+}

@@ -1,0 +1,15 @@
+{
+  "components": [],
+  "dedupeKey": "t008-linux-evidence-simulated-only",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-032",
+  "impact": "T-008's gate reports a platform split as \"linux = 69 passed / 2 skipped\", but that figure comes from overriding `process.platform` in `spikes/platform.mjs`. That changes which tests RUN and nothing about the host — not the kernel's ephemeral port range, not `sun_path`'s limit, not filesystem or signal semantics. Review round 10 found a genuine Linux-breaking defect sitting underneath that green column: `publishAllocation` rejected any kernel-assigned port outside 49152-65535 (macOS's measured range), while Linux's default `net.ipv4.ip_local_port_range` is 32768-60999 — so a valid assignment of e.g. 45000 was refused and startup would have failed on a correctly configured Linux host. The simulation was structurally incapable of catching it.\n\nThat specific bug is fixed (the acceptance rule is now \"any non-privileged port\", pinned by a test acquiring port 40000) and the deliverable's portability section has been rewritten to claim only that the split routes tests correctly. But the underlying gap stands: no Linux host has ever run this suite. Anything else in the adopted primitive that depends on host behaviour rather than on Node semantics is unverified there by the same argument.\n\nConsumers of this gate — T-010 (snapshot store) and T-011 (service single-instance guard + control-plane socket) — would otherwise inherit \"verified cross-platform\" from a document that cannot support it.\n\nThis is coupled to T-008 open question 2 (owner decision: must these prototypes pass on Linux, or is v0.2 macOS-only?), and it now has a concrete cost attached. If Linux is in scope, the gate's empirical evidence must be re-taken on a real Linux host — CI runner or container — not simulated. If v0.2 is macOS-only, that should be stated explicitly so the claim is scoped rather than assumed.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "v0.2 locking/socket evidence is macOS-only: real Linux verification never ran"
+}

@@ -1,0 +1,22 @@
+{
+  "components": [
+    "menubar"
+  ],
+  "createdBy": "codex review, T-008 round 15",
+  "dedupeKey": "t020-unbounded-update-check-2026-08-01",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-045",
+  "impact": "T-020 introduces a network update check on the UI path but specifies no timeout, no cancellation, and no background isolation. Its acceptance testing covers the \"no network\" case, which exercises an immediate connection error — the easy failure. A blackholed or stalled connection (accepted but never answered, the common shape behind a captive portal or a dropped VPN) leaves the menubar waiting indefinitely with nothing to cancel it.\n\nThis is the same bounded-wait rule T-008 applied throughout its prototypes: racing a timer does not cancel the underlying operation, so the deadline must also dispose of the resource. T-008's own suite had to fix exactly this twice — a wedged release reported into a runner that could not exit, and synchronous spawnSync child waits that no test-level timeout could interrupt.\n\nSuggested fix: require the update check to run off the rendering path with a validated finite deadline, abort the underlying request when the deadline fires (not merely stop waiting for it), and fall back to cached/no-line behaviour on every failure. Test it against a server that accepts the connection and never responds, asserting both that the request is disposed and that the UI stays responsive.\n\nFound by codex review during T-008 round 15.",
+  "location": [
+    ".story/tickets/T-020.json"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-020"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "T-020's update check is an unbounded network call on the menubar render path"
+}

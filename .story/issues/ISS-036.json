@@ -1,0 +1,16 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-036",
+  "impact": "FILED AS ISS-035, not fixed inline. T-014's description calls the deterministic size checks hard CI gates, but acceptance criterion 2 lets the 1 MB threshold merely 'flag' a revisit - so the ticket can close with an oversized package and the threshold enforces nothing. Exactly the 'reports rather than fails' defect round 9 found in T-008's own teardown. T-022's intent says none of its three items should be built inside the umbrella and its criteria require the own-the-parsing spike to be split out first, but Scope/In lists that spike as in scope, so substantial work could legitimately be done there, bypassing the child-ticket review and demand gate.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "[ticket-definition] FILED AS ISS-035, not fixed inline. T-014's description calls the deterministic "
+}

@@ -10,5 +10,11 @@
   "project": "spendbar",
   "schemaVersion": 2,
   "type": "npm",
-  "version": 2
+  "version": 2,
+  "recipeOverrides": {
+    "reviewBackends": [
+      "codex",
+      "agent"
+    ]
+  }
 }

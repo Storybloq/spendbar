@@ -1,0 +1,17 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-02",
+  "displayId": "ISS-038",
+  "id": "ISS-038",
+  "impact": "T-007's 'Current state' section and pre-publish gates describe work already completed and cite a line range that has moved: the attribution test is at packaging.contract.mjs:261-270 not :111-119; the recorded 'greps only package.json' blind spot is closed by the content-wide scan at :225; gate 1's real Codex rollout ID is no longer in src/ (src/codex.ts:52 carries the synthetic convention); gate 2's USER=amirshayegh / real home path no longer appear in src/. Risk is specific to a publish checklist: gates that are already met invite the executor to discount the list, and the 'no autonomous publish' hard rule sits at the top of the same description. Filed as ISS-037 rather than fixed inline because T-007 is a different ticket.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": "Duplicate of ISS-037 — same finding, filed twice by me. ISS-037 is the one to keep: it carries the file locations, related tickets, and a dedupeKey.\n\nCause, recorded because this is the SECOND occurrence (ISS-034 was the first, on 2026-07-31): reporting a review finding with disposition \"deferred\" AUTO-FILES an issue. I filed ISS-037 by hand and also reported the same finding as deferred, producing this duplicate. The correct pattern is one or the other, never both — either report it \"deferred\" and let the guide file it, or file it by hand with full metadata and report the finding as \"addressed\"/\"open\" with a note naming the issue ID.\n\nRepeating this after having written the ISS-034 explanation is an instance of the defect this ticket keeps surfacing: recording a lesson is not the same as changing the behaviour it describes.",
+  "resolvedDate": "2026-08-01",
+  "severity": "medium",
+  "status": "resolved",
+  "title": "[documentation] T-007's 'Current state' section and pre-publish gates describe work already comp"
+}

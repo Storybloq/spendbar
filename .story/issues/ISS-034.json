@@ -1,0 +1,19 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-02",
+  "displayId": "ISS-034",
+  "id": "ISS-034",
+  "impact": "FILED AS ISS-033, not fixed inline. T-010, T-011, T-012 and T-013 all still specify the lockfile design T-008 rejected. Verified by keyword count: T-011 carries lockfile x4, inode x4, pid x6, owner token x2, revalidation x4 across its state machine, failure tests, dependencies AND acceptance criteria; T-010 requires pid+start-time+owner-token ownership and inode revalidation before every publish/unlock; T-012 requires inode revalidation on every fast-tier tick; T-013 requires expiring ownership records and stale-state takeover for reader leases. Candidate C has no owner record, no lock inode and no reclamation step - that reclaim judgement is exactly the operation Node's syscalls cannot perform safely and exactly why both lockfile candidates were rejected. High severity because T-008's own hard constraint is 'record the decision durably so T-010/T-011 consume it without re-derivation', and a recorded decision the consuming tickets actively contradict is worse than no record: the tickets are the operative instructions, so an implementer following T-011 as written rebuilds the rejected unsafe primitive while believing they are following the plan. T-010 is explicitly blocked on T-008, so this lands the moment T-008 closes.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [
+    "T-008"
+  ],
+  "resolution": "Duplicate of ISS-033, which I filed by hand for the same round-11 finding. This one was auto-created by the autonomous guide because I reported that finding with disposition \"deferred\", which auto-files an issue — so the same finding was recorded twice, once deliberately and once as a side effect of how I labelled it.\n\nISS-033 is the record to work from: it carries the full per-ticket keyword evidence, the concrete replacement protocol each of T-010/T-011/T-012/T-013 needs, and high severity. This copy landed at medium and its title is a truncated fragment of the description.\n\nMy labelling error, not a tool fault: \"deferred\" means \"valid but out of scope, track it as a new issue\", which is exactly right for the finding — I just also filed it manually in the same turn. For findings I file by hand, the correct disposition to report is one that does not auto-file.",
+  "resolvedDate": "2026-08-01",
+  "severity": "medium",
+  "status": "resolved",
+  "title": "[design-contract] FILED AS ISS-033, not fixed inline. T-010, T-011, T-012 and T-013 all still spec"
+}
