@@ -41,6 +41,7 @@ import { classify, toCellStatus } from "./classify.mjs";
 import { normalize } from "./normalize.mjs";
 import { captureInputDigests } from "./provenance.mjs";
 import { sanitize, checkPreservation, STREAM_STAT_KEYS } from "./sanitize.mjs";
+import { isDirectEntry } from "../../../scripts/direct-entry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EVIDENCE_REAL = join(HERE, "..", "evidence", "real-clients");
@@ -535,6 +536,6 @@ async function main() {
   process.stderr.write(`\ncells recorded in ${cellsPath}\nNEXT: node spikes/mcp/real-client/receipt.mjs (receipt before any evidence commit)\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectEntry(import.meta.url)) {
   await main();
 }

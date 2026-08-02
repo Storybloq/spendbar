@@ -42,6 +42,7 @@ import { tmpdir } from "node:os";
 import { join, dirname, sep } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { isDirectEntry } from "../../scripts/direct-entry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = realpathSync(join(HERE, "..", ".."));
@@ -337,6 +338,6 @@ async function main() {
   process.exit(bad ? 1 : 0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectEntry(import.meta.url)) {
   await main();
 }

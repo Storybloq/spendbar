@@ -13,7 +13,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { classify, toCellStatus, ENVIRONMENTAL_CONDITIONS, OUTCOMES, InvalidRecordError } from "./classify.mjs";
@@ -804,6 +804,7 @@ test("the capture-input list itself equals an independent literal", () => {
   // leaves every test above self-consistently green while the missing file's bytes go
   // unpinned. This is the only assertion that can catch that.
   assert.deepEqual([...CAPTURE_INPUTS].sort(), [
+    "scripts/direct-entry.mjs",
     "scripts/privacy-scan.mjs",
     "scripts/privacy-synthetic.json",
     "spikes/mcp/candidates/v1/package-lock.json",
@@ -833,13 +834,18 @@ test("every module that shapes what a capture observes is pinned, or excluded on
     "./receipt.mjs": "covered by RECEIPT_SCHEMA_VERSION, which refuses receipts by version",
   };
   const here = dirname(fileURLToPath(import.meta.url));
+  const REPO = resolve(here, "..", "..", "..");
   for (const file of ["capture.mjs", "capture-wrapper.mjs"]) {
     const source = readFileSync(join(here, file), "utf8");
     const specifiers = [...source.matchAll(/^import[^;]*?from\s+"([^"]+)"/gms)].map((m) => m[1]);
     for (const spec of specifiers) {
       if (spec.startsWith("node:")) continue;
       if (spec in excluded) continue;
-      const rel = `spikes/mcp/${spec.replace(/^\.\.\//, "").replace(/^\.\//, "real-client/")}`;
+      // Resolved properly rather than by string surgery: the previous mapping stripped a single
+      // leading "../" and silently mis-resolved anything deeper, so a three-level import out of
+      // the spike tree (../../../scripts/…) produced a path that matched nothing and the check
+      // failed for the wrong reason (review round 2).
+      const rel = relative(REPO, resolve(here, spec)).split(sep).join("/");
       assert.ok(
         CAPTURE_INPUTS.includes(rel),
         `${file} imports ${spec} (${rel}) which is neither a capture input nor an excluded module`,

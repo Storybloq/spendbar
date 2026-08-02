@@ -7,6 +7,7 @@
 // misbehave, not the suite's ability to notice.
 
 import { createInterface } from "node:readline";
+import { isDirectEntry } from "../../scripts/direct-entry.mjs";
 
 const MUTANT = process.env.SPENDBAR_MUTANT ?? "none";
 
@@ -173,4 +174,4 @@ rl.on("close", () => {
 });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (isDirectEntry(import.meta.url)) main();

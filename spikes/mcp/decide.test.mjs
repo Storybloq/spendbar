@@ -775,6 +775,7 @@ const EXPECTED_BOUND_PRODUCERS = [
   "spikes/mcp/real-client/sanitize.mjs",
   "spikes/mcp/real-client/receipt.mjs",
   "spikes/mcp/real-client/provenance.mjs",
+  "scripts/direct-entry.mjs",
   "scripts/privacy-scan.mjs",
   "scripts/privacy-synthetic.json",
 ];

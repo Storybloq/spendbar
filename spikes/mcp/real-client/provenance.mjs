@@ -61,6 +61,7 @@ export const CAPTURE_INPUTS = [
   "spikes/mcp/real-client/capture-wrapper.mjs",
   "spikes/mcp/real-client/sanitize.mjs",
   "spikes/mcp/real-client/normalize.mjs",
+  "scripts/direct-entry.mjs",
   "scripts/privacy-scan.mjs",
   "scripts/privacy-synthetic.json",
 ];

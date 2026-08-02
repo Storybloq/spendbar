@@ -40,6 +40,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, constants as fsConstants, openSync, readFileSync, readdirSync, lstatSync, readlinkSync, existsSync } from "node:fs";
 import { extname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDirectEntry } from "./direct-entry.mjs";
 
 const DEFAULT_REPO = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 
@@ -363,6 +364,6 @@ function main(argv) {
   return 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectEntry(import.meta.url)) {
   process.exit(main(process.argv.slice(2)));
 }

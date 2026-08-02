@@ -24,6 +24,7 @@ import {
   checkResolutions,
   resolveFromRoot,
 } from "./isolate.mjs";
+import { isDirectEntry } from "../../scripts/direct-entry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -527,6 +528,6 @@ async function main() {
   process.exit(Object.values(results).some((r) => r.failed > 0) ? 1 : 0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectEntry(import.meta.url)) {
   await main();
 }

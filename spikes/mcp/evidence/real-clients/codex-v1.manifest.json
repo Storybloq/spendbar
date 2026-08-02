@@ -1,11 +1,11 @@
 {
-  "captureId": "codex-v1-82193916",
+  "captureId": "codex-v1-0004b964",
   "client": "codex",
   "candidate": "v1",
   "clientVersion": "codex-cli 0.144.0",
   "promptSha256": "132d4baa74ecc6de23889d173bf2314a70fdd92615023a40fbce4f6da1ead2be",
-  "promptInstanceSha256": "ae871bb9574e32d3ae3a4150f57d73224fc0195a0aff7f7cedc10ff86167b781",
-  "nonce": "t009-1e2ebbeb02700971",
+  "promptInstanceSha256": "aed50023a0f21584bee5e1332803936ec7882b3a28f88946c7575e1a1d716ba1",
+  "nonce": "t009-9f33463870bd2d89",
   "executablePath": "<path:executablePath>",
   "executableIdentity": "sha256:978740e6bcbd9af2f850823b723fb74f16d8d1e44de05f7dd6737ae631f72017",
   "commandLine": [
@@ -15,7 +15,7 @@
     "<arg3:path>",
     "-c",
     "<arg5:path>",
-    "Call the MCP tool \"spendbar_probe\" exactly once, with the argument object {\"nonce\": \"t009-1e2ebbeb02700971\"}. Do not call any other tool. Do not repeat, quote, or mention the nonce value anywhere in your reply. After the tool call succeeds, reply with exactly this single line and nothing else: SPENDBAR_PROBE_DONE"
+    "Call the MCP tool \"spendbar_probe\" exactly once, with the argument object {\"nonce\": \"t009-9f33463870bd2d89\"}. Do not call any other tool. Do not repeat, quote, or mention the nonce value anywhere in your reply. After the tool call succeeds, reply with exactly this single line and nothing else: SPENDBAR_PROBE_DONE"
   ],
   "env": [
     "HOME",
@@ -37,11 +37,12 @@
     "spikes/mcp/candidates/v2/package.json": "9bc6ce15358bbc5ace84ebb88e27b926938da1453657451c1b8ea509d1f015ec",
     "spikes/mcp/candidates/v1/package-lock.json": "ed8fde3e4ba03f1abc84bc64121eada03d47e5f9adc340eb2cafcab76547e30b",
     "spikes/mcp/candidates/v2/package-lock.json": "fa646e3069a4937fab5a5ef9905d461e98a51da9aaac4334e2585ce2d3e85db9",
-    "spikes/mcp/real-client/capture.mjs": "5d9858488f1dfad071fb309a5e75a0ab43419bb234b77fd368cf85e1ae5cb9c5",
+    "spikes/mcp/real-client/capture.mjs": "a54701b4e4a619791acc3e118677351336e5158ee139a7bbb2d5b5db9a593aae",
     "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
     "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
     "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
-    "scripts/privacy-scan.mjs": "146aaf7368bdff60d948418f4b4b8031d8ddb2242797115bf8b5df39ab15a3db",
+    "scripts/direct-entry.mjs": "333a986655f2c74ce4eefd7b1e5c55b8d541d848cbe7c3b2625653b9117ec031",
+    "scripts/privacy-scan.mjs": "a6542a326a387cb6ced346f33aaba5bab500a5a0f5e2402a3a7bbec33709ba09",
     "scripts/privacy-synthetic.json": "15aebfa7b13e598a505f8774c6e49a1fd8c79295c879981cad2e9edbe465d867"
   },
   "candidateTreeSha256": "61ba8ac0da1e899ac8edef782d53a1e993d3fdb6f165aba412e553e7b18aaa45",
@@ -88,8 +89,8 @@
     {
       "type": "response",
       "method": "tools/call",
-      "structuredNonce": "t009-1e2ebbeb02700971",
-      "text": "probe nonce=t009-1e2ebbeb02700971 blocked=false",
+      "structuredNonce": "t009-9f33463870bd2d89",
+      "text": "probe nonce=t009-9f33463870bd2d89 blocked=false",
       "isError": false
     }
   ],
@@ -122,12 +123,12 @@
     "truncated": false
   },
   "digests": {
-    "clientToServerSha256": "8ae0dfd28e0a8594cb389c61a3f28872c68c160aa631f061512b65b18191dfb3",
-    "serverStdoutSha256": "87fe960524e4f7d2997469a5bae51600bc6e7669e8276614f5208d4d32c61abc",
-    "serverStderrSha256": "dfd1620ac366ab1c67e551717fd92e14700de60f95505f7fe08fd6563ffde438",
+    "clientToServerSha256": "5be4b2dbe4c2c7b195a1af922cf0ba8fd833ef2ff001a11f0e8f1e72485081aa",
+    "serverStdoutSha256": "e5c57312f00b0efd9cd6190da9a39203abe405b6758f5e972e9419b15b5bdb02",
+    "serverStderrSha256": "25650738b4e34a69a50ea03eed248fd5314b4c8429d0ae8e80d142a560830dd5",
     "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
-    "clientStderrSha256": "08e04c8567f3ab9f0522832c1e18883ab3672c9247f3198cfecfdf8b39974880",
-    "derivationDigest": "2526bc0d338dc42d9c8ca4714b43b04aadddbec044108cd44ed126ee1ae4a714"
+    "clientStderrSha256": "081fb43fd603aedffb2575dbe10ddc227465ef30b77ff66a282ff0b9bacf4c12",
+    "derivationDigest": "3b0a33a1ad9a937a329fdff2819d5a7406f497afdc6351881be7e8cc8fdb9623"
   },
   "retries": []
 }

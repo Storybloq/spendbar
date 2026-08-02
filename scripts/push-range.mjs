@@ -23,6 +23,7 @@
 // only new commit.
 
 import { execFileSync } from "node:child_process";
+import { isDirectEntry } from "./direct-entry.mjs";
 
 const ZEROS = /^0{40,64}$/;
 
@@ -90,6 +91,6 @@ function main(argv) {
   return 0;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectEntry(import.meta.url)) {
   process.exit(main(process.argv.slice(2)));
 }

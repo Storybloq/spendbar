@@ -40,6 +40,7 @@ import { STREAM_STAT_KEYS, DIGEST_KEYS } from "./real-client/sanitize.mjs";
 import { PROMPT_TEMPLATE, PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER } from "./real-client/capture.mjs";
 import { CAPTURE_INPUTS, RECEIPT_SCHEMA_VERSION } from "./real-client/provenance.mjs";
 import { TOKEN_PROXY_VERSION } from "./token-cost.mjs";
+import { isDirectEntry } from "../../scripts/direct-entry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const EVIDENCE_DIR = join(HERE, "evidence");
@@ -74,6 +75,7 @@ export const BOUND_INPUTS = [
   // The sanitizer runs the privacy classifier over its own output and refuses on a match, so
   // these rules — and the synthetic-value declarations that decide what they let through —
   // shape every committed manifest.
+  "scripts/direct-entry.mjs",
   "scripts/privacy-scan.mjs",
   "scripts/privacy-synthetic.json",
 ];
@@ -653,6 +655,6 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectEntry(import.meta.url)) {
   await main();
 }

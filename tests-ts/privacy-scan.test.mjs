@@ -15,6 +15,7 @@ import {
   mkdtempSync,
   mkdirSync,
   writeFileSync,
+  copyFileSync,
   rmSync,
   chmodSync,
   symlinkSync,
@@ -30,6 +31,7 @@ import assert from "node:assert/strict";
 import { scanText, isSynthetic, decode, scan, CLASSES } from "../scripts/privacy-scan.mjs";
 import { pushRange } from "../scripts/push-range.mjs";
 import { firstContentChangingArg } from "../scripts/guarded-commit.mjs";
+import { isDirectEntry } from "../scripts/direct-entry.mjs";
 
 const REPO = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const SCANNER = join(REPO, "scripts", "privacy-scan.mjs");
@@ -717,3 +719,118 @@ function runNode(argv, options = {}) {
     return { status: error.status ?? -1, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
   }
 }
+
+// ---------------------------------------------------------------------------
+// The direct-entry guard (review round 2).
+//
+// Every executable module here ends with one, and the idiom the repository used
+// —— `import.meta.url === `file://${process.argv[1]}` `` —— silently failed to fire under two
+// ordinary conditions. Silently is the whole problem: main() never runs, the process exits 0,
+// and for scripts/privacy-scan.mjs that is indistinguishable from a completed clean scan.
+// ---------------------------------------------------------------------------
+
+/** Build a throwaway module that reports both idioms' verdicts about itself. */
+function entryProbe(dir) {
+  mkdirSync(dir, { recursive: true });
+  copyFileSync(join(REPO, "scripts", "direct-entry.mjs"), join(dir, "direct-entry.mjs"));
+  const probe = join(dir, "probe.mjs");
+  writeFileSync(
+    probe,
+    'import { isDirectEntry } from "./direct-entry.mjs";\n' +
+      "const old = import.meta.url === `file://${process.argv[1]}`;\n" +
+      'process.stdout.write(JSON.stringify({ old, fixed: isDirectEntry(import.meta.url) }));\n',
+  );
+  return probe;
+}
+
+test("the direct-entry guard fires through a path containing a space", () => {
+  const root = mkdtempSync(join(tmpdir(), "entry-space-"));
+  try {
+    const probe = entryProbe(join(root, "a dir with spaces"));
+    const r = runNode([probe]);
+    assert.equal(r.status, 0);
+    const { old, fixed } = JSON.parse(r.stdout);
+    // The regression this pins: a repository checked out under a path with a space would lose
+    // its privacy scanner entirely, and lose it quietly.
+    assert.equal(old, false, "the old idiom was expected to fail here — the fixture proves nothing otherwise");
+    assert.equal(fixed, true, "the guard did not fire, so main() would never run");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the direct-entry guard fires through a symlinked directory", () => {
+  const root = mkdtempSync(join(tmpdir(), "entry-link-"));
+  try {
+    const real = join(root, "real");
+    const probe = entryProbe(real);
+    const link = join(root, "link");
+    symlinkSync(real, link);
+    // node resolves argv[1] to an absolute path but does not follow symlinks, while the module
+    // URL is the realpath — so the two disagree for every invocation through the link.
+    const r = runNode([join(link, "probe.mjs")]);
+    assert.equal(r.status, 0);
+    const { old, fixed } = JSON.parse(r.stdout);
+    assert.equal(old, false, "the old idiom was expected to fail here — the fixture proves nothing otherwise");
+    assert.equal(fixed, true, "the guard did not fire through the symlink");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("isDirectEntry says no for an imported module, and never throws", () => {
+  // The other half of the contract: importing a module for its exports must not run its main().
+  assert.equal(isDirectEntry("file:///definitely/not/this/test.mjs"), false);
+  // argv[1] naming something that does not exist must be a false, not a crash — a throwing
+  // guard would make every importer of these modules fail to load.
+  const argv = process.argv[1];
+  try {
+    process.argv[1] = join(tmpdir(), "no-such-file-", String(process.pid), "nope.mjs");
+    assert.equal(isDirectEntry(import.meta.url), false);
+    process.argv[1] = undefined;
+    assert.equal(isDirectEntry(import.meta.url), false);
+  } finally {
+    process.argv[1] = argv;
+  }
+});
+
+test("no module in the repository still uses the silently-failing entry idiom", () => {
+  // A grep as a test, because the bug is invisible at the call site: the broken line and the
+  // correct line look equally reasonable, and the failure mode is a passing exit code.
+  const tracked = execFileSync("git", ["ls-files", "-z", "*.mjs"], { cwd: REPO, encoding: "utf8" })
+    .split("\0")
+    .filter(Boolean);
+  assert.ok(tracked.length > 10, "found suspiciously few tracked modules — the glob is wrong");
+  const offenders = tracked.filter((rel) => {
+    const src = readFileSync(join(REPO, rel), "utf8");
+    return src.includes("file://${process.argv[1]}") && !rel.endsWith("privacy-scan.test.mjs");
+  });
+  assert.deepEqual(offenders, [], `these modules would silently skip main(): ${offenders.join(", ")}`);
+});
+
+test("guarded-commit refuses when the scanner exits 0 without reporting a scan", () => {
+  // Defence in depth for the same class of bug: even if a scanner's own entry guard regressed,
+  // the wrapper must not read a bare exit 0 as "clean". It requires a report of work.
+  const wrapper = join(REPO, "scripts", "guarded-commit.mjs");
+  withTempRepo((repo) => {
+    writeFileSync(join(repo, "seed.txt"), "clean\n");
+    gitIn(repo, ["add", "-A"]);
+    gitIn(repo, ["commit", "-m", "seed"]);
+
+    const silent = join(repo, "silent-scanner.mjs");
+    writeFileSync(silent, "process.exit(0);\n"); // exits clean, scans nothing, says nothing
+    writeFileSync(join(repo, "file.txt"), "content\n");
+    gitIn(repo, ["add", "file.txt"]);
+
+    const r = runNode([wrapper, "-m", "should not land"], {
+      cwd: repo,
+      env: { ...process.env, SPENDBAR_GUARD_REPO: repo, SPENDBAR_GUARD_SCANNER: silent },
+    });
+    assert.notEqual(r.status, 0, "a scanner that reported nothing was accepted as clean");
+    assert.match(r.stderr, /without reporting a completed scan/);
+    assert.ok(
+      !gitIn(repo, ["log", "--oneline"]).includes("should not land"),
+      "the commit landed despite the refusal",
+    );
+  });
+});

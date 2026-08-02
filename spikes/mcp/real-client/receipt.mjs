@@ -49,6 +49,7 @@ import { normalize } from "./normalize.mjs";
 import { CAPTURE_INPUTS, RECEIPT_SCHEMA_VERSION, staleCaptureInputs } from "./provenance.mjs";
 import { sanitize, assertNoPersonalData } from "./sanitize.mjs";
 import { RETAINED_DIR, PROMPT_TEMPLATE, PROMPT_TEMPLATE_SHA256, COMPLETION_MARKER } from "./capture.mjs";
+import { isDirectEntry } from "../../../scripts/direct-entry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EVIDENCE_REAL = join(HERE, "..", "evidence", "real-clients");
@@ -456,4 +457,4 @@ function main() {
 
 // Direct-entry guard: importing this module must not run the receipt tool (which sweeps
 // retained captures and calls process.exit). Same defect class the mutant server carried.
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (isDirectEntry(import.meta.url)) main();

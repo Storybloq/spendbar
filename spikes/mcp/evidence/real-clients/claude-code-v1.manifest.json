@@ -1,16 +1,16 @@
 {
-  "captureId": "claude-code-v1-d8931454",
+  "captureId": "claude-code-v1-223c8ca7",
   "client": "claude-code",
   "candidate": "v1",
   "clientVersion": "2.1.220 (Claude Code)",
   "promptSha256": "132d4baa74ecc6de23889d173bf2314a70fdd92615023a40fbce4f6da1ead2be",
-  "promptInstanceSha256": "b266391b8e84d3ba725cd45678043dcbe740a22632180eed3f4e890675d82c48",
-  "nonce": "t009-21fdbb03627cfdbd",
+  "promptInstanceSha256": "03f3f0830fca263a23d26e438e362c984576bbe5267ca0b847c1c40efa2074eb",
+  "nonce": "t009-c531594cabc5d961",
   "executablePath": "<path:executablePath>",
   "executableIdentity": "sha256:8addc857f3fe64d5a0368af9ee50321b50afb4a6918ba3ef018ab84f5dbbe081",
   "commandLine": [
     "-p",
-    "Call the MCP tool \"spendbar_probe\" exactly once, with the argument object {\"nonce\": \"t009-21fdbb03627cfdbd\"}. Do not call any other tool. Do not repeat, quote, or mention the nonce value anywhere in your reply. After the tool call succeeds, reply with exactly this single line and nothing else: SPENDBAR_PROBE_DONE",
+    "Call the MCP tool \"spendbar_probe\" exactly once, with the argument object {\"nonce\": \"t009-c531594cabc5d961\"}. Do not call any other tool. Do not repeat, quote, or mention the nonce value anywhere in your reply. After the tool call succeeds, reply with exactly this single line and nothing else: SPENDBAR_PROBE_DONE",
     "--strict-mcp-config",
     "--mcp-config",
     "<arg4:path>",
@@ -37,11 +37,12 @@
     "spikes/mcp/candidates/v2/package.json": "9bc6ce15358bbc5ace84ebb88e27b926938da1453657451c1b8ea509d1f015ec",
     "spikes/mcp/candidates/v1/package-lock.json": "ed8fde3e4ba03f1abc84bc64121eada03d47e5f9adc340eb2cafcab76547e30b",
     "spikes/mcp/candidates/v2/package-lock.json": "fa646e3069a4937fab5a5ef9905d461e98a51da9aaac4334e2585ce2d3e85db9",
-    "spikes/mcp/real-client/capture.mjs": "5d9858488f1dfad071fb309a5e75a0ab43419bb234b77fd368cf85e1ae5cb9c5",
+    "spikes/mcp/real-client/capture.mjs": "a54701b4e4a619791acc3e118677351336e5158ee139a7bbb2d5b5db9a593aae",
     "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
     "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
     "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
-    "scripts/privacy-scan.mjs": "146aaf7368bdff60d948418f4b4b8031d8ddb2242797115bf8b5df39ab15a3db",
+    "scripts/direct-entry.mjs": "333a986655f2c74ce4eefd7b1e5c55b8d541d848cbe7c3b2625653b9117ec031",
+    "scripts/privacy-scan.mjs": "a6542a326a387cb6ced346f33aaba5bab500a5a0f5e2402a3a7bbec33709ba09",
     "scripts/privacy-synthetic.json": "15aebfa7b13e598a505f8774c6e49a1fd8c79295c879981cad2e9edbe465d867"
   },
   "candidateTreeSha256": "61ba8ac0da1e899ac8edef782d53a1e993d3fdb6f165aba412e553e7b18aaa45",
@@ -88,8 +89,8 @@
     {
       "type": "response",
       "method": "tools/call",
-      "structuredNonce": "t009-21fdbb03627cfdbd",
-      "text": "probe nonce=t009-21fdbb03627cfdbd blocked=false",
+      "structuredNonce": "t009-c531594cabc5d961",
+      "text": "probe nonce=t009-c531594cabc5d961 blocked=false",
       "isError": false
     }
   ],
@@ -122,12 +123,12 @@
     "truncated": false
   },
   "digests": {
-    "clientToServerSha256": "606c2c7858b50ccb9b22c73bdc9499c06d8c8a237044590c690e42876c6df6fb",
-    "serverStdoutSha256": "d501ba5df0baacb061cb54cf55791822482dba3f1e8bba2393a8b8434f7c9239",
-    "serverStderrSha256": "b0d25685230823cb1684d5a1286c850380f1bf0b0aead1ab83e3eec6f05be393",
+    "clientToServerSha256": "292d18f3503fea9a3a2cb1a75dc0b74bd9a5e6da8b281a24fe1e0a70aa367e9f",
+    "serverStdoutSha256": "86ae096ccafde34e6aa5418204063cf2608a7e9c973e996dd634ee3bc55821f3",
+    "serverStderrSha256": "1139abc9f724bc22764a361d3533f8fcbac6d330e4989610eb1691962e74dac8",
     "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
     "clientStderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "derivationDigest": "1abba7cae68137b70710d2316db8079326b88223c0d6a63bf694fe4f6866dd1b"
+    "derivationDigest": "65aaf3f80988d4ce985df18bc5c6738a36e92f1e52d420c8699efc74e0fed1d8"
   },
   "retries": []
 }

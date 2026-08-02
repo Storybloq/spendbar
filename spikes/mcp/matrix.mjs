@@ -34,6 +34,7 @@ import { inspectClosure, scanInstalledTree } from "./supply-chain.mjs";
 import { measureToolDefinition, sortDeep } from "./token-cost.mjs";
 import { SCRIPTED_CASES } from "./decide.mjs";
 import { BOUND_INPUTS, EVIDENCE_DIR } from "./verify-evidence.mjs";
+import { isDirectEntry } from "../../scripts/direct-entry.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..");
@@ -289,7 +290,7 @@ async function main() {
   process.exit(anyFailed ? 1 : 0);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectEntry(import.meta.url)) {
   try {
     await main();
   } catch (error) {

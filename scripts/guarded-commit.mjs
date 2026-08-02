@@ -28,12 +28,15 @@
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDirectEntry } from "./direct-entry.mjs";
 
 // SPENDBAR_GUARD_REPO exists so tests can point the whole wrapper at a fixture repository and
 // observe the refusal end-to-end. Unset — every real use — it guards this repository.
 const HERE = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const REPO = process.env.SPENDBAR_GUARD_REPO ?? HERE;
-const SCANNER = join(HERE, "scripts", "privacy-scan.mjs");
+// SPENDBAR_GUARD_SCANNER likewise exists only so a test can substitute a scanner that behaves
+// badly on purpose — one that exits 0 having done nothing — and prove this wrapper refuses it.
+const SCANNER = process.env.SPENDBAR_GUARD_SCANNER ?? join(HERE, "scripts", "privacy-scan.mjs");
 
 /**
  * Options that describe the commit without changing WHAT is committed. Anything else — including
@@ -124,6 +127,20 @@ function main(args) {
     process.exit(scan.status ?? 2);
   }
 
+  // Exit 0 is not evidence that anything was scanned. A module whose direct-entry guard does not
+  // fire runs no main() and exits 0 having read nothing, which is byte-for-byte the same signal
+  // as a clean scan (review round 2 found exactly that bug in the guard idiom this repository
+  // used everywhere). So the scanner must SAY what it did, and the count must be non-zero: this
+  // wrapper trusts a report of work, never a bare exit code.
+  const proof = /^privacy-scan: .*?, (\d+) text files, clean$/m.exec(scan.stdout ?? "");
+  if (!proof || Number(proof[1]) === 0) {
+    fail(
+      2,
+      "REFUSED — the scanner exited 0 without reporting a completed scan. An exit code alone " +
+        `cannot distinguish "scanned everything, found nothing" from "never ran".\n${scan.stdout ?? ""}`,
+    );
+  }
+
   // Still the same tree? Something else staging a change while the scan ran would otherwise commit
   // content that was never examined.
   const treeAfter = git(["write-tree"]);
@@ -147,4 +164,4 @@ function main(args) {
 }
 
 // Direct-entry guard: importing this module for its argument allowlist must not commit anything.
-if (import.meta.url === `file://${process.argv[1]}`) main(process.argv.slice(2));
+if (isDirectEntry(import.meta.url)) main(process.argv.slice(2));
