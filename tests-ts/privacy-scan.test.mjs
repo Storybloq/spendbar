@@ -28,6 +28,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { scanText, isSynthetic, decode, scan, CLASSES } from "../scripts/privacy-scan.mjs";
+import { pushRange } from "../scripts/push-range.mjs";
+import { firstContentChangingArg } from "../scripts/guarded-commit.mjs";
 
 const REPO = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const SCANNER = join(REPO, "scripts", "privacy-scan.mjs");
@@ -166,6 +168,27 @@ test("synthetic session ids are matched by anchored pattern, not by prefix", () 
   assert.equal(isSynthetic(cat("019c0000-0000-7000-8000", "-100000000001"), "session-id"), false);
 });
 
+test("email allowlisting is a domain suffix at a label boundary", () => {
+  const email = (local, domain) => cat(local, "@", domain);
+  // A declared domain covers its subdomains: `endsWith("@example.com")` reported every one of
+  // them, and made the reserved TLDs match nothing at all (review round 1, chunk 15).
+  for (const domain of ["example.com", "sub.example.com", "a.b.example.org", "box.test", "thing.invalid", "svc.localhost"]) {
+    assert.deepEqual(scanText(email("someone", domain), "f"), [], `${domain} should be synthetic`);
+  }
+  // The boundary is a label, not a substring: a real domain merely ENDING in a declared one is
+  // not covered.
+  for (const domain of [cat("notexample", ".com"), cat("myexample", ".org"), cat("fake-", "example.net")]) {
+    assert.ok(
+      scanText(email("jdoe", domain), "f").some((f) => f.class === "email"),
+      `${domain} must not be cleared by a suffix that is not a label boundary`,
+    );
+  }
+  // Punycode TLDs are addresses too; `[A-Za-z]{2,}` stopped at the first digit and matched none.
+  assert.ok(scanText(email("jdoe", cat("host.xn--", "p1ai")), "f").some((f) => f.class === "email"));
+  // And a version specifier is still not an address.
+  assert.deepEqual(scanText(cat("sdk", "@1.30.0"), "f"), []);
+});
+
 test("findings name file, line and class and never carry the value", () => {
   const text = ["clean line", `leak here ${REAL_SHAPED["macos-home"]}`, "clean again"].join("\n");
   const [finding, ...rest] = scanText(text, "some/file.md");
@@ -230,6 +253,39 @@ test("UTF-16 is decoded in both byte orders, and a malformed one is reported", (
   // An odd-length body is not valid UTF-16; decoding it anyway would silently drop a byte.
   const odd = Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from([0x41])]);
   assert.equal(decode(odd).malformed, true);
+});
+
+test("invalid UTF-8 is reported, never repaired into a scan that missed the value", () => {
+  // Lossy decoding substitutes U+FFFD for the bad byte, which SPLITS the value: the file is then
+  // counted as successfully scanned and the personal path it contains matches nothing. Nothing
+  // here failed while the decoder was lossy, which is why the guarantee needed its own fixtures
+  // (review round 1, chunk 15).
+  const invalid = Buffer.from([0x80]); // a continuation byte with nothing to continue
+  for (const [label, payload] of [
+    ["a home path", REAL_SHAPED["macos-home"]],
+    ["an address", REAL_SHAPED.email],
+  ]) {
+    const half = Math.floor(payload.length / 2);
+    const buf = Buffer.concat([
+      Buffer.from(`leak ${payload.slice(0, half)}`, "utf8"),
+      invalid,
+      Buffer.from(`${payload.slice(half)}\n`, "utf8"),
+    ]);
+    const decoded = decode(buf);
+    assert.equal(decoded.malformed, true, `${label}: an invalid byte was decoded away instead of reported`);
+    assert.equal(decoded.text, undefined, `${label}: a file that cannot be decoded has no text`);
+  }
+
+  // Valid UTF-8 with multibyte content still decodes, so the strictness is not a blanket refusal.
+  assert.equal(decode(Buffer.from("é中🙂 clean\n", "utf8")).text, "é中🙂 clean\n");
+
+  withTempDir((dir) => {
+    writeFileSync(join(dir, "ok.txt"), "clean\n");
+    writeFileSync(join(dir, "broken.txt"), Buffer.concat([Buffer.from("leak "), invalid, Buffer.from("\n")]));
+    const r = run(["--mode=dir", `--dir=${dir}`]);
+    assert.equal(r.status, 1, "an undecodable file must be a finding, not a silent success");
+    assert.match(r.stderr, /broken\.txt:0\s+\[malformed-encoding\]/);
+  });
 });
 
 test("an unscannable binary is reported, not silently skipped", () => {
@@ -327,6 +383,64 @@ test("worktree mode covers untracked files, deletions and symlinks", () => {
   });
 });
 
+test("a TRACKED file under a skipped directory is still scanned", () => {
+  // The skip list is about where an untracked-file walk should not go. Applying it to tracked
+  // paths as well dropped files that `git add -A` would still stage — a domain the mode claims
+  // and did not cover, and no fixture noticed (review round 1, chunk 15).
+  withTempRepo((repo) => {
+    mkdirSync(join(repo, "node_modules", "inner"), { recursive: true });
+    writeFileSync(join(repo, "node_modules", "inner", "vendored.js"), "clean\n");
+    writeFileSync(join(repo, "keep.txt"), "clean\n");
+    gitIn(repo, ["add", "-A", "-f"]);
+    gitIn(repo, ["commit", "-m", "seed with a vendored file"]);
+
+    writeFileSync(join(repo, "node_modules", "inner", "vendored.js"), `${REAL_SHAPED["macos-home"]}\n`);
+    assert.ok(
+      scan({ mode: "worktree", repo }).findings.some((f) => f.path === "node_modules/inner/vendored.js"),
+      "a tracked file under a skipped directory was not scanned",
+    );
+
+    // Untracked content under the same directory stays out of scope: that is what the skip list
+    // is for, and the two cases must not be conflated.
+    writeFileSync(join(repo, "node_modules", "inner", "stray.js"), `${REAL_SHAPED.email}\n`);
+    assert.equal(
+      scan({ mode: "worktree", repo }).findings.some((f) => f.path === "node_modules/inner/stray.js"),
+      false,
+    );
+  });
+});
+
+test("a file swapped for a symlink between classification and read is a hard error", () => {
+  // The no-follow guarantee is about a WINDOW, and every other symlink test uses a link that was
+  // already a link when the scan classified it — so O_NOFOLLOW could have been deleted with the
+  // suite green. `beforeRead` opens the window deliberately (review round 1, chunk 15).
+  withTempDir((dir) => {
+    const outside = join(dir, "outside.txt");
+    writeFileSync(outside, `${REAL_SHAPED["macos-home"]}\n`);
+    const root = join(dir, "root");
+    mkdirSync(root);
+    writeFileSync(join(root, "a.txt"), "clean\n");
+
+    assert.throws(
+      () =>
+        scan({
+          mode: "dir",
+          dir: root,
+          beforeRead: (entry) => {
+            if (!entry.path.endsWith("a.txt")) return;
+            rmSync(entry.full);
+            symlinkSync(outside, entry.full);
+          },
+        }),
+      /changed type during the scan/,
+    );
+
+    // The control: without the swap the same file scans normally, so the refusal above is the
+    // race and not the fixture.
+    assert.deepEqual(scan({ mode: "dir", dir: root }).findings, []);
+  });
+});
+
 test("the config declares synthetic conventions only — there is no exemption mechanism", () => {
   // T-024 criterion 7 requires the exemption set to be EMPTY. Stronger than empty: the set does
   // not exist. Every key in the config declares a synthetic convention; none names a real value
@@ -389,6 +503,83 @@ test("guarded-commit refuses a staged leak and commits a clean stage (fixture re
   });
 });
 
+test("guarded-commit commits the tree it scanned, and nothing else", () => {
+  // Scanning the index and then handing arbitrary arguments to `git commit` is not a gate: -a,
+  // --include, --only and a bare pathspec all build the commit from worktree content the scan
+  // never saw. The old wrapper forwarded every one of them (review round 1, chunk 15).
+  for (const args of [
+    ["-a", "-m", "x"],
+    ["--all", "-m", "x"],
+    ["-m", "x", "--include", "leak.md"],
+    ["--only", "-m", "x"],
+    ["-m", "x", "leak.md"],
+    ["-m", "x", "--", "leak.md"],
+    ["-m", "x", "--pathspec-from-file=list"],
+    ["-p", "-m", "x"],
+  ]) {
+    assert.ok(firstContentChangingArg(args) !== null, `${args.join(" ")} must be refused`);
+  }
+  // Metadata options, in every spelling git accepts, must still be usable.
+  for (const args of [
+    ["-m", "message"],
+    ["--message=message"],
+    ["-m", "message", "--author", "A <a@example.com>"],
+    ["--amend", "--no-edit"],
+    ["-q", "-s", "-m", "message"],
+    // The value of -m is consumed, so a message that looks like a pathspec is not one.
+    ["-m", "leak.md"],
+  ]) {
+    assert.equal(firstContentChangingArg(args), null, `${args.join(" ")} must be allowed`);
+  }
+});
+
+test("guarded-commit refuses the unsafe paths end to end", () => {
+  const wrapper = join(REPO, "scripts", "guarded-commit.mjs");
+  const guardIn = (repo, args, env = {}) =>
+    runNode([wrapper, ...args], { cwd: repo, env: { ...process.env, SPENDBAR_GUARD_REPO: repo, ...env } });
+
+  withTempRepo((repo) => {
+    writeFileSync(join(repo, "seed.txt"), "clean\n");
+    gitIn(repo, ["add", "-A"]);
+    gitIn(repo, ["commit", "-m", "seed"]);
+
+    // A leak on disk that is NOT staged: the index is clean, so an index-domain guard commits —
+    // and `-a` would have swept the leak in. The refusal is what proves the domain.
+    writeFileSync(join(repo, "seed.txt"), `${REAL_SHAPED["macos-home"]}\n`);
+    const swept = guardIn(repo, ["-a", "-m", "sweep it in"]);
+    assert.equal(swept.status, 2, "-a must be refused, not scanned-then-obeyed");
+    assert.match(swept.stderr, /REFUSED/);
+    assert.equal(gitIn(repo, ["log", "--format=%s", "-1"]).trim(), "seed", "no commit may have been made");
+
+    // A pre-commit hook that stages a leak after the scan has run. The wrapper is the pre-commit
+    // verification, so it does not let another one race it.
+    gitIn(repo, ["checkout", "--", "seed.txt"]);
+    writeFileSync(join(repo, "clean.txt"), "clean\n");
+    gitIn(repo, ["add", "-A"]);
+    const hooks = gitIn(repo, ["rev-parse", "--git-path", "hooks"]).trim();
+    mkdirSync(join(repo, hooks), { recursive: true });
+    const hook = join(repo, hooks, "pre-commit");
+    writeFileSync(hook, `#!/bin/sh\nprintf '%s\\n' "${REAL_SHAPED["linux-home"]}" > hooked.txt\ngit add hooked.txt\n`);
+    chmodSync(hook, 0o755);
+    assert.equal(guardIn(repo, ["-m", "clean with a hostile hook"]).status, 0);
+    const tree = gitIn(repo, ["ls-tree", "--name-only", "HEAD"]).split("\n");
+    assert.equal(tree.includes("hooked.txt"), false, "a hook staged content into the vouched-for commit");
+  });
+
+  withTempRepo((repo) => {
+    // A subprocess that cannot be launched reports `status: null`, and `process.exit(null)` exits
+    // ZERO. This drives that path by making `git` unfindable; the scanner runs from an absolute
+    // path and so cannot be broken the same way, but the failure mode and its handling are the
+    // same one — a spawn error is checked before a status is believed.
+    writeFileSync(join(repo, "f.txt"), "clean\n");
+    gitIn(repo, ["add", "-A"]);
+    const broken = guardIn(repo, ["-m", "x"], { PATH: "" });
+    assert.equal(broken.status, 2, "a guard whose subprocess cannot launch must exit nonzero");
+    assert.match(broken.stderr, /could not run/);
+    assert.throws(() => gitIn(repo, ["rev-parse", "HEAD"]), "nothing may have been committed");
+  });
+});
+
 test("per-commit enumeration catches a leak introduced and removed within one push", () => {
   // The CI workflow scans EVERY commit in the push range with --mode=commit, because a
   // two-commit push can leak in the first commit and scrub in the second: auditing the
@@ -405,11 +596,82 @@ test("per-commit enumeration catches a leak introduced and removed within one pu
     // The tip is clean — exactly why tip-auditing is insufficient.
     assert.deepEqual(scan({ mode: "commit", rev: "HEAD", repo }).findings, []);
 
-    // The workflow's enumeration: every commit in the range, individually.
-    const commits = gitIn(repo, ["rev-list", "HEAD"]).trim().split("\n");
+    // The workflow's OWN enumeration, not a hand-rolled `rev-list HEAD` that happens to agree
+    // with it: running something adjacent to the algorithm proves nothing about the algorithm
+    // (review round 1, chunk 15).
+    const head = gitIn(repo, ["rev-parse", "HEAD"]).trim();
+    const commits = pushRange({ before: "", after: head, ref: "refs/heads/main", repo });
     assert.equal(commits.length, 2);
     const dirty = commits.filter((sha) => scan({ mode: "commit", rev: sha, repo }).findings.length > 0);
     assert.equal(dirty.length, 1, "the intermediate leaking commit must be caught");
+  });
+});
+
+test("the push range is every introduced commit, in every push shape", () => {
+  withTempRepo((repo) => {
+    const sha = (rev) => gitIn(repo, ["rev-parse", rev]).trim();
+    const commit = (name) => {
+      writeFileSync(join(repo, `${name}.txt`), `${name}\n`);
+      gitIn(repo, ["add", "-A"]);
+      gitIn(repo, ["commit", "-m", name]);
+      return sha("HEAD");
+    };
+    gitIn(repo, ["symbolic-ref", "HEAD", "refs/heads/main"]);
+    const base = commit("base");
+    const first = commit("first");
+    const second = commit("second");
+
+    // An ordinary push: exactly the two new commits, and not the one that was already there.
+    assert.deepEqual(pushRange({ before: base, after: second, ref: "refs/heads/main", repo }).sort(), [first, second].sort());
+
+    // A NEW BRANCH, two commits of its own beyond what main already carries. `before` is all
+    // zeros, so the range is everything reachable from the tip and from no OTHER ref.
+    gitIn(repo, ["checkout", "-q", "-b", "feature", base]);
+    const featureA = commit("feature-a");
+    const featureB = commit("feature-b");
+    const expected = [featureA, featureB].sort();
+    assert.deepEqual(
+      pushRange({ before: "0".repeat(40), after: featureB, ref: "refs/heads/feature", repo }).sort(),
+      expected,
+      "a new branch must audit its own commits and not main's",
+    );
+
+    // The regression this module was written for: right after a push the branch ALSO exists as a
+    // remote-tracking ref, so an exclusion set that removes only one spelling subtracts the push
+    // from its own range and collapses to the tip.
+    gitIn(repo, ["update-ref", "refs/remotes/origin/feature", featureB]);
+    const newBranch = pushRange({ before: "0".repeat(40), after: featureB, ref: "refs/heads/feature", repo });
+    assert.deepEqual(newBranch.sort(), expected, `a multi-commit new branch collapsed to ${newBranch.length} commit(s)`);
+
+    // A FORCE PUSH: `before` names a commit this repository no longer has.
+    const gone = "0123456789abcdef0123456789abcdef01234567";
+    assert.deepEqual(pushRange({ before: gone, after: featureB, ref: "refs/heads/feature", repo }).sort(), expected);
+
+    // Commits already reachable from another ref are not re-audited — they were audited when
+    // that ref was pushed — and the tip alone is then the honest answer.
+    gitIn(repo, ["update-ref", "refs/heads/mirror", featureB]);
+    assert.deepEqual(pushRange({ before: "", after: featureB, ref: "refs/heads/feature", repo }), [featureB]);
+  });
+});
+
+test("push-range refuses to resolve an empty range rather than passing vacuously", () => {
+  withTempRepo((repo) => {
+    writeFileSync(join(repo, "f.txt"), "clean\n");
+    gitIn(repo, ["add", "-A"]);
+    gitIn(repo, ["commit", "-m", "seed"]);
+    const head = gitIn(repo, ["rev-parse", "HEAD"]).trim();
+
+    // before === after is a push that introduced nothing. The range is empty; the SCRIPT must
+    // exit 2 rather than print nothing and let the caller's loop run zero times.
+    assert.deepEqual(pushRange({ before: head, after: head, ref: "refs/heads/main", repo }), []);
+    const r = runNode([join(REPO, "scripts", "push-range.mjs"), `--before=${head}`, `--after=${head}`, `--repo=${repo}`]);
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /refusing to report an empty audit range/);
+
+    // And the tip alone is still a valid answer when the tip really is all there is.
+    const ok = runNode([join(REPO, "scripts", "push-range.mjs"), "--before=", `--after=${head}`, `--repo=${repo}`]);
+    assert.equal(ok.status, 0);
+    assert.equal(ok.stdout.trim(), head);
   });
 });
 
@@ -439,11 +701,16 @@ function gitIn(cwd, args) {
 }
 
 function run(args) {
+  return runNode([SCANNER, ...args]);
+}
+
+function runNode(argv, options = {}) {
   try {
-    const stdout = execFileSync(process.execPath, [SCANNER, ...args], {
+    const stdout = execFileSync(process.execPath, argv, {
       cwd: REPO,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      ...options,
     });
     return { status: 0, stdout, stderr: "" };
   } catch (error) {

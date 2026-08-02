@@ -37,7 +37,7 @@
 // exact equality or a fully anchored pattern — never by prefix. See scripts/privacy-synthetic.json.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync, lstatSync, readlinkSync, existsSync } from "node:fs";
+import { closeSync, constants as fsConstants, openSync, readFileSync, readdirSync, lstatSync, readlinkSync, existsSync } from "node:fs";
 import { extname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -56,7 +56,11 @@ const BINARY_EXT = new Set(SYNTHETIC.binaryExtensions.map((e) => e.toLowerCase()
 
 // `group` is the capture holding the part that identifies a person or session; 0 = whole match.
 export const CLASSES = [
-  { name: "email", re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, group: 0 },
+  // The TLD may contain digits and hyphens after its first letter, so an internationalized
+  // (punycode) domain is matched rather than skipped — `[A-Za-z]{2,}` stopped at the first digit
+  // and let an entire class of real address through (review round 1, chunk 14). A leading letter
+  // is still required, which is what keeps package specifiers like `sdk@1.30.0` out.
+  { name: "email", re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z0-9-]+\b/g, group: 0 },
   { name: "macos-home", re: /\/Users\/([A-Za-z0-9._-]+)/gi, group: 1 },
   { name: "linux-home", re: /\/home\/([A-Za-z0-9._-]+)/gi, group: 1 },
   // Case-insensitive and either slash direction: Windows paths are case-insensitive, and tooling
@@ -80,7 +84,14 @@ const DIR_SKIP_DIRS = new Set([".git"]);
 
 export function isSynthetic(value, className) {
   const v = value.toLowerCase();
-  if (className === "email") return SYNTHETIC.emailDomains.some((d) => v.endsWith(`@${d}`));
+  if (className === "email") {
+    // Suffix match on the DOMAIN, at a label boundary. `endsWith("@example.com")` cleared the bare
+    // domain and reported every subdomain of it, and it made the RFC 2606 reserved TLDs
+    // (.test, .invalid, .localhost) dead config — those are TLDs and never appear as a whole
+    // domain, so nothing could ever match them (review round 1, chunk 14).
+    const domain = v.slice(v.lastIndexOf("@") + 1);
+    return SYNTHETIC.emailDomains.some((d) => domain === d || domain.endsWith(`.${d}`));
+  }
   if (className === "session-id") return SESSION_OK.some((re) => re.test(v));
   if (className === "workflow-id") return WORKFLOW_OK.some((re) => re.test(v));
   // Claude Code's project-directory mangling is LOSSY: the hyphen is both the separator and a legal
@@ -115,10 +126,21 @@ export function scanText(text, path) {
   return findings;
 }
 
+// Fatal, deliberately. `buf.toString("utf8")` substitutes U+FFFD for an invalid sequence, so a
+// file with one bad byte inside a home path or an address was counted as successfully scanned
+// while the replacement character split the match in half (review round 1, chunk 14). A file
+// this cannot decode is reported, not read approximately.
+const UTF8_STRICT = new TextDecoder("utf-8", { fatal: true });
+
 /**
  * Decode a buffer as text, or report that it cannot be. UTF-16 is decoded rather than dismissed as
  * binary: its ASCII content is NUL-interleaved, so a naive NUL check would skip a file full of
  * readable personal data.
+ *
+ * The UTF-16 path checks only that the body has an even length. Lone surrogates are decoded to
+ * replacement characters rather than refused, because JavaScript strings admit them legitimately
+ * and a tool that writes one is not producing an undecodable file; the UTF-8 path has no such
+ * excuse, and is strict.
  */
 export function decode(buf) {
   if (buf.length >= 2) {
@@ -136,7 +158,11 @@ export function decode(buf) {
     }
   }
   if (buf.includes(0)) return { binary: true };
-  return { text: buf.toString("utf8") };
+  try {
+    return { text: UTF8_STRICT.decode(buf) };
+  } catch {
+    return { malformed: true };
+  }
 }
 
 const git = (repo, args) => execFileSync("git", args, { cwd: repo, maxBuffer: 1 << 28 });
@@ -166,11 +192,16 @@ const indexEntries = (repo) =>
  * before it becomes tracked; and a deleted tracked path is not staged as content at all.
  */
 function worktreeEntries(repo) {
-  const paths = new Set(
-    zsplit(git(repo, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])),
+  // TRACKED paths are kept unconditionally. Applying the skip list to them dropped tracked files
+  // living under a skipped directory — which `git add -A` would still stage, so the scan claimed
+  // a domain it did not cover (review round 1, chunk 14). The skip list is about where an
+  // untracked-file WALK has no business going, so that is the only set it filters.
+  const tracked = zsplit(git(repo, ["ls-files", "--cached", "-z"]));
+  const untracked = zsplit(git(repo, ["ls-files", "--others", "--exclude-standard", "-z"])).filter(
+    (p) => !p.split("/").some((seg) => REPO_SKIP_DIRS.has(seg)),
   );
+  const paths = new Set([...tracked, ...untracked]);
   return [...paths]
-    .filter((p) => !p.split("/").some((seg) => REPO_SKIP_DIRS.has(seg)))
     .map((path) => ({ path, full: join(repo, path) }))
     .filter((e) => existsSync(e.full) || isLink(e.full))
     .map((e) => (isLink(e.full) ? { ...e, symlink: true } : e));
@@ -183,6 +214,22 @@ function isLink(full) {
     return lstatSync(full).isSymbolicLink();
   } catch {
     return false;
+  }
+}
+
+/**
+ * Read a file on disk without following a symlink — including one substituted between the moment
+ * the entry was classified and the moment it is read. lstat-then-readFileSync leaves that window
+ * open, and reading through a link put there in the meantime is exactly the "never follow a link
+ * out of the tree" guarantee this scanner states (review round 1, chunk 14). O_NOFOLLOW closes it
+ * at the syscall, where there is no window at all.
+ */
+function readNoFollow(full) {
+  const fd = openSync(full, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    return readFileSync(fd);
+  } finally {
+    closeSync(fd);
   }
 }
 
@@ -204,7 +251,13 @@ function walk(root, skipDirs) {
   return out.map((e) => ({ ...e, path: relative(root, e.full).split(sep).join("/") }));
 }
 
-export function scan({ mode, dir, rev, repo = DEFAULT_REPO }) {
+/**
+ * `beforeRead` exists for one reason: the no-follow guarantee is about a race, and a race that
+ * cannot be provoked cannot be tested. It is called with each on-disk entry immediately before it
+ * is opened, so a test can swap a classified regular file for a symlink in exactly the window the
+ * guarantee covers (review round 1, chunk 15). No production caller passes it.
+ */
+export function scan({ mode, dir, rev, repo = DEFAULT_REPO, beforeRead = null }) {
   let entries;
   if (mode === "dir") entries = walk(dir, DIR_SKIP_DIRS);
   else if (mode === "worktree") entries = worktreeEntries(repo);
@@ -225,7 +278,19 @@ export function scan({ mode, dir, rev, repo = DEFAULT_REPO }) {
       scannedText++;
       continue;
     }
-    const buf = entry.sha ? git(repo, ["cat-file", "blob", entry.sha]) : readFileSync(entry.full);
+    let buf;
+    if (entry.sha) {
+      buf = git(repo, ["cat-file", "blob", entry.sha]);
+    } else {
+      try {
+        if (beforeRead) beforeRead(entry);
+        buf = readNoFollow(entry.full);
+      } catch (error) {
+        // ELOOP: it was a regular file when it was classified and is a link now. Continuing would
+        // mean reporting on whatever the link points at, so the scan stops instead.
+        throw new Error(`privacy-scan: ${entry.path} changed type during the scan (${error.code ?? error.message})`);
+      }
+    }
     const decoded = decode(buf);
     if (decoded.malformed) {
       findings.push({ path: entry.path, line: 0, class: "malformed-encoding" });

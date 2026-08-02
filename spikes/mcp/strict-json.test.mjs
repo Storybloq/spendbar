@@ -12,7 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseStrictJson, JsonSyntaxError, MAX_DEPTH } from "./strict-json.mjs";
+import { parseStrictJson, JsonSyntaxError, MAX_DEPTH, MAX_INPUT_CHARS } from "./strict-json.mjs";
 
 /** JSON.parse's verdict, as data. */
 function reference(text) {
@@ -33,14 +33,35 @@ function subject(text) {
   }
 }
 
-/** Structural equality that ignores prototype differences (the parser returns null-proto). */
-const plain = (v) => JSON.parse(JSON.stringify(v ?? null));
+/**
+ * Structural equality that ignores prototype differences (the parser returns null-proto) and
+ * compares primitives with Object.is.
+ *
+ * It used to round-trip both sides through JSON.stringify, which erases exactly the distinctions
+ * a numeric parser can get wrong: -0 serializes as 0, so the `-0` fixture passed whether or not
+ * the parser preserved the sign (review round 1, chunk 14).
+ */
+function assertSameValue(got, want, path = "$") {
+  if (Array.isArray(want) || Array.isArray(got)) {
+    assert.ok(Array.isArray(got) && Array.isArray(want), `${path}: only one side is an array`);
+    assert.equal(got.length, want.length, `${path}: array length`);
+    for (let i = 0; i < want.length; i++) assertSameValue(got[i], want[i], `${path}[${i}]`);
+    return;
+  }
+  if (want !== null && typeof want === "object") {
+    assert.ok(got !== null && typeof got === "object", `${path}: expected an object`);
+    assert.deepEqual(Object.keys(got).sort(), Object.keys(want).sort(), `${path}: own key sets differ`);
+    for (const key of Object.keys(want)) assertSameValue(got[key], want[key], `${path}.${key}`);
+    return;
+  }
+  assert.ok(Object.is(got, want), `${path}: ${String(got)} is not ${String(want)}`);
+}
 
 function assertAgrees(text, label = text) {
   const ref = reference(text);
   const got = subject(text);
   assert.equal(got.ok, ref.ok, `acceptance disagrees with JSON.parse for ${label}`);
-  if (ref.ok) assert.deepEqual(plain(got.value), plain(ref.value), `value disagrees for ${label}`);
+  if (ref.ok) assertSameValue(got.value, ref.value, `value for ${label}`);
 }
 
 // --- the accepted grammar ------------------------------------------------------------------
@@ -61,6 +82,16 @@ const VALID = [
   "1e-3",
   "-1.5e-3",
   "123456789012345678901234567890",
+  // Numeric edges where a hand-rolled scanner and JSON.parse can legitimately disagree: overflow
+  // to Infinity, underflow to zero, and the integers either side of IEEE-754's exact range.
+  "1e400",
+  "-1e400",
+  "1e-400",
+  "-1e-400",
+  "9007199254740993",
+  "-9007199254740993",
+  "0.1",
+  "1.0000000000000002",
   '""',
   '"plain"',
   '"with \\" quote"',
@@ -142,17 +173,50 @@ test("every truncation length of a unicode escape is rejected", () => {
 
 // --- the ONE intended divergence -------------------------------------------------------------
 
+/**
+ * Every duplicate refusal is checked for its TYPE as well as its message. The duplicate tests
+ * bypass `subject()`, so without this a parser that threw a bare Error for duplicates — and so
+ * escaped the verifier's `catch (e) { if (!(e instanceof JsonSyntaxError)) throw e }` handling —
+ * satisfied every assertion here (review round 1, chunk 14).
+ */
+const isDuplicate = (key) => (error) =>
+  error instanceof JsonSyntaxError && error.message.includes(`duplicate key '${key}'`);
+
 test("a duplicated key is refused — the one place this parser differs from JSON.parse", () => {
   const text = '{"a":1,"a":2}';
   assert.equal(reference(text).ok, true, "JSON.parse is supposed to accept this (last wins)");
   assert.equal(JSON.parse(text).a, 2, "the silent last-wins behavior this parser exists to refuse");
-  assert.throws(() => parseStrictJson(text), /duplicate key 'a'/);
+  assert.throws(() => parseStrictJson(text), isDuplicate("a"));
 });
 
 test("duplicate detection reaches nested objects and repeated keys inside arrays", () => {
-  assert.throws(() => parseStrictJson('{"outer":{"b":1,"b":2}}'), /duplicate key 'b'/);
-  assert.throws(() => parseStrictJson('[{"c":1,"c":2}]'), /duplicate key 'c'/);
+  assert.throws(() => parseStrictJson('{"outer":{"b":1,"b":2}}'), isDuplicate("b"));
+  assert.throws(() => parseStrictJson('[{"c":1,"c":2}]'), isDuplicate("c"));
   assert.doesNotThrow(() => parseStrictJson('[{"c":1},{"c":2}]'), "distinct objects may share key names");
+});
+
+test("duplicate identity is decided after escape decoding, not on how the key was spelled", () => {
+  // The gap a textual pre-scan leaves: two keys that differ as source but are the same string
+  // once decoded. JSON.parse collapses them silently, which is the whole reason this parser
+  // exists — so it must refuse them however they were written (review round 1, chunk 14).
+  for (const [text, key] of [
+    ['{"a":1,"\\u0061":2}', "a"],
+    ['{"\\u0061":1,"a":2}', "a"],
+    ['{"a-b":1,"a\\u002db":2}', "a-b"],
+    ['{"sla\\\\sh":1,"sla\\u005csh":2}', "sla\\sh"],
+    ['{"\\ud83d\\ude00":1,"\\uD83D\\uDE00":2}', "\u{1f600}"],
+  ]) {
+    assert.equal(Object.keys(JSON.parse(text)).length, 1, `JSON.parse should collapse ${text}`);
+    assert.throws(() => parseStrictJson(text), isDuplicate(key), `not refused: ${text}`);
+  }
+});
+
+test("key-shaped text inside a string VALUE is not a duplicate", () => {
+  // The opposite failure of the same textual pre-scan: refusing a document because its DATA
+  // contains something that looks like a repeated key.
+  assertAgrees('{"a":"\\"a\\": 1, \\"a\\": 2"}', "a value quoting a duplicated key");
+  assertAgrees('{"a":1,"b":"a"}', "a value equal to another key");
+  assertAgrees('{"outer":{"b":1},"other":"{\\"b\\":1,\\"b\\":2}"}', "a value quoting a whole object");
 });
 
 // --- prototype pollution ----------------------------------------------------------------------
@@ -164,12 +228,13 @@ test("a __proto__ key becomes an ordinary own property, not a prototype mutation
   const parsed = parseStrictJson('{"__proto__":{"status":"pass"}}');
   assert.deepEqual(Object.keys(parsed), ["__proto__"], "__proto__ is not an own enumerable key");
   assert.equal(Object.getPrototypeOf(parsed), null, "the accumulator kept a null prototype");
-  assert.equal(plain(parsed.__proto__).status, "pass", "the parsed value was lost");
+  assert.equal(parsed.__proto__.status, "pass", "the parsed value was lost");
   assert.equal({}.status, undefined, "Object.prototype was polluted");
 });
 
 test("a duplicated __proto__ key is caught like any other duplicate", () => {
-  assert.throws(() => parseStrictJson('{"__proto__":1,"__proto__":2}'), /duplicate key '__proto__'/);
+  assert.throws(() => parseStrictJson('{"__proto__":1,"__proto__":2}'), isDuplicate("__proto__"));
+  assert.throws(() => parseStrictJson('{"__proto__":1,"__prot\\u006f__":2}'), isDuplicate("__proto__"));
 });
 
 test("constructor and prototype keys are ordinary own properties too", () => {
@@ -195,6 +260,20 @@ test("nesting past the documented depth fails as a JsonSyntaxError, never a Rang
   // The positive control: just inside the limit still parses, so the guard is not vacuous.
   const justInside = "[".repeat(MAX_DEPTH) + "]".repeat(MAX_DEPTH);
   assert.doesNotThrow(() => parseStrictJson(justInside));
+});
+
+test("an input past the documented size bound is refused, and the bound is not the depth guard", () => {
+  // MAX_INPUT_CHARS was exported and documented but never tested, so removing the guard
+  // altogether left this suite green while the verifier stayed open to an oversized file
+  // (review round 1, chunk 14). Both fixtures are FLAT — nesting cannot be what rejects them.
+  const overLimit = `"${"a".repeat(MAX_INPUT_CHARS)}"`;
+  assert.throws(
+    () => parseStrictJson(overLimit),
+    (e) => e instanceof JsonSyntaxError && /exceeds/.test(e.message),
+  );
+  const atLimit = `"${"a".repeat(MAX_INPUT_CHARS - 2)}"`;
+  assert.equal(atLimit.length, MAX_INPUT_CHARS, "the positive control must sit exactly on the bound");
+  assert.equal(parseStrictJson(atLimit).length, MAX_INPUT_CHARS - 2);
 });
 
 test("non-string input is refused rather than coerced", () => {

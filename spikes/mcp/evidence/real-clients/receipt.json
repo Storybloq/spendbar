@@ -1,17 +1,17 @@
 [
   {
     "schemaVersion": "receipt/3",
-    "captureId": "claude-code-v1-5490512f",
+    "captureId": "claude-code-v1-d8931454",
     "client": "claude-code",
     "candidate": "v1",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "437dca43ac65b485689840e7e17814b21b07d482cb9c4101c45744437cfab0ef",
-      "serverStdoutSha256": "33d466ec4539f73a0ff8be37a54cfc13bd5ff1d4ed69dc55fa73f89bcac04298",
-      "serverStderrSha256": "61552ad26ebfbf5cbe039cde611082110c1078beccaae706ea8ead22117ec0ac",
+      "clientToServerSha256": "606c2c7858b50ccb9b22c73bdc9499c06d8c8a237044590c690e42876c6df6fb",
+      "serverStdoutSha256": "d501ba5df0baacb061cb54cf55791822482dba3f1e8bba2393a8b8434f7c9239",
+      "serverStderrSha256": "b0d25685230823cb1684d5a1286c850380f1bf0b0aead1ab83e3eec6f05be393",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
       "clientStderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "derivationDigest": "7c93dbb21532595e8d34658486c545fef2f7bea500f75f921739ee5be9b8f9a9"
+      "derivationDigest": "1abba7cae68137b70710d2316db8079326b88223c0d6a63bf694fe4f6866dd1b"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -46,25 +46,25 @@
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
       "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
       "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
-      "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
-      "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
+      "scripts/privacy-scan.mjs": "146aaf7368bdff60d948418f4b4b8031d8ddb2242797115bf8b5df39ab15a3db",
+      "scripts/privacy-synthetic.json": "15aebfa7b13e598a505f8774c6e49a1fd8c79295c879981cad2e9edbe465d867"
     },
     "candidateTreeSha256": "61ba8ac0da1e899ac8edef782d53a1e993d3fdb6f165aba412e553e7b18aaa45",
     "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
   },
   {
     "schemaVersion": "receipt/3",
-    "captureId": "claude-code-v2-b7caaf29",
+    "captureId": "claude-code-v2-c996a0e8",
     "client": "claude-code",
     "candidate": "v2",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "e24d46cb73423725f85f0c3e542e05a0db36a6fe5b8a43f0bc694c4913281585",
-      "serverStdoutSha256": "5c2be411f61da3391604e51537bf6a43885ebe258e76532980c462afe498602f",
-      "serverStderrSha256": "9c321f406454827a5e2f888a049792117526676dbb4ade5375ee428337ffa8fe",
+      "clientToServerSha256": "de7e60d5c6b22b96943215c24c6cc91cb5388e7fb3f6e3efc4ddfc20803243d8",
+      "serverStdoutSha256": "5da3b8c444167c4cdb954ddaca461b39ee60ad2b4f7a5fc2170470195dc3fc8a",
+      "serverStderrSha256": "33877b87d4b274ba1045c87e98f7df578664a404f170aaa6cce2aafb6f5fda5f",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
       "clientStderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "derivationDigest": "7b88e81e213476849ef265f6dfb943c31918515e0042745c5a412f8bb41efcd9"
+      "derivationDigest": "7cd1f2f810fc5f9290ca8dc453c418070d23e70b29696f34c99e4dfc3da11311"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -99,25 +99,25 @@
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
       "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
       "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
-      "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
-      "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
+      "scripts/privacy-scan.mjs": "146aaf7368bdff60d948418f4b4b8031d8ddb2242797115bf8b5df39ab15a3db",
+      "scripts/privacy-synthetic.json": "15aebfa7b13e598a505f8774c6e49a1fd8c79295c879981cad2e9edbe465d867"
     },
     "candidateTreeSha256": "9fc50349e6b8cc6b757efa5968cc33a8cc155f412d1af08335f88fb3162f57a9",
     "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
   },
   {
     "schemaVersion": "receipt/3",
-    "captureId": "codex-v1-8f177450",
+    "captureId": "codex-v1-82193916",
     "client": "codex",
     "candidate": "v1",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "c14164077e73328826018edf409d692d7584b97317567cb0739f68b431d32be0",
-      "serverStdoutSha256": "d466e026c7085fec5a42f4ace18fa8d02c2fd0fc88a591e642afd2432027217a",
-      "serverStderrSha256": "63734531677386d6ba4cf71d3febd3a0fe23b3231259a17c494e96597dc8a1fa",
+      "clientToServerSha256": "8ae0dfd28e0a8594cb389c61a3f28872c68c160aa631f061512b65b18191dfb3",
+      "serverStdoutSha256": "87fe960524e4f7d2997469a5bae51600bc6e7669e8276614f5208d4d32c61abc",
+      "serverStderrSha256": "dfd1620ac366ab1c67e551717fd92e14700de60f95505f7fe08fd6563ffde438",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
-      "clientStderrSha256": "1e50bbc00773f057b1242104e940585672ede38dcb98950ca5a88727b1b5e141",
-      "derivationDigest": "8a7ba89c5511c74f2a4d95e29f32ee89fcfa270933da7ec7851c161612cb5146"
+      "clientStderrSha256": "08e04c8567f3ab9f0522832c1e18883ab3672c9247f3198cfecfdf8b39974880",
+      "derivationDigest": "2526bc0d338dc42d9c8ca4714b43b04aadddbec044108cd44ed126ee1ae4a714"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -152,25 +152,25 @@
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
       "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
       "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
-      "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
-      "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
+      "scripts/privacy-scan.mjs": "146aaf7368bdff60d948418f4b4b8031d8ddb2242797115bf8b5df39ab15a3db",
+      "scripts/privacy-synthetic.json": "15aebfa7b13e598a505f8774c6e49a1fd8c79295c879981cad2e9edbe465d867"
     },
     "candidateTreeSha256": "61ba8ac0da1e899ac8edef782d53a1e993d3fdb6f165aba412e553e7b18aaa45",
     "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"
   },
   {
     "schemaVersion": "receipt/3",
-    "captureId": "codex-v2-717bf7f9",
+    "captureId": "codex-v2-709425ae",
     "client": "codex",
     "candidate": "v2",
     "outcome": "pass",
     "reproduced": {
-      "clientToServerSha256": "f5f7ab42d3538a0f874601fe4432e1d3f9edd688b7863bff0481b15978d3e549",
-      "serverStdoutSha256": "a09c0ef14b4c6995c77af1728d536af355f15577e907d61cd3cb2d71e0b94950",
-      "serverStderrSha256": "0e8e1589798c463bf08e910b4826edc698604ea6d96d0e12ea0d85316475e328",
+      "clientToServerSha256": "afe9c1265342454063c7a34b5f243176051f265ef76918cba09c66030e73c605",
+      "serverStdoutSha256": "7e949ed1bd6026e150e7226bae39e8f2fe8b3712fbfc40db596e3a94791c2d07",
+      "serverStderrSha256": "6a6afa00cec245149cbcfa4a97f506364d2aa0f0f6931a20eaa1ea48f4fe2a9f",
       "clientStdoutSha256": "de2f9b057a7c59a8fbfe1adb14eb6d5d60b41cb87a0f81de595c2b905eacdb4b",
-      "clientStderrSha256": "a1f657c2d8eafd26b5a17011bb069da4631716ae2504ab977378c8620d1ad0f8",
-      "derivationDigest": "3b14a222cbef011aa186497af5a4dc227a5d3dae355827cb92b4982d9040c8f1"
+      "clientStderrSha256": "0978e2c80e01917024532cfb36654e4c78510126889da9ff2dc9c74abd57a2fc",
+      "derivationDigest": "8cc9fb1ce4f904fd073c952763b7f354b52bb239471f0cb49c9a86b71a063bed"
     },
     "rawStatistics": {
       "clientToServer": {
@@ -205,8 +205,8 @@
       "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
       "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
       "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
-      "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
-      "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
+      "scripts/privacy-scan.mjs": "146aaf7368bdff60d948418f4b4b8031d8ddb2242797115bf8b5df39ab15a3db",
+      "scripts/privacy-synthetic.json": "15aebfa7b13e598a505f8774c6e49a1fd8c79295c879981cad2e9edbe465d867"
     },
     "candidateTreeSha256": "9fc50349e6b8cc6b757efa5968cc33a8cc155f412d1af08335f88fb3162f57a9",
     "note": "raw capture deleted on receipt; residual check is these statistics and digests — weaker than the bytes, recorded as such"

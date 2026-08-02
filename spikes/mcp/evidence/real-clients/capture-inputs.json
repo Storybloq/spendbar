@@ -12,7 +12,7 @@
     "spikes/mcp/real-client/capture-wrapper.mjs": "82c966a3a44bc784ea7d54a5345ae5b865856e4b1a9305f0dd23ea72b41c20ad",
     "spikes/mcp/real-client/sanitize.mjs": "e72f875b124cd308d9e935ba5b2931b25e35b93731393a0f793357d953675adf",
     "spikes/mcp/real-client/normalize.mjs": "8866337568d60c740fc561836cf4e938157d51d7851e556c30fc25c22b2abeb6",
-    "scripts/privacy-scan.mjs": "9abf08e711d052426df022b3752518e750224419f865f1c0cdd08ed6d6244997",
-    "scripts/privacy-synthetic.json": "25c4ee14f8c805db46e98e6f6e19108bba8f40cb91c1b6ef8b50ec53902da970"
+    "scripts/privacy-scan.mjs": "146aaf7368bdff60d948418f4b4b8031d8ddb2242797115bf8b5df39ab15a3db",
+    "scripts/privacy-synthetic.json": "15aebfa7b13e598a505f8774c6e49a1fd8c79295c879981cad2e9edbe465d867"
   }
 }

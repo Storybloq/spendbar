@@ -11,8 +11,13 @@
 
 name: privacy-audit
 
+# `push` alone audits a fork's contribution only once it has been merged, which is after the
+# decision it should inform (review round 1, chunk 15). `pull_request` closes that: the commits a
+# PR proposes are scanned before anyone merges them. Neither trigger PREVENTS anything — a fork's
+# own repository is beyond this workflow's reach, and the honest claim stays detection.
 on:
   push:
+  pull_request:
 
 jobs:
   scan-pushed-commits:
@@ -22,6 +27,9 @@ jobs:
         with:
           # Full history: the push range below walks commits the shallow default would not have.
           fetch-depth: 0
+          # For a pull_request the default checkout is the MERGE commit, whose history is not the
+          # set of commits the PR introduces. The audit wants those, so it takes the head.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
@@ -29,21 +37,19 @@ jobs:
 
       - name: Scan every commit in the push range
         env:
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.sha }}
+          # A pull_request has no `before`; its range is base..head, and that base is always
+          # reachable, so the new-branch fallback never applies to it.
+          BEFORE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          AFTER: ${{ github.event.pull_request.head.sha || github.sha }}
+          REF: ${{ github.ref }}
         run: |
           set -u
-          # A new branch or a force push has no usable `before` (all zeros, or a commit no
-          # longer reachable). Fall back to every commit not on any other ref, and if that is
-          # empty (e.g. the default branch's first push), to the tip alone — never to nothing.
-          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
-            COMMITS=$(git rev-list "$AFTER" --not --exclude="$GITHUB_REF" --branches --remotes)
-            [ -n "$COMMITS" ] || COMMITS="$AFTER"
-          else
-            COMMITS=$(git rev-list "$BEFORE..$AFTER")
-          fi
-
-          [ -n "$COMMITS" ] || { echo "no commits resolved from push range — refusing to pass vacuously"; exit 2; }
+          # Range resolution lives in scripts/push-range.mjs, not here. A shell block inside a
+          # workflow cannot be tested, and this one was wrong: `--exclude` matched the wrong
+          # namespace and `--remotes` subtracted the branch that had just been pushed, so a
+          # multi-commit push of a new branch collapsed to its tip (review round 1, chunk 15).
+          # The script has its own tests and refuses to resolve an empty range.
+          COMMITS=$(node scripts/push-range.mjs --before="$BEFORE" --after="$AFTER" --ref="$REF") || exit 2
 
           STATUS=0
           for sha in $COMMITS; do
