@@ -19,7 +19,7 @@
     "spikes/mcp/candidates/v2/package-lock.json": "fa646e3069a4937fab5a5ef9905d461e98a51da9aaac4334e2585ce2d3e85db9",
     "spikes/mcp/candidates/v2/package.json": "9bc6ce15358bbc5ace84ebb88e27b926938da1453657451c1b8ea509d1f015ec",
     "spikes/mcp/candidates/v2/server.mjs": "0a84d7fa0f79dfc7a3d5942d756ce7292211369d855ea35f135680028606c237",
-    "spikes/mcp/conformance.mjs": "b65f43cbd1d953ccaf8d1f24c8bb09a4f3060f506d2c98ee8cdf5a92cdbe537d",
+    "spikes/mcp/conformance.mjs": "83a7d4704d1790b81628f2599b5228fda1b69b6dfa37aa7268155d24c9915647",
     "spikes/mcp/instrument-hooks.mjs": "c95368d3454a7bfa4d1c8d87921727524cf73f458054fd7a5c7d6b0f9c222911",
     "spikes/mcp/instrument.mjs": "5ddb84bf5ef39e72a30164095822a7bfcefd799333e43e6b421d06b68e6222ea",
     "spikes/mcp/isolate.mjs": "711bc6d7b39ce8d2b8001ef2f035f25feaf1f8e94233d59de24c2c34fe1dfaed",

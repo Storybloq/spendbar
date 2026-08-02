@@ -1,0 +1,30 @@
+{
+  "components": [
+    "spikes/mcp/real-client"
+  ],
+  "createdBy": "codex review round 2, chunk 8 (receipt.mjs)",
+  "dedupeKey": "t009-r2-c8-process-facts-without-witness-files",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-050",
+  "impact": "The receipt now re-derives every fact that has retained bytes behind it: the protocol trace, all five stream digests, the server-stderr predicates, all four client-stdout predicates, the wrapper record (from wrapper-status.json) and the server's termination signal (from server-exit.json). What it still cannot re-derive are the facts with no retained witness at all — clientExit.code/signal, timedOut, drainTimedOut, isolation.hostileConfigExecuted, isolation.userConfigIsolated, and the environmental diagnosis. These are read from the raw manifest, which is a file the capture command wrote about itself, and several of them feed pass clauses directly. A hand-built retained directory that supplies plausible streams can therefore choose clientExit and isolation to obtain a clean outcome, earn a receipt, and have its raw bytes deleted — after which nothing can contradict it. The fix is for the parent process to write each of these as its own durable witness file at the moment it observes it (as the wrapper already does for spawn and exit), and for the receipt to re-derive from those files rather than from the manifest. That is a change to what the capture retains, so it also forces a paid recapture; it is filed rather than bolted on.",
+  "location": [
+    "spikes/mcp/real-client/receipt.mjs",
+    "spikes/mcp/real-client/capture.mjs"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-009"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "sourceRefs": [
+    {
+      "contentHash": "902cd2c9148ef2528e8f5ae04cef32612a72c4f1a3e2f9e1906c45d1ba54d32a",
+      "path": "spikes/mcp/real-client/receipt.mjs",
+      "startLine": 300
+    }
+  ],
+  "status": "open",
+  "title": "T-009: process facts in the capture manifest have no witness the receipt can re-derive them from"
+}

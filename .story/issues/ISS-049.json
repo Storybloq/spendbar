@@ -1,0 +1,29 @@
+{
+  "components": [
+    "spikes/mcp/real-client"
+  ],
+  "createdBy": "codex review round 2, chunk 8 (receipt.mjs)",
+  "dedupeKey": "t009-r2-c8-receipt-two-file-publication-atomicity",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-049",
+  "impact": "publishReceipts stages receipt.json and capture-inputs.json, then renames both and fsyncs the evidence directory. Staging is now separated from committing, so a failure during staging leaves both destinations untouched, and the directory flush makes each rename durable. What remains is the window BETWEEN the two renames: a crash there leaves the new receipt.json beside the previous capture-inputs.json, a pair that describes two different runs. No raw capture is deleted in that window — deletion happens only after both renames and the read-back — so this cannot destroy evidence; it can leave a committed evidence set internally inconsistent until the next run republishes both. Closing it properly means publishing a generation directory and switching a single pointer (one rename), rather than renaming two files in sequence. That is a change to how evidence is laid out on disk, not a patch to this function, which is why it is filed rather than half-done.",
+  "location": [
+    "spikes/mcp/real-client/receipt.mjs"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-009"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "sourceRefs": [
+    {
+      "contentHash": "721e8ef5f59432fb93400d2554168a01c069ccf3c016a22dc94d19bd23bd4d31",
+      "path": "spikes/mcp/real-client/receipt.mjs",
+      "startLine": 460
+    }
+  ],
+  "status": "open",
+  "title": "T-009: receipt publication is two renames, not one atomic switch"
+}

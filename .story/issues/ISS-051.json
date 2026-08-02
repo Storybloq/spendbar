@@ -1,0 +1,31 @@
+{
+  "components": [
+    "spikes/mcp"
+  ],
+  "createdBy": "codex review round 2, chunk 10 (gate.mjs + strict-json.mjs)",
+  "dedupeKey": "t009-r2-c10-gate-find-then-create-race",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-051",
+  "impact": "act1 locates an open resolution ticket by its canonical title and creates one only if none is found. The lookup and the creation are separate CLI calls, so two gate processes running at the same time can both observe no ticket and both create one. Each then reads back its own new ticket successfully, so neither notices, and T-013 ends up blocked by two tickets for the same condition. Nothing is corrupted and no evidence is lost — the duplicate is visible and closable by hand — which is why this is filed rather than fixed. Closing it properly needs either a server-side idempotency key on ticket creation (the storybloq CLI exposes none today) or a repository-scoped lock held across lookup, creation and read-back; a lock would also only protect callers sharing that repository, which is worth saying out loud rather than implying. The gate is a single-operator command run deliberately, so the exposure is small, but the dedupe is documented as making re-runs idempotent and under concurrency it is not.",
+  "location": [
+    "spikes/mcp/decide.mjs",
+    "spikes/mcp/gate.mjs"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-009"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "low",
+  "sourceRefs": [
+    {
+      "contentHash": "40a2dbba29f00e32458ccb75aba05a2713bcfd96008b6768cc67cfe42322f1ec",
+      "path": "spikes/mcp/decide.mjs",
+      "revision": "934f32e0fb4c31e6975492f52445e12430423046",
+      "startLine": 221
+    }
+  ],
+  "status": "open",
+  "title": "T-009: the gate's resolution-ticket dedupe is find-then-create, which two concurrent gates can both win"
+}

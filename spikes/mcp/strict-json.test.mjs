@@ -14,6 +14,18 @@ import assert from "node:assert/strict";
 
 import { parseStrictJson, JsonSyntaxError, MAX_DEPTH, MAX_INPUT_CHARS, JsonLimitError } from "./strict-json.mjs";
 
+// The documented bounds, written HERE as independent literals. Every boundary fixture below is
+// built from these, not from the exports: fixtures derived from the same constant the
+// implementation uses move with it, so an edit changing the limit and its export together kept
+// the whole suite green while the documented bound silently changed (review round 2, chunk 14).
+const EXPECTED_MAX_DEPTH = 200;
+const EXPECTED_MAX_INPUT_CHARS = 50_000_000;
+
+test("the exported bounds are the documented ones", () => {
+  assert.equal(MAX_DEPTH, EXPECTED_MAX_DEPTH);
+  assert.equal(MAX_INPUT_CHARS, EXPECTED_MAX_INPUT_CHARS);
+});
+
 /** JSON.parse's verdict, as data. */
 function reference(text) {
   try {
@@ -109,6 +121,9 @@ const VALID = [
 ];
 
 test("every valid JSON fixture parses identically to JSON.parse", () => {
+  // A for-of over an empty list asserts nothing and reports success, so the list's own size is
+  // the first assertion (review round 2, chunk 14).
+  assert.ok(VALID.length >= 35, `the accepted-grammar corpus shrank to ${VALID.length}`);
   for (const text of VALID) assertAgrees(text);
 });
 
@@ -155,6 +170,7 @@ const INVALID = [
 ];
 
 test("every invalid fixture is rejected, exactly as JSON.parse rejects it", () => {
+  assert.ok(INVALID.length >= 35, `the rejected-grammar corpus shrank to ${INVALID.length}`);
   for (const [text, label] of INVALID) assertAgrees(text, label);
 });
 
@@ -162,6 +178,64 @@ test("a raw control character at every forbidden code point is rejected", () => 
   for (let code = 0x00; code <= 0x1f; code++) {
     assertAgrees(`"raw${String.fromCharCode(code)}"`, `raw U+${code.toString(16).padStart(4, "0")}`);
   }
+});
+
+// JSON's whitespace is exactly four characters — space, tab, LF, CR — and nothing else. A
+// scanner written with /\s/ or a hand-picked subset diverges from JSON.parse in both
+// directions, and neither direction was covered: no fixture used tab or CR outside a string,
+// and none of the characters JavaScript calls whitespace but JSON does not appeared at all
+// (review round 2, chunk 14).
+const JSON_WHITESPACE = [
+  [" ", "space"],
+  ["\t", "tab"],
+  ["\n", "LF"],
+  ["\r", "CR"],
+];
+
+// Whitespace to JavaScript, not to JSON. Every one of these must be REJECTED outside a string.
+const NOT_JSON_WHITESPACE = [
+  ["\ufeff", "BOM"],
+  ["\u00a0", "NBSP"],
+  ["\u000b", "vertical tab"],
+  ["\u000c", "form feed"],
+  ["\u2028", "line separator"],
+  ["\u2029", "paragraph separator"],
+  ["\u3000", "ideographic space"],
+];
+
+test("the four JSON whitespace characters are accepted at every value boundary", () => {
+  assert.equal(JSON_WHITESPACE.length, 4, "JSON defines exactly four whitespace characters");
+  for (const [ws, label] of JSON_WHITESPACE) {
+    // Around the document, and at each structural position inside it.
+    assertAgrees(`${ws}{${ws}"a"${ws}:${ws}[${ws}1${ws},${ws}2${ws}]${ws}}${ws}`, `${label} at every boundary`);
+    assertAgrees(`${ws}null${ws}`, `${label} around a bare value`);
+  }
+});
+
+test("characters JavaScript calls whitespace but JSON does not are rejected", () => {
+  assert.ok(NOT_JSON_WHITESPACE.length >= 7, "the non-JSON whitespace corpus shrank");
+  for (const [ch, label] of NOT_JSON_WHITESPACE) {
+    // Leading, trailing and interior — a scanner that skips these anywhere diverges anywhere.
+    assertAgrees(`${ch}{"a":1}`, `leading ${label}`);
+    assertAgrees(`{"a":1}${ch}`, `trailing ${label}`);
+    assertAgrees(`{"a":${ch}1}`, `interior ${label}`);
+    // ...and inside a string they are ordinary characters, which is the other half of the claim.
+    assertAgrees(`{"a":"x${ch}y"}`, `${label} inside a string value`);
+  }
+});
+
+test("every truncated literal and every truncated escape is rejected the way JSON.parse rejects it", () => {
+  // The end-of-input branches: exactly where an index walks off the end of the text and
+  // `text[i]` becomes undefined. A scanner comparing against undefined can accept or crash
+  // instead of refusing.
+  for (const literal of ["true", "false", "null"]) {
+    for (let n = 1; n < literal.length; n++) assertAgrees(literal.slice(0, n), `truncated ${literal} (${n} chars)`);
+    assertAgrees(literal, `whole ${literal}`); // the positive control for each
+  }
+  for (const tail of ["\\", "\\u", "\\u0", "\\u00", "\\u004", "\\n", "\\"]) {
+    assertAgrees(`"abc${tail}`, `string ending after ${JSON.stringify(tail)}`);
+  }
+  assertAgrees('"abc\\', "string ending on a lone backslash");
 });
 
 test("every truncation length of a unicode escape is rejected", () => {
@@ -199,13 +273,15 @@ test("duplicate identity is decided after escape decoding, not on how the key wa
   // The gap a textual pre-scan leaves: two keys that differ as source but are the same string
   // once decoded. JSON.parse collapses them silently, which is the whole reason this parser
   // exists — so it must refuse them however they were written (review round 1, chunk 14).
-  for (const [text, key] of [
+  const SPELLINGS = [
     ['{"a":1,"\\u0061":2}', "a"],
     ['{"\\u0061":1,"a":2}', "a"],
     ['{"a-b":1,"a\\u002db":2}', "a-b"],
     ['{"sla\\\\sh":1,"sla\\u005csh":2}', "sla\\sh"],
     ['{"\\ud83d\\ude00":1,"\\uD83D\\uDE00":2}', "\u{1f600}"],
-  ]) {
+  ];
+  assert.ok(SPELLINGS.length >= 5, `the escaped-duplicate corpus shrank to ${SPELLINGS.length}`);
+  for (const [text, key] of SPELLINGS) {
     assert.equal(Object.keys(JSON.parse(text)).length, 1, `JSON.parse should collapse ${text}`);
     assert.throws(() => parseStrictJson(text), isDuplicate(key), `not refused: ${text}`);
   }
@@ -255,10 +331,10 @@ test("an inherited field cannot masquerade as a present one", () => {
 // --- bounds --------------------------------------------------------------------------------
 
 test("nesting past the documented depth fails as a JsonSyntaxError, never a RangeError", () => {
-  const tooDeep = "[".repeat(MAX_DEPTH + 5) + "]".repeat(MAX_DEPTH + 5);
+  const tooDeep = "[".repeat(EXPECTED_MAX_DEPTH + 5) + "]".repeat(EXPECTED_MAX_DEPTH + 5);
   assert.throws(() => parseStrictJson(tooDeep), (e) => e instanceof JsonSyntaxError && /nesting deeper/.test(e.message));
   // The positive control: just inside the limit still parses, so the guard is not vacuous.
-  const justInside = "[".repeat(MAX_DEPTH) + "]".repeat(MAX_DEPTH);
+  const justInside = "[".repeat(EXPECTED_MAX_DEPTH) + "]".repeat(EXPECTED_MAX_DEPTH);
   assert.doesNotThrow(() => parseStrictJson(justInside));
 });
 
@@ -266,14 +342,18 @@ test("an input past the documented size bound is refused, and the bound is not t
   // MAX_INPUT_CHARS was exported and documented but never tested, so removing the guard
   // altogether left this suite green while the verifier stayed open to an oversized file
   // (review round 1, chunk 14). Both fixtures are FLAT — nesting cannot be what rejects them.
-  const overLimit = `"${"a".repeat(MAX_INPUT_CHARS)}"`;
+  // Exactly ONE character over. The fixture used to be two over, so a guard written
+  // `> MAX_INPUT_CHARS + 1` satisfied this test while admitting a document past the documented
+  // bound — the off-by-one the bound exists to pin (review round 2, chunk 14).
+  const overLimit = `"${"a".repeat(EXPECTED_MAX_INPUT_CHARS - 1)}"`;
+  assert.equal(overLimit.length, EXPECTED_MAX_INPUT_CHARS + 1, "the fixture must sit exactly one over the bound");
   assert.throws(
     () => parseStrictJson(overLimit),
     (e) => e instanceof JsonSyntaxError && /exceeds/.test(e.message),
   );
-  const atLimit = `"${"a".repeat(MAX_INPUT_CHARS - 2)}"`;
-  assert.equal(atLimit.length, MAX_INPUT_CHARS, "the positive control must sit exactly on the bound");
-  assert.equal(parseStrictJson(atLimit).length, MAX_INPUT_CHARS - 2);
+  const atLimit = `"${"a".repeat(EXPECTED_MAX_INPUT_CHARS - 2)}"`;
+  assert.equal(atLimit.length, EXPECTED_MAX_INPUT_CHARS, "the positive control must sit exactly on the bound");
+  assert.equal(parseStrictJson(atLimit).length, EXPECTED_MAX_INPUT_CHARS - 2);
 });
 
 test("non-string input is refused rather than coerced", () => {
@@ -304,13 +384,13 @@ test("the two declared exceptions are the ONLY documents JSON.parse accepts and 
   // Deep nesting: valid JSON, accepted by JSON.parse, refused here — and refused as a LIMIT,
   // not as a syntax error, because telling an operator their evidence is malformed when it is
   // merely deep sends them looking for a typo that does not exist.
-  const deep = "[".repeat(MAX_DEPTH + 1) + "]".repeat(MAX_DEPTH + 1);
+  const deep = "[".repeat(EXPECTED_MAX_DEPTH + 1) + "]".repeat(EXPECTED_MAX_DEPTH + 1);
   assert.doesNotThrow(() => JSON.parse(deep), "the fixture is not valid JSON, so it proves nothing");
   assert.throws(() => parseStrictJson(deep), JsonLimitError);
   assert.throws(() => parseStrictJson(deep), /nesting deeper than/);
 
   // Exactly at the bound is still accepted, so the limit is the documented one.
-  const atLimit = "[".repeat(MAX_DEPTH) + "]".repeat(MAX_DEPTH);
+  const atLimit = "[".repeat(EXPECTED_MAX_DEPTH) + "]".repeat(EXPECTED_MAX_DEPTH);
   assert.doesNotThrow(() => parseStrictJson(atLimit));
 
   // A limit error is still a JsonSyntaxError, so every caller that fails closed still does.
@@ -318,7 +398,7 @@ test("the two declared exceptions are the ONLY documents JSON.parse accepts and 
 });
 
 test("an oversized document is refused as a limit, not as malformed", () => {
-  const huge = `"${"x".repeat(MAX_INPUT_CHARS)}"`;
+  const huge = `"${"x".repeat(EXPECTED_MAX_INPUT_CHARS)}"`;
   assert.throws(() => parseStrictJson(huge), JsonLimitError);
   assert.throws(() => parseStrictJson(huge), /exceeds/);
 });

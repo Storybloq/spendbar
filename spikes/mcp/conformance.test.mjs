@@ -28,7 +28,11 @@ const KILL_REASONS = {
   "no-structured": /structuredContent missing or nonce not echoed/,
   "empty-text": /text fallback missing or empty/,
   "framing-wrong-code": /only -32700 or silence is conformant/,
-  "framing-garbage": /unframeable bytes|only -32700 or silence is conformant/,
+  // No alternation. The second branch was the SAME clause framing-wrong-code and framing-late
+  // die to, so this mutant could have been credited to a check it never exercised — which is the
+  // one thing this table exists to prevent. It dies to the unframeable-bytes clause, measured
+  // (review round 2, chunk 14).
+  "framing-garbage": /answered with unframeable bytes/,
   "framing-late": /only -32700 or silence is conformant/,
   "framing-dies": /server died on a malformed line/,
   "args-accept": /accepted instead of rejected/,
@@ -101,14 +105,34 @@ for (const def of CASES) {
 // ---------------------------------------------------------------------------
 
 import { EventEmitter } from "node:events";
+import { StringDecoder } from "node:string_decoder";
 import { join } from "node:path";
-import { Harness, sdkWitness, judgeCaseIsolation, aggregateIsolation } from "./conformance.mjs";
+import { Harness, sdkWitness, judgeCaseIsolation, aggregateIsolation, MAX_STREAM_BYTES } from "./conformance.mjs";
 
-/** A stand-in for a spawned server, so harness properties are testable without a process. */
+/**
+ * A stand-in for a spawned server, so harness properties are testable without a process.
+ *
+ * It models the two things about a REAL piped child that the harness depends on: chunks arrive
+ * as Buffers, and the stream supports setEncoding. The tests used to emit JavaScript strings,
+ * which is not what `stdio: "pipe"` produces — so the byte-accounting and multi-byte-boundary
+ * paths were never exercised at all (review round 2, chunk 14). `emit` here honours whatever
+ * encoding the harness set, exactly as a real stream would.
+ */
 function fakeChild() {
   const child = new EventEmitter();
-  child.stdout = new EventEmitter();
-  child.stderr = new EventEmitter();
+  const stream = () => {
+    const s = new EventEmitter();
+    s.setEncoding = (enc) => {
+      s.decoder = new StringDecoder(enc);
+    };
+    s.feed = (chunk) => {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8");
+      s.emit("data", s.decoder ? s.decoder.write(buf) : buf);
+    };
+    return s;
+  };
+  child.stdout = stream();
+  child.stderr = stream();
   child.stdin = Object.assign(new EventEmitter(), { write: () => true, end: () => {}, destroy: () => {} });
   child.kill = () => {};
   return child;
@@ -134,7 +158,7 @@ test("overflow arriving in the same event that satisfies the predicate still fai
   // then ONE event both floods the stream and makes the predicate true. Taking the predicate
   // first here reported a pass over a stream the harness had just stopped capturing.
   const waiting = h.waitFor(() => h.stdoutRaw.length > 0, 2_000, "any output");
-  child.stdout.emit("data", "x".repeat(6_000_000));
+  child.stdout.feed("x".repeat(6_000_000));
   await assert.rejects(() => waiting, /exceeded/, "a satisfied predicate overrode a failed observation mid-wait");
 });
 
@@ -143,9 +167,35 @@ test("the parse buffer is bounded, not only the retained stream", async () => {
   const h = new Harness(child);
   // Six megabytes with no newline: nothing is ever framed, so the cap on the retained copy
   // never limited what the parser held.
-  child.stdout.emit("data", "x".repeat(6_000_000));
+  //
+  // Watching `overflow` flip is NOT enough: an implementation that raises the flag and keeps
+  // appending every byte — the exact memory-exhaustion defect this bound exists to stop —
+  // satisfies that (review round 2, chunk 14). So the buffer itself is measured, across
+  // several floods, because the bound has to hold for the second one too.
+  for (let i = 0; i < 3; i++) {
+    child.stdout.feed("x".repeat(6_000_000));
+    assert.ok(
+      h.parseBuffer.length <= MAX_STREAM_BYTES,
+      `flood ${i + 1}: the parse buffer holds ${h.parseBuffer.length} bytes, past the ${MAX_STREAM_BYTES} cap`,
+    );
+  }
   assert.equal(h.overflow, "stdout", "an unterminated flood did not register as overflow");
   await assert.rejects(() => h.waitFor(() => false, 500, "a frame"), /exceeded/);
+});
+
+test("a multi-byte character split across two reads is not corrupted", () => {
+  // A piped child emits Buffers, and appending each one to a string decodes it on its own — so
+  // a three-byte character straddling a chunk boundary became two replacement characters, in
+  // the retained stream and in the framing buffer, and the JSON line built from it no longer
+  // parsed (review round 2, chunk 14).
+  const child = fakeChild();
+  const h = new Harness(child);
+  const line = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { text: "中🙂é" } }) + "\n", "utf8");
+  const cut = line.indexOf(Buffer.from("中", "utf8")) + 1; // mid-character, deliberately
+  child.stdout.feed(line.subarray(0, cut));
+  child.stdout.feed(line.subarray(cut));
+  assert.equal(h.messages.length, 1, `the split line did not frame: ${JSON.stringify(h.stdoutRaw)}`);
+  assert.equal(h.messages[0].result.text, "中🙂é", "the character was corrupted across the chunk boundary");
 });
 
 test("a case whose child would not close is failed, not reported on", async () => {
@@ -197,10 +247,48 @@ test("a case that never resolved the candidate SDK is recorded as uninstrumented
 });
 
 test("every way isolation can be false actually makes it false", () => {
-  const clean = { perCase: { a: { sdkResolutions: 3 } }, violations: [], descendants: [], oppositeSdkProbe: "not-found" };
+  // The positive control is the shape PRODUCTION builds: one record per case, for every case in
+  // the real list, each carrying what judgeCaseIsolation returns. It used to be a single
+  // fabricated `{ a: { sdkResolutions: 3 } }` — which passed, and in passing asserted that a
+  // record missing seven of eight cases is fully isolated (review round 2, chunk 14).
+  const perCase = Object.fromEntries(
+    CASES.map((c) => [
+      c.name,
+      judgeCaseIsolation(
+        {
+          rootReal: "/tmp/candidate-root",
+          total: 40,
+          violations: [],
+          insidePaths: [join("/tmp/candidate-root", "node_modules", "@modelcontextprotocol", "server", "index.js")],
+        },
+        "@modelcontextprotocol/server",
+        0,
+      ),
+    ]),
+  );
+  const clean = { perCase, violations: [], descendants: [], oppositeSdkProbe: "not-found" };
   assert.equal(aggregateIsolation(clean).ok, true, "the positive control does not pass");
-  assert.equal(aggregateIsolation({ ...clean, perCase: { a: { error: "no SDK" } } }).ok, false);
-  assert.equal(aggregateIsolation({ ...clean, perCase: { a: { error: "no SDK" } } }).everyCaseInstrumented, false);
+  assert.equal(Object.keys(perCase).length, 8, "the control must cover the whole case list");
+
+  // A MISSING case is not a clean run. `[].every(...)` is true, so an empty or partial record
+  // reported everyCaseInstrumented and ok — a verdict about cases nobody looked at.
+  for (const dropped of CASES.map((c) => c.name)) {
+    const partial = { ...perCase };
+    delete partial[dropped];
+    const r = aggregateIsolation({ ...clean, perCase: partial });
+    assert.equal(r.ok, false, `dropping ${dropped} still reported isolation ok`);
+    assert.equal(r.caseSetComplete, false, `dropping ${dropped} still reported a complete case set`);
+  }
+  assert.equal(aggregateIsolation({ ...clean, perCase: {} }).ok, false, "an EMPTY record reported isolation ok");
+
+  // An unknown case name is not a substitute for a missing one.
+  const renamed = { ...perCase, ghost: perCase[CASES[0].name] };
+  delete renamed[CASES[0].name];
+  assert.equal(aggregateIsolation({ ...clean, perCase: renamed }).ok, false, "a renamed case passed as the real one");
+
+  const broken = { ...perCase, [CASES[0].name]: { error: "no SDK" } };
+  assert.equal(aggregateIsolation({ ...clean, perCase: broken }).ok, false);
+  assert.equal(aggregateIsolation({ ...clean, perCase: broken }).everyCaseInstrumented, false);
   assert.equal(aggregateIsolation({ ...clean, violations: [{}] }).ok, false);
   assert.equal(aggregateIsolation({ ...clean, descendants: [{}] }).ok, false);
   assert.equal(aggregateIsolation({ ...clean, oppositeSdkProbe: "resolved" }).ok, false);

@@ -42,7 +42,7 @@ const check = (cond, msg) => {
 // Candidate-controlled output is bounded: a runaway server must fail its case, not exhaust
 // the runner (review round 1). The raw byte COUNT keeps accumulating past the cap so the
 // diagnostic can say how much was discarded.
-const MAX_STREAM_BYTES = 5_000_000;
+export const MAX_STREAM_BYTES = 5_000_000;
 
 /** Newline-JSON scripted client around a spawned server process. Exported so OTHER
  *  scripted exchanges (the matrix's token measurement) reuse its stream caps, error
@@ -59,7 +59,18 @@ export class Harness {
     this.spawnError = null;
     this.overflow = null;
     this.listeners = new Set();
-    let buf = "";
+    // The unframed remainder, as an OBSERVABLE field. It was a closure variable, so the test
+    // asserting "the parse buffer is bounded" could only watch `overflow` flip — and an
+    // implementation that set the flag while still appending every byte, which is exactly the
+    // memory-exhaustion defect the bound exists to stop, satisfied it (review round 2, chunk 14).
+    this.parseBuffer = "";
+    // DECODE ACROSS CHUNK BOUNDARIES. A piped stdio stream emits Buffers, and `str += buf`
+    // decodes each chunk on its own — so a multi-byte character split across two reads became
+    // two replacement characters in both the retained stream and the framing buffer, corrupting
+    // a line the harness then tried to parse. setEncoding runs the chunks through a
+    // StringDecoder, which holds partial sequences back until they are complete.
+    child.stdout.setEncoding?.("utf8");
+    child.stderr.setEncoding?.("utf8");
     child.on("error", (error) => {
       // A spawn failure (or late child error) is harness STATE, never an uncaught throw
       // that would abort the remaining cases of a no-short-circuit run.
@@ -73,18 +84,18 @@ export class Harness {
     child.stdout.on("data", (d) => {
       if (this.stdoutRaw.length < MAX_STREAM_BYTES) this.stdoutRaw += d;
       else this.overflow ??= "stdout";
-      buf += d;
+      this.parseBuffer += d;
       // The advertised bound did not bound THIS: a server emitting megabytes with no newline
       // left `stdoutRaw` capped while the parse buffer grew without limit, so the cap that
       // exists to stop a runaway candidate exhausting the runner did not (round 2, chunk 9).
-      if (buf.length > MAX_STREAM_BYTES) {
+      if (this.parseBuffer.length > MAX_STREAM_BYTES) {
         this.overflow ??= "stdout";
-        buf = "";
+        this.parseBuffer = "";
       }
       let idx;
-      while ((idx = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, idx);
-        buf = buf.slice(idx + 1);
+      while ((idx = this.parseBuffer.indexOf("\n")) >= 0) {
+        const line = this.parseBuffer.slice(0, idx);
+        this.parseBuffer = this.parseBuffer.slice(idx + 1);
         if (!line.trim()) continue;
         let msg;
         try {
@@ -511,9 +522,18 @@ export function judgeCaseIsolation(resolutions, sdk, descendantCount) {
 }
 
 /** The candidate-level isolation verdict, pure so every way it can be false is testable. */
-export function aggregateIsolation({ perCase, violations, descendants, oppositeSdkProbe }) {
-  const everyCaseInstrumented = Object.values(perCase).every((r) => r.error === undefined);
+export function aggregateIsolation({ perCase, violations, descendants, oppositeSdkProbe, expectedCases }) {
+  // The case set is checked BEFORE the records are judged. `[].every(...)` is true, so an empty
+  // `perCase` — or one holding a single case out of eight — reported everyCaseInstrumented and
+  // a clean isolation verdict, which is the whole family of defect this function was added in
+  // chunk 9 to close, surviving one level up (review round 2, chunk 14). "Every case" has to
+  // mean every case, so the names are compared, not counted.
+  const want = [...(expectedCases ?? CASES.map((c) => c.name))].sort();
+  const got = Object.keys(perCase).sort();
+  const caseSetComplete = want.length === got.length && want.every((name, i) => name === got[i]);
+  const everyCaseInstrumented = caseSetComplete && Object.values(perCase).every((r) => r.error === undefined);
   return {
+    caseSetComplete,
     everyCaseInstrumented,
     ok: everyCaseInstrumented && violations.length === 0 && descendants.length === 0 && oppositeSdkProbe === "not-found",
   };

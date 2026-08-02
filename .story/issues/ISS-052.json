@@ -1,0 +1,30 @@
+{
+  "components": [
+    "spikes/mcp"
+  ],
+  "createdBy": "codex review round 2, chunk 11 (decide.mjs)",
+  "dedupeKey": "t009-r2-c11-decision-artifacts-not-one-transaction",
+  "discoveredDate": "2026-08-02",
+  "id": "ISS-052",
+  "impact": "act1 writes DECISION.md and decision.json through two separate injected effects, and writeDecisionRecord additionally removes attempt-report.json. Each is wrapped in step(), so any failure is reported as a TransitionError and the gate exits 5 — but the artifacts left on disk can be inconsistent. If the record write fails after the document write, new prose sits beside an old machine verdict; if the attempt-report removal fails after the record is written, two mutually exclusive artifacts coexist even though act1 reported failure. Nothing is unrecoverable: a re-run regenerates all three from the same evidence, and the exit code says loudly that the run did not complete. The fix is the same shape as ISS-049 — stage the document, the record and the removal, then commit them as one unit through a single publish step rather than three independent ones — which is why it is filed alongside that issue rather than patched here. Both should be done together, since they are the same transaction boundary seen from two files.",
+  "location": [
+    "spikes/mcp/decide.mjs",
+    "spikes/mcp/gate.mjs"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-009"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "sourceRefs": [
+    {
+      "contentHash": "ba896734a1f2f356f2a71798efc464142d37059c60a2c0e030f65ce636e0325c",
+      "path": "spikes/mcp/decide.mjs",
+      "startLine": 219
+    }
+  ],
+  "status": "open",
+  "title": "T-009: the decision artifacts are written as separate effects, so a partial Act 1 leaves them disagreeing"
+}
