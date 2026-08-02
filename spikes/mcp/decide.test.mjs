@@ -1851,3 +1851,114 @@ test("every manifest field's producer kind agrees with the auditor's declared JS
     );
   }
 });
+
+// --- the receipt guards, each observed firing ------------------------------------------------
+//
+// A mutation sweep over this file's real-client section — disabling one refusal at a time and
+// re-running the suite — found eleven of the thirteen receipt guards SURVIVING: no test in the
+// project observed them refuse anything. That is not an abstract gap. One of the two that were
+// covered had itself been dead for eight review rounds (`manifestBytes` undefined, above), and
+// the only reason anything noticed is that a fresh capture finally reached it. A guard nothing
+// exercises is indistinguishable from a guard that cannot fire, and this evidence set exists to
+// be trusted without the raw bytes, which are deleted the moment a receipt is written.
+//
+// Each case below breaks exactly one thing and asserts the refusal NAMES that thing, so a test
+// cannot pass by tripping some earlier guard on its way. The sweep is the acceptance criterion:
+// with these in place every one of the thirteen is killed.
+const RECEIPT_GUARD_CASES = [
+  {
+    name: "a receipt naming a client outside the matrix",
+    why: "nothing would ever compare it, so it could carry any outcome and sit unexamined",
+    mutate: (r) => (r[0].client = "emacs"),
+    expect: /receipt\.json\[0\] names unknown client 'emacs'/,
+  },
+  {
+    name: "a receipt naming a candidate outside the matrix",
+    why: "same, by the other half of the cell key",
+    mutate: (r) => (r[0].candidate = "v3"),
+    expect: /receipt\.json\[0\] names unknown candidate 'v3'/,
+  },
+  {
+    name: "the same capture receipted twice",
+    why: "two receipts for one capture means one of them describes bytes that are gone",
+    mutate: (r) => r.push({ ...r[0] }),
+    expect: /lists capture .* more than once — refusing to guess which is real/,
+  },
+  {
+    name: "a manifest digest that is not a digest",
+    why: "an unparseable pin is not a pin; the binding it feeds would compare against nonsense",
+    mutate: (r) => (r[0].manifestSha256 = "not-a-digest"),
+    expect: /receipt\.json\[0\]\.manifestSha256 is not a sha256 hex string/,
+  },
+  {
+    name: "a receipt taken under different capture inputs than the evidence set pins",
+    why: "this is the check that stops capture-inputs.json being swapped to make stale captures read as current",
+    mutate: (r) => (r[0].captureInputs[CAPTURE_INPUTS[0]] = "0".repeat(64)),
+    expect: /receipt\.json\[0\] was taken under a different .* than capture-inputs\.json pins/,
+  },
+  {
+    name: "a reproduced stream digest that is not a digest",
+    why: "the digests are the whole of what survives the deleted bytes",
+    mutate: (r) => (r[0].reproduced[Object.keys(r[0].reproduced)[0]] = "zz"),
+    expect: /receipt\.json\[0\]\.reproduced\..* is not a sha256 hex string/,
+  },
+  {
+    name: "receipts that do not match the cell's recorded attempts",
+    why: "an attempt with no receipt, or a receipt with no attempt, is evidence nobody accounts for",
+    mutate: (r) => (r[0].captureId = "claude-code-v1-00000000"),
+    expect: /receipts \[.*\] do not match its attempts \[.*\]/,
+  },
+  {
+    name: "a receipt whose outcome disagrees with the attempt it belongs to",
+    why: "the cell and the receipt are two editable records; agreeing is the only thing that makes either mean anything",
+    mutate: (r) => (r[0].outcome = "conformance-fail"),
+    expect: /records outcome '.*' but its receipt says 'conformance-fail'/,
+  },
+  {
+    name: "raw stream statistics that disagree with the manifest",
+    why: "an independent cross-check of the same counters from the other record",
+    // A changed VALUE, not an added key: an extra field is refused by the stream-stats shape
+    // check several hundred lines earlier, which is a different guard with a different message.
+    mutate: (r) => (r[0].rawStatistics.clientToServer.bytes += 1),
+    expect: /receipt clientToServer statistics disagree with the manifest/,
+  },
+  {
+    name: "a receipt naming a different candidate dependency tree than the manifest",
+    why: "the bytes that ran and the bytes the receipt vouches for have to be the same bytes",
+    mutate: (r) => (r[0].candidateTreeSha256 = "0".repeat(64)),
+    expect: /manifest names a different .* dependency tree than its receipt/,
+  },
+];
+
+for (const c of RECEIPT_GUARD_CASES) {
+  test(`the verifier refuses ${c.name}`, () => {
+    withFixture(({ evidenceDir, repoRoot, mutate }) => {
+      mutate("real-clients/receipt.json", c.mutate);
+      assert.throws(
+        () => verifyEvidence({ evidenceDir, repoRoot }),
+        c.expect,
+        // Deliberately not "was accepted": assert.throws reports this same message whether
+        // nothing was thrown or something was thrown that did not match, and those are very
+        // different failures. Wording it as the guard not firing covers both honestly.
+        `${c.name} was not refused by the guard that names it — ${c.why}`,
+      );
+    });
+  });
+}
+
+test("the verifier refuses a receipt no cell claims", () => {
+  withFixture(({ evidenceDir, repoRoot, mutate }) => {
+    // The orphan check is only reachable past a cell that returns before consuming its receipts,
+    // which is what a not-run with no attempts does. Blanking one cell that way leaves its
+    // receipt behind: a standing permission to have deleted raw bytes that nothing accounts for
+    // — a superseded generation left in place, or an entry added by hand.
+    mutate("real-clients/cells.json", (cells) => {
+      cells.v2["codex"] = { status: "not-run", cause: "blanked by the test to strand its receipt" };
+    });
+    assert.throws(
+      () => verifyEvidence({ evidenceDir, repoRoot }),
+      /holds receipt\(s\) no cell claims: codex-v2-/,
+      "a receipt belonging to no cell was accepted",
+    );
+  });
+});
