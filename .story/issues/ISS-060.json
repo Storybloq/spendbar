@@ -1,0 +1,16 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-03",
+  "id": "ISS-060",
+  "impact": "Reset gates only the initial manifest unlink; if authority transfers afterward, the stale writer keeps deleting generations/pins while the successor rebuilds in the same version dir — it can delete the successor's newly committed generation after its manifest went live, leaving a corrupt live store. One assertion before a recursive removal cannot close this (recursive reset is many mutations). Fix: explicit non-following traversal, assertHeld() immediately before EVERY individual reset mutation, stop at first failure; interleaving test transfers authority after the unlink, lets the successor rebuild, resumes the stale reset, proves zero further mutations.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "critical",
+  "status": "open",
+  "title": "[concurrency] Reset gates only the initial manifest unlink; if authority transfers afterward, "
+}

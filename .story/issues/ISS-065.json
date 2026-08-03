@@ -1,0 +1,14 @@
+{
+  "components": [],
+  "discoveredDate": "2026-08-03",
+  "id": "ISS-065",
+  "impact": "commitArtifact calls assertNotSymlink(fs, targetPath) immediately before fs.rename (store.ts:723), commented as closing the symlink-swap race for manifest.json, generation files and pin files. No test ever plants a symlink at a commit target before calling publishSnapshot or createPin: `grep -c SnapshotPathError tests-ts/snapshot-store.test.mjs` returns 0, and the three \"symlink\" hits in the suite are all read/classification-side (readSnapshot and classifyStore).\n\nDeleting the guard, or its throw, would not fail a single test. That is exactly the condition T-009 spent a session proving is invisible to both static review and a green suite: eleven of thirteen receipt guards had never been observed to refuse anything. The same sweep is warranted here — disable each refusal in store.ts one at a time and see which survive.\n",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "status": "open",
+  "title": "[T-010] The write-side symlink-swap defence is never observed to fire"
+}

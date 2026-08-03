@@ -1,0 +1,14 @@
+{
+  "components": [],
+  "discoveredDate": "2026-08-03",
+  "id": "ISS-064",
+  "impact": "ManifestDoc gets two layers of validation: decodeEnvelope (wrapper: kind/schemaVersion/checksum) AND assertManifestInvariants (store.ts:353) for its body shape, called at store.ts:251, 657 and 840. GenerationDoc gets only the first. store.ts:841 does `const doc = decodeEnvelope(\"generation\", path, raw) as GenerationDoc` and assigns it straight to `active` — a type assertion, not a check. classifyStore does the same ungated decode at store.ts:267.\n\nConsequence: a generation whose envelope is well-formed and whose checksum matches, but whose BODY is structurally malformed (missing provenance, missing coverage, non-object sourceVersion) is classified \"usable\" and served as the active snapshot rather than quarantined. The reader's quarantine path exists and works; this class of damage simply never reaches it. deriveFreshness (store.ts:883) spreads provenance.coverage and would throw on it.\n\nCaveat on urgency, verified: deriveFreshness currently has zero callers and readSnapshot is not yet wired into the CLI, so the concrete throw is not reachable today. This is a gap to close before the module is consumed (T-012/T-013), not a live defect.\n\nFix shape: an assertGenerationInvariants mirroring the manifest one, called wherever a generation is decoded — and per this repo's mutation discipline, a test that observes it refusing.\n",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "status": "open",
+  "title": "[T-010] Generation bodies are decoded but never invariant-checked before being served"
+}

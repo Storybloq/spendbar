@@ -1,0 +1,14 @@
+{
+  "components": [],
+  "discoveredDate": "2026-08-03",
+  "id": "ISS-068",
+  "impact": "createWriteAuthority / LatchingWriteAuthority (authority.ts:74) — the AC8 guarantee that authority loss LATCHES, so publishing is irreversibly disabled even if the loss handler misbehaves — is exercised by tests (snapshot-store.test.mjs:25, 201, 205) but has no construction site in src/. Every store.ts entry point takes a bare WriteAuthority, so whether the latch is in the path depends entirely on what the caller passes.\n\nThat caller is T-011's service, which does not exist yet, so this is a deferred wiring seam rather than a defect: T-010's own acceptance is satisfied by the tested wrapper. Recording it so the wrap is not forgotten when T-011 constructs the authority — an unwrapped raw authority there would silently drop AC8's latch, and no T-010 test would notice.\n\nNOTE for reviewers: an automated review initially called this \"dead code, AC8 unsatisfied\" by grepping only src/. It is not dead — the tests construct it. Verify test directories before making a reachability claim.\n",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "low",
+  "status": "open",
+  "title": "[T-010/T-011] The lock-loss latch is unit-tested but nothing in src/ constructs it"
+}
