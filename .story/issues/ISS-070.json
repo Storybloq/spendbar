@@ -1,0 +1,30 @@
+{
+  "components": [
+    "snapshot-store",
+    "security"
+  ],
+  "createdBy": "codex gpt-5.6-sol, T-010 review round 12 (session 1474b516)",
+  "dedupeKey": "t-010-r12-intrinsic-patching-threat-model",
+  "discoveredDate": "2026-08-04",
+  "id": "ISS-070",
+  "impact": "Review round 12 produced ~22 findings that are ALL individually correct and all one class: a builtin replaced after this module loads defeats a decision the store makes, and nothing downstream re-derives it. Each was reproduced. Examples: `Number.isSafeInteger = () => true` makes `compareSourceVersions({a:20,b:NaN},{a:5,b:9})` answer \"dominates\", so a snapshot that REGRESSED a source publishes over a good one; `Object.keys = () => []` makes `canonicalSourceVersion({a:10})` persist `{}`; `RegExp.prototype.test = () => true` lets the id `../../../pwned` through the grammar so publish renames outside the store; `Hash.prototype.digest = () => \"same\"` collapses every checksum and every manifest identity, so an ABA manifest replacement reads as unchanged; `TextEncoder.prototype.encode = () => new Uint8Array()` commits empty artifacts while publish returns \"published\"; `fs.Stats.prototype.isFile = () => true` makes a FIFO read as a regular artifact.\n\nWHY THIS IS FILED RATHER THAN FIXED IN T-010. The enumeration does not terminate, and that is demonstrable rather than a matter of opinion. `String.prototype.startsWith` is not on the reviewer's list; patching it makes `contained(\"/etc/passwd\", root)` answer true and defeats containment outright (verified). After that come getters installed on `Object.prototype` for any key this code reads, `Symbol.toPrimitive` on any value it coerces, `Array.prototype[Symbol.iterator]`, `Function.prototype.bind`. Pinning names one at a time is the same treadmill rounds 9-11 were on — each fix removing one property read and introducing the next one further out — and a PARTIAL sweep is the worst outcome available, because it leaves the surface looking closed.\n\nClosing it properly needs a hardened realm: every intrinsic frozen before any of this loads. That is a decision for the PROCESS, not for a library that ships into other people's — freezing `Object.prototype` from inside a dependency is hostile to consumers. It therefore belongs to the service (T-011), not to the store.\n\nWHAT T-010 DID CLOSE, so the residual is not overstated: (1) the brand checks (WeakSet/WeakMap identity for the write authority and for file handles) are pinned, because those defend against a CALLER passing a forged authority or handle — an ordinary structural mistake, not a realm attacker, and a bounded one. (2) The prototype-POLLUTION class, which needs no attacker at all: `\"value\" in descriptor` consulting `Object.prototype.value`, and `this.name = ...` / `err.code = ...` invoking setters inherited from `Error.prototype`. Any dependency can cause those by accident, so all such sites now use pinned `hasOwn`/`defineOwn`, with two tests and two mutants.\n\nTHE DECISION NEEDED: does this product's threat model include arbitrary code running in the same realm as the snapshot store? If yes, the answer is realm hardening at process start (T-011), not per-name pinning, and this issue should be re-scoped to that. If no — and note that such code can call `fs.unlinkSync` on the store directly and skip every guard here — then `src/snapshot/intrinsics.ts` already records the correct scope and this issue closes as decided rather than as fixed.",
+  "location": [
+    "src/snapshot/intrinsics.ts",
+    "src/snapshot/dominance.ts",
+    "src/snapshot/envelope.ts",
+    "src/snapshot/errors.ts",
+    "src/snapshot/freshness.ts",
+    "src/snapshot/node-fs.ts",
+    "src/snapshot/store.ts"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-010",
+    "T-011"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "Threat-model decision: in-realm intrinsic patching is not a boundary the snapshot store can defend"
+}

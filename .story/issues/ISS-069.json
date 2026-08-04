@@ -1,0 +1,26 @@
+{
+  "components": [
+    "snapshot-store",
+    "node-fs-adapter"
+  ],
+  "createdBy": "codex gpt-5.6-sol (T-010 review round 7, chunk 3)",
+  "dedupeKey": "t010-r7c3-listdir-byte-faithful-entry-names",
+  "discoveredDate": "2026-08-04",
+  "id": "ISS-069",
+  "impact": "On POSIX a filename is bytes, but SnapshotFs.listDir is typed (path: string) => string[], so the adapter must decode. T-010 review round 7 closed the SILENT half of this: node-fs.ts now reads entries with { encoding: \"buffer\" } and refuses any name that does not round-trip UTF-8. That turns what was an invisible non-convergent reset loop (classification sees a foreign entry, reset unlinks the U+FFFD-replaced name, gets ENOENT, believes it is gone, classification finds it again, forever) into a named, actionable failure naming the directory to clean by hand.\n\nWhat is NOT closed: the store still cannot REMOVE such an entry itself. Under the derived-cache doctrine any foreign entry must reset, and reset must converge; today a store directory containing a non-UTF-8 entry name is unusable until a human intervenes. Linux/ext4 permits such names; APFS and HFS+ refuse to create them, so this is unreachable on macOS (the mutation-harness entry for the guard is marked onlyOn linux and reports as a platform skip on darwin).\n\nComplete fix: make directory entry names byte-faithful end to end. listDir returns Buffer[]; entry path construction becomes Buffer.concat rather than string concatenation; unlink, rmdir and lstat take those buffers (node:fs already accepts them). The store's artifact-name grammar is ASCII-only, so every legitimate name is unaffected - the change is entirely about the foreign names reset has to delete. Touches types.ts (seam signatures), node-fs.ts, tests-ts/snapshot-fakefs.mjs (which models entries as JS strings and so cannot exercise this at all today), store.ts classification/reset/GC path construction, and the realfs suite. Kept out of round 7 because it is a seam-shape change with its own test surface, not because it is acceptable.",
+  "location": [
+    "src/snapshot/node-fs.ts",
+    "src/snapshot/types.ts",
+    "src/snapshot/store.ts",
+    "tests-ts/snapshot-fakefs.mjs"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-010"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "Snapshot seam: carry directory entry names as raw bytes so reset can remove a non-UTF-8 entry"
+}

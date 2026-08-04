@@ -38,6 +38,8 @@ const PURE = [
   "resolve.test.mjs",
   "runner.test.mjs",
   "schema-negative.test.mjs",
+  "snapshot-realfs.test.mjs",
+  "snapshot-store.test.mjs",
   "transcripts.test.mjs",
   "oracle/golden.test.mjs",
   "oracle/materialize.test.mjs",

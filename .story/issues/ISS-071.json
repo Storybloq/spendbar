@@ -1,0 +1,17 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-04",
+  "displayId": "ISS-071",
+  "id": "ISS-071",
+  "impact": "The remaining ~22 findings — Number.isSafeInteger, Number.isFinite, Object.is, Object.keys, Object.hasOwn, Object.getOwnPropertyDescriptors, Object.getOwnPropertySymbols, Object.defineProperty, Object.freeze, Array.prototype.push/map, Array.prototype[Symbol.iterator], Set.prototype.has/add/delete, RegExp.prototype.test, JSON.parse, Date.parse, Intl.DateTimeFormat, TextEncoder/TextDecoder prototypes, Hash.prototype.digest, fs.Stats.prototype predicates — are all individually CORRECT and all one class: a builtin replaced after module load defeats a store decision nothing re-derives. Filed as ISS-070 rather than fixed, for a reason I can demonstrate rather than assert: the enumeration does not terminate. String.prototype.startsWith is not on the reviewer's list and patching it makes contained('/etc/passwd', root) answer true, defeating containment outright — I verified this. After it come getters installed on Object.prototype for any key this code reads, Symbol.toPrimitive on any coerced value, Function.prototype.bind. Per-name pinning is the same treadmill rounds 9-11 were on (each fix removing one property read and introducing the next further out), and a partial sweep is the worst available outcome because it leaves the surface looking closed. Closing it properly needs a hardened realm — every intrinsic frozen before this loads — which is a PROCESS decision (T-011), not one a library that ships into other people's processes may make: freezing Object.prototype from inside a dependency is hostile to consumers. ISS-070 carries the reproductions and the owner decision: does the threat model include arbitrary code in this realm? If yes, the answer is realm hardening, not more names. If no — and such code can call fs.unlinkSync on the store and skip every guard here — the scope now recorded in intrinsics.ts is already correct. What round 11's pinning still earns is stated rather than overstated: the brand checks defend against a CALLER passing a forged authority or handle, which is a bounded structural mistake worth catching.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": "Duplicate. Auto-filed from the `deferred` disposition on T-010 review round 12 finding R12-3, which I had already filed by hand as ISS-070 minutes earlier with the full reproductions, the proof that per-name pinning does not terminate (String.prototype.startsWith is not on the reviewer's list and patching it defeats containment), and the threat-model decision the owner has to make. Everything here is in ISS-070; track it there.",
+  "resolvedDate": "2026-08-04",
+  "severity": "medium",
+  "status": "resolved",
+  "title": "[duplicate of ISS-070] In-realm intrinsic patching defeats store decisions"
+}

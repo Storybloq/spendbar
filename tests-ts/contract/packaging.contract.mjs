@@ -83,6 +83,17 @@ const EXPECTED_TARBALL_PATHS = [
   "dist/renderers.js",
   "dist/resolve-ccusage.js",
   "dist/runner.js",
+  // The T-010 snapshot store. It ships because the service (T-011), the CLI readers, and
+  // the MCP server all consume it from the installed package.
+  "dist/snapshot/authority.js",
+  "dist/snapshot/dominance.js",
+  "dist/snapshot/envelope.js",
+  "dist/snapshot/freshness.js",
+  "dist/snapshot/errors.js",
+  "dist/snapshot/intrinsics.js",
+  "dist/snapshot/node-fs.js",
+  "dist/snapshot/store.js",
+  "dist/snapshot/types.js",
   "dist/table.js",
   "dist/transcripts.js",
   "dist/unicode-tables.js",
