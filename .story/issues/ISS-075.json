@@ -1,0 +1,47 @@
+{
+  "components": [
+    "snapshot-store",
+    "service",
+    "aggregation",
+    "tickets"
+  ],
+  "createdBy": "codex reviewer (session 019fcbdc, T-011 plan rounds 3-6), isolated and filed by claude",
+  "dedupeKey": "sourceversion-consumed-offsets-unproducible-in-v02",
+  "discoveredDate": "2026-08-04",
+  "id": "ISS-075",
+  "impact": "This is a CROSS-TICKET contradiction, not a defect in any one plan. It was isolated over six rounds of T-011 plan review (codex session 019fcbdc), during which four separate designs to satisfy it were built and disproven.\n\nTHE CONTRACT. T-010 shipped sourceVersion as Record<string, number> documented as \"Per-source offsets\", and publishSnapshot admits a candidate only on STRICT DOMINANCE: every key present on both sides and at least one strictly greater (src/snapshot/dominance.ts:161-190, src/snapshot/store.ts:2180-2190). A missing key on either side is incomparable and fails closed. So every publish after the first must present per-source offsets that honestly exceed the live ones.\n\nWHY NO v0.2 TICKET CAN PRODUCE ONE. ccusage is a black box: it consumes transcripts and emits aggregate output, and it does not report which bytes of which files it read. aggregate.ts operates on that OUTPUT. Four designs were tried and each failed on the same substitution - proving bytes were AVAILABLE and using it as proof they were CONSUMED:\n  1. Read sizes before the run - can omit bytes ccusage later reads.\n  2. Sample (path, size) before and after - proves size stability, used as content stability; a truncate-and-rewrite to the same length passes.\n  3. Add mtime and inode - still cannot prove the state held THROUGHOUT the run, and inode revalidation is separately prohibited by T-008.\n  4. Copy sources into an immutable capture - fixes destination stability only; ccusage ignoring a trailing record still publishes a stale payload under a strictly greater offset, and a truncate during the copy yields hybrid bytes of length N that were never that source's first N bytes.\n\nT-011's plan therefore reduced to publishing ONE bootstrap generation with an empty sourceVersion (an explicit no-claim), which T-010's own rules make safe: dominance is skipped when no live manifest exists, so the first publish succeeds, and {} can never dominate anything afterwards.\n\nWHY THE HANDOFF DOES NOT RESCUE IT. The plan then claimed T-012 would supply truthful consumed offsets for repeated refreshes. The reviewer checked T-012's own filing: T-012 ALSO uses ccusage and explicitly defers owned parsing to v0.5. Its shadows and watermarks prove what was supplied, not what was consumed. So T-012 is structurally no more able to produce this value than T-011 is. Implementing the handoff literally either leaves repeated refresh impossible or publishes fabricated dominance claims - and a fabricated sourceVersion is worse than none, because it turns the dominance rule into a mechanism for overwriting good data with stale data.\n\nTHE ACTUAL DECISION, which belongs to the owner because it changes a shipped contract:\n(a) REDEFINE sourceVersion as a verified immutable-input WATERMARK rather than a consumed-offset claim, and update T-010's contracts, comments and tests to match. Dominance then means \"strictly more input was made available\", which is honest and is achievable in v0.2.\n(b) REQUIRE A CONSUMPTION RECEIPT - owned parsing, or a ccusage change that reports consumed offsets. This is the v0.5 work, so under (b) repeated authoritative refresh does not exist in v0.2.\n(c) Accept one-shot indexing for v0.2 explicitly, with repeated refresh arriving alongside owned parsing.\n\nUntil this is settled, no ticket should claim that repeated authoritative refresh works. T-011's plan has been narrowed accordingly: it publishes one bootstrap generation marked provenance.refreshTier = \"bootstrap\", which satisfies AC 1 with a real production-path generation, and it makes no claim about what completes it.\n\nRELATED FIELD, same root cause: Provenance.ccusageFetchedAt is required to be a non-empty explicit instant, but ccusage 20.0.19 embeds pricing data at build time and reports no pricing-fetch timestamp. The daemon's invocation time proves only when ccusage ran, so populating it that way is the same substitution one field over - and because the field is a required scalar, the \"record absence rather than a placeholder\" escape that Provenance.fieldCoverage offers is not available here. Resolving (a)/(b)/(c) should settle this field's representation too, most likely as a discriminated value such as {kind:\"embedded\", ccusageVersion, pricingRevision} or {kind:\"unknown\"}.",
+  "location": [
+    "src/snapshot/dominance.ts:161-190",
+    "src/snapshot/store.ts:2180-2190",
+    "src/snapshot/types.ts:303",
+    ".story/tickets/T-011.json",
+    ".story/tickets/T-012.json"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-010",
+    "T-011",
+    "T-012"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "critical",
+  "sourceRefs": [
+    {
+      "contentHash": "2c7a0956e0b41d39c8765ce4eca6914a098eceebda81b1e3246d789adfa19739",
+      "endLine": 190,
+      "path": "src/snapshot/dominance.ts",
+      "revision": "d0b6efc3c734361e99be877c191183e9778894c5",
+      "startLine": 161
+    },
+    {
+      "contentHash": "949477ddd764ea983cfbb9ce360d89f86ee885110132250dd4d5fb7346fe11ed",
+      "endLine": 2190,
+      "path": "src/snapshot/store.ts",
+      "revision": "d0b6efc3c734361e99be877c191183e9778894c5",
+      "startLine": 2180
+    }
+  ],
+  "status": "open",
+  "title": "No v0.2 ticket can produce a truthful sourceVersion: T-010's dominance contract requires consumed offsets that ccusage does not report"
+}

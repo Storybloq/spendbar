@@ -1,0 +1,16 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-04",
+  "id": "ISS-078",
+  "impact": "The plan explicitly allows the low-level NETWORK adapter to inspect native error codes, conflicting with the hard constraint that only the FS adapter may inspect a native error; branding the outcome prevents core logic from inspecting it but does not satisfy the restriction on where the original native error is inspected. NOT IMPLEMENTED under the unchanged constraint — flagged for an explicit owner amendment and recorded in section 12, because this is a constraint question rather than a design choice I can settle. It genuinely blocks something real rather than being a wording quibble: the port lock must distinguish EADDRINUSE from EACCES or a sandbox refusal, and T-008 is explicit that collapsing those is the indeterminate-becomes-an-answer defect. Two coherent resolutions, both the owner's: widen the constraint to 'a designated low-level adapter' naming the net adapter alongside the fs one, or route net failures through the single authorized adapter.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "status": "open",
+  "title": "[constraint-violation] The plan explicitly allows the low-level NETWORK adapter to inspect native error"
+}

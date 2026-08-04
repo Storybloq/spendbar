@@ -1,0 +1,23 @@
+{
+  "components": [
+    "packaging",
+    "build"
+  ],
+  "createdBy": "codex reviewer (session 019fcbdc), verified and filed by claude",
+  "dedupeKey": "root-package-prepack-prepare-lifecycle-scripts",
+  "discoveredDate": "2026-08-04",
+  "id": "ISS-074",
+  "impact": "The v0.2 architecture states a hard constraint of no npm lifecycle scripts — it is the stated reason the launcher design exists at all, since npm 12 and pnpm 10 block dependency lifecycle scripts and therefore nothing can be set up at install time. But package.json currently carries two:\n\n    \"prepack\":  \"npm run build\"\n    \"prepare\":  \"npm run build\"\n\nWHY THIS IS NOT PURELY COSMETIC. Neither runs when a consumer installs the published tarball from the registry, so the shipped product is not broken today. But \"prepare\" DOES run on a git-dependency install and on a bare `npm install` in the package directory, and it invokes the TypeScript build, which needs devDependencies. In exactly the environment the constraint is written about — a client that blocks lifecycle scripts — a git-dependency install would either skip the build and install an unbuilt package, or fail. That is the same class of install-time-setup dependence the launcher exists to avoid, sitting in the root package.\n\nWHY IT MATTERS TO T-011 SPECIFICALLY. T-011's plan asserts the launcher is materialized by `service install` \"not by a lifecycle script (there are none)\". That parenthetical is false about this repo. A plan that states a constraint it does not hold to is how the constraint stops being checked, and this is the second constraint-violation-inside-the-compliance-text found in this ticket's plan reviews.\n\nWHAT THE FIX LOOKS LIKE (deliberately not applied here — pre-existing, and outside T-011's scope): remove both keys and invoke the build explicitly from the release/packaging command and from CI, where it belongs and where its failure is visible. Then extend the packaging contract to scan the ROOT package's lifecycle keys, not only dependency packages — the current scan checks shipped file content and does not assert the absence of these keys, which is why they survived.\n\nAlternatively, if the intended constraint was always \"no DEPENDENCY lifecycle scripts\", the constraint text should say so, because as written it is being cited to justify a design while being violated one file away.\n\nFound by the codex reviewer during T-011 plan review round 3 (session 00000000-0000-4000-8000-000000000000); verified against package.json before filing.",
+  "location": [
+    "package.json"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-011"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "Root package.json has prepack and prepare lifecycle scripts, contradicting the no-lifecycle-scripts constraint"
+}

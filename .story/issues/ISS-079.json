@@ -1,0 +1,29 @@
+{
+  "components": [
+    "mcp",
+    "service",
+    "snapshot-store"
+  ],
+  "createdBy": "codex reviewer (session 019fcdce, T-013 plan round 1), verified and filed by claude",
+  "dedupeKey": "t013-reader-lease-deadline-vs-pipeline-cost-incoherent",
+  "discoveredDate": "2026-08-04",
+  "id": "ISS-079",
+  "impact": "Found in T-013 plan review round 1 (codex session 019fcdce). This is a defect in the ticket's stated design, not in the plan written against it, which is why it is filed rather than replanned.\n\nT-013 specifies four properties that cannot all hold:\n  1. The reader lease holder computes a bounded top-up when the snapshot is stale and no service is live.\n  2. Every caller is answered - fresh or honest-stale - within a bounded wait deadline.\n  3. The holder computes into a PRIVATE temporary generation that is NEVER promoted and never enters the writer namespace.\n  4. Measured reality (T-012's ticket, owner machine): the full ccusage pipeline is 60-80 s, and --since gives no speedup.\n\nTake any deadline D. If D >= 60-80 s it is not a bounded client-facing wait - MCP clients time out around 60 s, which is the exact reason round 2 CUT usage_hourly. If D is small (the plan chose 4000 ms) then: a holder that waits for its own computation violates D; a holder that cancels at D means a COLD computation can never complete, so the lease never produces anything; and a holder that answers stale and detaches is, in MCP and CLI, a SHORT-LIVED PROCESS - it exits on stdio EOF or at command end and kills the only computation in flight. Because rule 3 forbids promotion, even a computation that does finish benefits nobody: the next process starts from nothing. The lease can therefore do useful work only in the narrow case where a nearly-finished holder publishes within D, and can never do the cold work it exists to do.\n\nThe herd test (AC 6) hides this rather than catching it: N clients against a stale snapshot produce exactly one computation and every caller is answered - which the design satisfies by having that one computation be killed or abandoned and everyone served honest-stale. The test passes; the feature does nothing.\n\nTHE THREE COHERENT RESOLUTIONS, all of which are owner decisions because each changes the ticket:\n(a) Let the holder wait up to the measured pipeline bound and accept that the lease serves the NEXT caller rather than the current one - which requires a durable result, contradicting rule 3.\n(b) Own background computation in a persistent service - that is T-011, currently parked.\n(c) Permit an atomic PROMOTED cache result under a properly shared writer authority - also T-011's authority, and it makes the lease a correctness boundary rather than the optimization the ticket says it is.\n\nRelated structural findings from the same review, recorded here because they share the root cause that the reader side was scoped as if the writer side existed:\n- T-010 exposes no readGeneration(id) API. readSnapshot always follows the CURRENT manifest, so a cursor cannot retrieve the generation it pinned after a publish (AC 4), and paging silently walks the new active generation instead.\n- Cursor retention via createPin requires a LatchingWriteAuthority and writes through the writer's staging/pins namespace. A reader lease in its own purpose namespace cannot hold that authority, and with T-011 parked no GC runs, so pins would accumulate unbounded.\n- The T-008 primitive has no production implementation at all: src/service and src/mcp do not exist and spikes/locking is explicitly evidence, not a library. Any lease in T-013 must first build the entire coordination stack T-011 was going to build - runtime directory, token, write-once allocation, identity protocol, fs adapter as sole native-error inspector.\n- The lease's private computed generation must carry Provenance including ccusageFetchedAt, so the production compute path inherits ISS-075 after all; the reader-only exemption covers reading a snapshot, not computing one.",
+  "location": [
+    ".story/tickets/T-013.json",
+    "src/snapshot/store.ts:2581",
+    "src/snapshot/store.ts:3068"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-013",
+    "T-011",
+    "T-010",
+    "T-012"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "critical",
+  "status": "open",
+  "title": "T-013's reader computation lease is not implementable as specified: its deadline, the measured pipeline cost, and the never-promoted rule cannot coexist"
+}

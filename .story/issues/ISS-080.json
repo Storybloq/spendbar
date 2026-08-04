@@ -1,0 +1,16 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-04",
+  "id": "ISS-080",
+  "impact": "The 4000 ms deadline, the 60-80 s computation, the never-promoted private result and the requirement that every caller answer by the deadline cannot coexist: waiting violates the deadline, cancelling means a cold computation never succeeds, and detaching lets a short-lived MCP or CLI process exit on EOF and kill the only computation — while the never-promoted rule means finished work benefits nobody. FILED AS ISS-079 (critical) because it is a defect in the ticket's stated design. All three coherent resolutions are owner decisions and two of them route through the parked T-011: let the holder wait the measured pipeline bound (needs a durable result, contradicting never-promoted), own background computation in a persistent service (T-011), or promote an atomic cache result under shared writer authority (T-011's authority, and it makes the lease a correctness boundary rather than the optimization the ticket calls it).",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "critical",
+  "status": "open",
+  "title": "[correctness] The 4000 ms deadline, the 60-80 s computation, the never-promoted private result"
+}

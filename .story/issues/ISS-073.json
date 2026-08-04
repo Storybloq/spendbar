@@ -1,0 +1,35 @@
+{
+  "components": [
+    "snapshot-store",
+    "service",
+    "tickets"
+  ],
+  "createdBy": "codex reviewer (session 019fcbdc), verified and filed by claude",
+  "dedupeKey": "t011-acceptance-additions-nomanifest-field-name-and-semantics",
+  "discoveredDate": "2026-08-04",
+  "id": "ISS-073",
+  "impact": "T-011.json acceptanceAdditions.storeIntegration clause (6) says collectGarbage returns \"noManifest means the store has no readable manifest and NOTHING was collected (the correct response is to rebuild, not to retry GC)\". Two errors, both of which would mislead an implementer following the text.\n\n(1) WRONG NAME. The shipped field on SweepResult is noUsableManifest (src/snapshot/store.ts:2804). There is no noManifest. Code written against the ticket's wording reads undefined, which is falsy, so the branch silently never fires — the worst failure shape available: no type error, no runtime error, and the outcome the field exists to surface is simply never handled.\n\n(2) UNDERSTATED SEMANTICS, which is the part that actually matters. The field's own doc comment is explicit: \"No USABLE manifest: absent, or present under a name that is a symlink, a non-regular file, or the wrong mode. Nothing readable says what is protected, so nothing was collected. Both cases route to reset-and-rebuild under the one rule.\" The ticket says the response is \"to rebuild\". That is wrong for the present-but-unusable cases: rebuilding DIRECTLY would publish over a symlink, a wrong-mode file, or a malformed record without ever going through classification or reset — acting inside a tree the store has just said it cannot account for. The correct response is reset-and-rebuild through a FRESH startWriter, honoring all three reset hard stops, and rebuilding only after first-run or a completed reset.\n\nThe distinction is exactly the absent-versus-ambiguous one the whole derived-cache design turns on: absent is a first-run shape, unusable is damage, and the field deliberately collapses them into one outcome BECAUSE both route to the same place — reset — not because both permit a direct rebuild.\n\nT-011's plan uses the real field name and the reset-and-rebuild routing, with separate tests for an absent manifest and for each present-but-unusable form (symlink, non-regular file, wrong mode). The ticket text should be corrected so the next reader is not sent at a field that does not exist.\n\nFound by the codex reviewer in T-011 plan review round 2 (session 00000000-0000-4000-8000-000000000000); verified against src/snapshot/store.ts before filing. Sibling of the withdrawn ISS-072 — that one was my misreading, this one is a real defect in the text.",
+  "location": [
+    "src/snapshot/store.ts:2795-2808",
+    ".story/tickets/T-011.json"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-011",
+    "T-010"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "sourceRefs": [
+    {
+      "contentHash": "15446879458ee88ed20893dbf89dc6a7f12a8395290e2f26d5c14e874bae9a38",
+      "endLine": 2808,
+      "path": "src/snapshot/store.ts",
+      "revision": "d0b6efc3c734361e99be877c191183e9778894c5",
+      "startLine": 2795
+    }
+  ],
+  "status": "open",
+  "title": "T-011 acceptanceAdditions names a GC field that does not exist (noManifest) and understates its semantics"
+}

@@ -1,0 +1,45 @@
+{
+  "components": [
+    "snapshot-store",
+    "service",
+    "tickets"
+  ],
+  "createdBy": "claude (T-011 plan self-audit, autonomous session 1474b516)",
+  "dedupeKey": "t011-acceptance-additions-reset-failed-hard-stop-wedge",
+  "discoveredDate": "2026-08-04",
+  "displayId": "ISS-072",
+  "id": "ISS-072",
+  "impact": "T-011.json's acceptanceAdditions.storeIntegration clause (4) says: \"reset.failed means the reset itself could not complete and the store is in an UNKNOWN state - do not rebuild, surface it, and a retry is permitted only from a fresh startWriter\". That contradicts the shipped T-010 code (commit d0b6efc), and following it literally is a permanent-wedge bug.\n\nWHAT THE CODE ACTUALLY SAYS. ResetResult.failed is `string[]`, not a boolean, and its doc comment on src/snapshot/store.ts:1196 is \"Paths this reset could not remove. The next start retries; nothing is chased here.\" The manifest-unlink comment at src/snapshot/store.ts:1355-1358 is explicit about the boundary: \"Ordinary residue may be left behind for the next start; this may not.\" resetStore removes the manifest FIRST because the manifest is the only artifact that makes the store observable; once it is gone the store is invisible to every reader regardless of what residue remains. So stoppedAtManifest is the hard stop, and a non-empty `failed` with stoppedAtManifest false is by design absorbed residue.\n\nWHY THE TICKET'S RULE IS A WEDGE. Suppose one residue path is permanently unremovable (immutable flag, a mode the process cannot change, an unreadable mount). The manifest unlink succeeds, so stoppedAtManifest is false and the store is invisible; `failed` is non-empty. Under the ticket's rule T-011 must NOT rebuild. The next start classifies \"manifest absent + ANY residue\" as not-usable (store.ts:458), resets again, hits the same unremovable path, reports `failed` non-empty again, and again must not rebuild. The service never publishes a snapshot, forever, with no operator action that clears it.\n\nThat is the same non-convergence class T-010 already fixed twice, and the code carries a comment naming it: the EISDIR-on-manifest case \"took the hard-stop branch and wedged the store PERMANENTLY: classification refuses the directory, the reset cannot remove it, and every subsequent start repeats both - the same non-convergence a nested directory under staging/ produced\" (store.ts:1360-1364). The acceptanceAdditions rule reintroduces exactly that shape one level out, at the caller.\n\nWHAT THE CORRECT RULE IS. Two hard stops, not three: reset.stoppedAtManifest (the store is INTACT and still readable, so do not rebuild over it) and reset.stoppedOnAuthorityLoss (the lock is gone, stop, do not retry). A non-empty reset.failed with neither flag set is residue: log it, rebuild, and let the rebuild's published manifest turn the residue into unreferenced generations that collectGarbage collects on a later sweep. That converges, and it is what the code was written to do.\n\nDISPOSITION. T-011's plan (revision 2) plans against the CODE and states the conflict in place rather than silently following either text, because a plan that quietly picks one of two contradictory binding documents hides the decision. The acceptanceAdditions text should be corrected so the next reader is not misled; it has already been amended twice (round-2 stored the object as a JSON string, round-3 added this very clause), so the error is in the amendment rather than in the original.\n\nNote the clause is not wholly wrong: its stoppedAtManifest and stoppedOnAuthorityLoss readings match the code exactly. Only the reset.failed reading is inverted.",
+  "location": [
+    "src/snapshot/store.ts:1194-1205",
+    "src/snapshot/store.ts:1355-1364",
+    "src/snapshot/store.ts:458",
+    ".story/tickets/T-011.json"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-011",
+    "T-010"
+  ],
+  "resolution": "WITHDRAWN AS INCORRECT. I filed this; the argument does not survive review. Recorded rather than deleted, because the reasoning error is the point.\n\nMY CLAIM was that treating a non-empty reset.failed as a hard stop wedges the service permanently, and that rebuilding converges because the published manifest turns residue into unreferenced generations that GC collects.\n\nWHY IT IS WRONG. reset.failed is a string[] of paths the reset could not remove, and it does NOT distinguish what kind of entry each one is. My convergence argument holds only for the subclass where the residue is a valid unreferenced generation. store.ts:455-461 is decisive:\n\n    manifest present + unreferenced generation  -> USABLE; the orphan is GC input\n    unknown entry in the root                   -> not-usable (reset)\n\nFor an unknown root entry, a substituted directory, or wrong-type staging state, classification refuses the store REGARDLESS of any manifest. Publishing does not make it usable. So rebuilding does not converge either — it burns a full ccusage rebuild on every start, publishes a snapshot the next start destroys, and the store still never becomes usable. That is strictly worse than the acceptanceAdditions rule, which stops and surfaces.\n\nI proved a property of one subclass of reset.failed and used it as though it had been proved of all of them. That is defect class (b) — a value proven to have one property, then used as though a different property had been proven — which is the class this ticket has now cost me three rounds on, and which produced the critical Q5 finding in the same review. Filing an issue against a correct binding document on the strength of it was the compounding error: I verified the field's TYPE and its doc comment, and did not verify the CLASSIFICATION consequence, which is where the argument actually lived.\n\nTHE CORRECT RULE, now in the plan: three hard stops, exactly as T-011's acceptanceAdditions states. reset.failed non-empty, reset.stoppedAtManifest, and reset.stoppedOnAuthorityLoss each halt the bootstrap with zero rebuild; retry only through a fresh startWriter. The plan's tests are correspondingly replaced: a failed valid generation, an unknown root entry, a substituted directory, and a wrong-type staging entry, each asserting zero publish.\n\nNOTHING IN THE TICKET NEEDS CHANGING. The acceptanceAdditions text was right and my reading of it was wrong. One genuine defect found while filing this does stand and is tracked separately: both that text and my plan named the GC field noManifest, but the shipped field is noUsableManifest and it covers present-but-unusable manifests as well as absent ones, which routes to reset-and-rebuild through a fresh startWriter rather than to a direct rebuild.\n\nCredited to the codex reviewer (session 00000000-0000-4000-8000-000000000000), which caught it in the T-011 plan review round 2; verified against src/snapshot/store.ts myself before accepting.",
+  "resolvedDate": "2026-08-04",
+  "severity": "low",
+  "sourceRefs": [
+    {
+      "contentHash": "f54f87b9055a338246ac65edc62362e13c4002d90501b2d8dabbce7e14e744e5",
+      "endLine": 1205,
+      "path": "src/snapshot/store.ts",
+      "revision": "d0b6efc3c734361e99be877c191183e9778894c5",
+      "startLine": 1194
+    },
+    {
+      "contentHash": "e81937d87edbc779ce74eb4b86e7ecf83b2003657dcb572054c87eab3ce8693d",
+      "endLine": 1364,
+      "path": "src/snapshot/store.ts",
+      "revision": "d0b6efc3c734361e99be877c191183e9778894c5",
+      "startLine": 1355
+    }
+  ],
+  "status": "resolved",
+  "title": "WITHDRAWN — my reset.failed wedge argument was wrong; the acceptanceAdditions rule is correct"
+}

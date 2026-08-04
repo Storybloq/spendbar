@@ -1,0 +1,16 @@
+{
+  "components": [
+    "autonomous"
+  ],
+  "discoveredDate": "2026-08-04",
+  "id": "ISS-076",
+  "impact": "The plan has not solved the sourceVersion problem; it moved it to T-012. Section 4 establishes that ccusage is a black box and that stable or copied input bytes do not prove which bytes it consumed, but section 10.1 claimed T-012 can produce truthful consumed-offset provenance — and T-012 also uses ccusage and explicitly defers owned parsing to v0.5, so its shadows and watermarks prove what was supplied, not what was consumed. Implementing it literally either leaves repeated refresh impossible or publishes fabricated dominance claims. FILED AS ISS-075 (critical) because the contradiction is cross-ticket and contract-level, not a defect in this plan: T-010 requires consumed offsets, no v0.2 ticket can produce them, and resolving it means either redefining sourceVersion as a verified input watermark (updating T-010's contracts and tests) or accepting that repeated authoritative refresh waits for owned parsing. The plan now WITHDRAWS the T-012 claim entirely and claims nothing about what completes the cycle; T-011 remains implementable under either answer, publishing one bootstrap generation and shipping the replacement mechanism.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "critical",
+  "status": "open",
+  "title": "[correctness] The plan has not solved the sourceVersion problem; it moved it to T-012. Section"
+}
