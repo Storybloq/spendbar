@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-08-04",
+  "description": "Follow-on surface T-011/T-013 need from the (complete, shipped) T-010 store, per N-007/N-008. Five items, all small, all in src/snapshot:\n\n1. **assertGenerationInvariants** (closes ISS-064, hard prerequisite for item 2): body-shape validation for GenerationDoc mirroring assertManifestInvariants — provenance present with coverage array, sourceVersion canonicalizable, payload present — called at EVERY generation decode (classifyStore, readSnapshot, readGeneration). Per the mutation discipline, a test observes it refusing a checksum-valid/body-malformed generation, which today classifies \"usable\" and serves.\n\n2. **readGeneration(id)**: read one generation by id, limited to ids that are manifest-retained or pinned; full envelope + invariant validation; NOT manifest-following (readSnapshot stays the only manifest-follower). This is the reader half of the pin mechanism T-013's cursors consume.\n\n3. **Dominance amendments** (N-008 1a/1b): publishSnapshot gains retireSources — dominance permits a missing key ONLY when explicitly retired by the caller; unattested absence stays incomparable/fail-closed. publishSnapshot gains {status:\"unchanged\"} for candidate-equals-live, distinct from published and refused. Tests observe: an unattested missing source still refuses; an attested retirement publishes and logs; equal watermark reports unchanged, never published.\n\n4. **sourceVersion semantics rewrite** (N-007 decision 1): contracts, comments and tests move from consumed-offset language to verified-input-watermark language (per-source newest event reflected in output). The consumed-offset ideal is EXPLICITLY deferred to the v0.5 owned-parsing ticket.\n\n5. **ccusageFetchedAt -> ccusageInvokedAt** (N-007 decision 2, N-008 2a): rename, keep required, document as the invocation instant. KNOWN CONSEQUENCE, accepted: exact-key schema change — a pre-rename snapshot fails assertExactKeys and classifies to reset. Pre-release this is fine; it is written here so nobody discovers it.\n\nNon-goals: no new authority semantics, no lease resurrection (cut per N-007 decision 4), no migration machinery (derived cache: reset is the migration).\n",
+  "id": "T-025",
+  "order": 80,
+  "phase": "v0-2",
+  "status": "open",
+  "title": "T-010 follow-on: generation invariants, readGeneration, dominance amendments, ccusageInvokedAt",
+  "type": "feature"
+}
