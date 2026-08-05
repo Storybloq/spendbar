@@ -1,0 +1,24 @@
+{
+  "components": [
+    "mcp",
+    "tests"
+  ],
+  "createdBy": "self-audit during T-013 re-plan, 2026-08-04; verified by reading the manifests",
+  "discoveredDate": "2026-08-04",
+  "id": "ISS-088",
+  "impact": "## What AC 2 asks for and what exists\n\nT-013 AC 2: \"Conformance suite green over the adopted v2 SDK behind T-009's adapter, **against recorded real-client transcripts**: initialize, tools/list, tools/call, malformed input, cancellation, EOF.\"\n\nThe recorded evidence at `spikes/mcp/evidence/real-clients/` is four manifests (claude-code-v1/v2, codex-v1/v2). Inspected:\n\n- `clientToServer`, `serverStdout`, `serverStderr`, `clientStdout` are **counters**, not bodies: `{\"bytes\":874,\"lines\":4,\"messages\":4,\"remainder\":0,\"encodingErrors\":0,\"parseErrors\":0,\"protocolErrors\":0}`.\n- `frames` is a three-entry structured SUMMARY: the negotiated `protocolVersion`, the returned `toolNames`, and extracted call result fields.\n- `digests` holds SHA-256 over each stream.\n- The whole manifest is ~4.4 KB.\n\nSo there are no replayable frame bodies. The evidence is a verifiable RECORD that the two real clients behaved a certain way, which is what T-009 needed; it is not a fixture a later server can be replayed against.\n\nSecond and more limiting: the recorded tool is **`spendbar_probe`** — T-009's single representative probe tool. The digests are over traffic for that tool's schema. T-013 registers five different tools with different schemas, so the recorded digests cannot be asserted against the new server even in principle.\n\n## Consequence\n\nRead literally, AC 2 asks for something the evidence cannot support, and a plan that claims to satisfy it is claiming a test it cannot write. Worse, a plausible-looking implementation — replaying the summarized frames — would be measuring the summary, not the server.\n\n## What AC 2 can honestly mean, and should be reworded to\n\n1. **Re-run the conformance SUITE** (`spikes/mcp/conformance.mjs` and siblings, promoted or re-executed as maintained infrastructure) against the production five-tool server: initialize, tools/list, tools/call, malformed framing, schema-violating arguments, cancellation, EOF, stdout purity. This is the substance of AC 2 and it is fully available.\n2. **Capture FRESH real-client evidence for the five-tool server** — now 2 clients x 1 SDK, since v2 is adopted — producing new manifests by the same recording discipline. Per `docs/codex-mcp-approval.md`, the non-interactive Codex capture must set `default_tools_approval_mode = \"approve\"` and assert `tools/call` was actually received, or a client-side cancellation records as a server failure.\n3. Treat T-009's existing manifests as **prior evidence that dates the client behaviour**, not as a fixture.\n\nNote the scrubbing rule still applies to any fresh capture: no personal paths, usernames, or real usage data.",
+  "location": [
+    "spikes/mcp/evidence/real-clients/codex-v2.manifest.json",
+    ".story/tickets/T-013.json"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-013",
+    "T-009"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "T-009's real-client evidence is digests and counts over a probe tool, not replayable transcripts — T-013 AC 2 cannot be discharged as worded"
+}

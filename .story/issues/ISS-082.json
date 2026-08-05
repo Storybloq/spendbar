@@ -1,0 +1,30 @@
+{
+  "components": [
+    "snapshot",
+    "ccusage"
+  ],
+  "createdBy": "T-025 plan round 3 (codex reviewer, verified)",
+  "dedupeKey": "t025-plan-r3:sourceversion-key-domain",
+  "discoveredDate": "2026-08-04",
+  "displayId": "ISS-082",
+  "id": "ISS-082",
+  "impact": "THIS IS THE PRIOR QUESTION TO ISS-081, and it went unasked through three plan-review rounds because I kept saying \"per-source\" without ever defining a source.\n\nTHE GAP. `sourceVersion` is `Record<string, number>` (types.ts:303). NOTHING in the codebase binds what the keys MEAN. `compareSourceVersions` (dominance.ts:161-190) treats them as opaque strings. The shipped tests use provider-like keys - `{claude: 10}`, `{claude: 20, gemini: 1}`, `{a: 5, b: 9}` - while the only per-entity ccusage surface, `claude daily --instances` (ccusage.ts:68-78), is per PROJECT. N-007 decision 1 and N-008 1a both reason about \"sources\" throughout and neither defines one. N-008 1a's own example (\"codex vanishing while claude advances\") is provider-shaped.\n\nWHY IT IS LOAD-BEARING RATHER THAN PEDANTIC. The answer changes what evidence exists, and therefore changes ISS-081's conclusion:\n\n- If a source is a PROVIDER (claude, codex): `ccusage blocks --json` is a Claude-only command, so its `actualEndTime` (ccusage.ts:96, tests/fake_ccusage.py:67-70) is a PROVIDER-LEVEL sub-day activity signal. Claude then HAS a per-source sub-day witness and only Codex lacks one. ISS-081 shrinks to a Codex-shaped problem.\n- If a source is a PROJECT or instance: `blocks` carries no project key at all, so its timestamp is global and cannot witness any single source. ISS-081 stands at full width.\n- If a source is a TRANSCRIPT ROOT or something else again: neither analysis has been done.\n\nSo \"no per-source sub-day signal exists\" is NOT ESTABLISHED, and cannot be until this is answered. I asserted it for two revisions of the T-025 plan on an undefined term.\n\nSECOND-ORDER CONSEQUENCES the decision also settles, each of which some parked ticket needs:\n- What N-008 1a's retirement attestation is ABOUT. Retiring a provider (\"I stopped using codex\") and retiring a project (\"I deleted that repo\") are different events with different witnesses and wildly different frequencies. Project churn is routine; provider churn is rare. A retirement mechanism sized for one is wrong for the other.\n- How large the key set gets, and therefore how often the one-sided-key wedge fires at all. A handful of providers is stable. Projects appear and vanish constantly, which makes both wedge directions ordinary rather than exceptional.\n- What `provenance.sourceTimestamps` (store.ts:1064-1073) is keyed by, since it is presumably the same domain and is validated today without one.\n\nWHAT IS NEEDED. An owner decision naming the key domain, and stating it where the store can be checked against it. It should be answered BEFORE ISS-081, because it changes ISS-081's answer rather than merely informing it.\n\nRECOMMENDATION: provider-level keys. It matches every shipped test fixture, it matches N-008 1a's own worked example, it keeps the key set small and stable (which makes both one-sided-key wedges rare rather than routine), and it is the only choice under which a sub-day witness demonstrably already exists for at least one provider. Costs: it gives up per-project regression detection, so a single project's data going backwards inside an advancing provider would not refuse - which should be stated as accepted rather than discovered later.\n\n---\n\n## ADDED 2026-08-04, from T-011 re-plan review round 2 (codex, 00000000-0000-4000-8000-000000000000)\n\nTHIS ISSUE BLOCKS A T-011 SCOPE ITEM DIRECTLY, not only T-025's. I claimed in the T-011 re-plan that ISS-082/081 \"have no consequence for T-011\" because the base plan was written to be sound either way. That claim is FALSE and the review refuted it:\n\n- N-008 1a assigns the retirement ATTESTATION to the service - \"The service attests retirement only after verifying the INPUT side (the source's transcript location exists and is empty/pruned)\". The service is T-011. Until the key domain is decided, T-011 cannot know what entity is being retired, where its declaration lives, or which declared value to pass to `publishSnapshot.retireSources`. There is no honest caller, which is an L-006 witness failure.\n- It also reaches the generic bootstrap-REPLACEMENT operation the base plan ships in T-011 (docs/t011-headless-service-plan.md:1148). That operation resets the store and publishes with `live: null`, bypassing dominance entirely, so its safety rests on the candidate being semantically truthful rather than merely structurally valid. No caller can supply a semantically truthful non-empty `sourceVersion` while this is open.\n\nT-011 remains implementable at a reduction (every generation it publishes carries `sourceVersion = {}`, so an empty key set cannot shrink and the retirement path is unreachable rather than merely unimplemented; the replacement operation is held behind a test-only seam). But that reduction is a CONSEQUENCE of this issue and must be recorded as such, not presented as unrelated.",
+  "location": [
+    "src/snapshot/types.ts:303",
+    "src/snapshot/dominance.ts:161-190",
+    "src/ccusage.ts:68-78",
+    "src/ccusage.ts:96"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-025",
+    "T-011",
+    "T-012",
+    "T-013"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "critical",
+  "status": "open",
+  "title": "sourceVersion's key domain is undefined — \"per-source\" is unspecifiable until someone decides whether a source is a provider, a project, or a transcript root"
+}

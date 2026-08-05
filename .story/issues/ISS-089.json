@@ -1,0 +1,27 @@
+{
+  "components": [
+    "snapshot",
+    "mcp",
+    "ccusage"
+  ],
+  "createdBy": "codex gpt-5.6-sol via T-013 plan review rev3 (00000000-0000-4000-8000-000000000000), finding 5 — reviewer's own instruction was \"return this specific conflict for owner resolution\"",
+  "discoveredDate": "2026-08-05",
+  "id": "ISS-089",
+  "impact": "## Two recorded positions that cannot both hold\n\n**Position A — ISS-023, extended to T-013 by ISS-026 (resolved, owner-delegated).** \"The CCUSAGE_CMD runtime-validator gap is an ACCEPTED tradeoff (ISS-023, owner-delegated) — T-013 open question 6 is thereby answered: no validator lands in T-013; revisit only if own-the-parsing replaces ccusage.\" Custom `CCUSAGE_CMD` payloads are served without runtime validation; only the pinned bundled schema has contract coverage (ISS-002).\n\n**Position B — the snapshot payload layer (ISS-087).** `generation.payload` is `unknown`, so a payload schema and a reader-boundary validator are required before any reader can compute. The `blocks[]` dataset is not uniform — gap rows may carry only `isGap`, active rows may omit `endTime`, `actualEndTime` may be absent or falsy — so a correct schema needs a discriminated normalized union, and the writer-side constructor must enforce it.\n\n**The collision:** a strict `blocks[]` constructor and reader validator ARE runtime validation of block payloads. A future writer invoking the mandated constructor with a custom `CCUSAGE_CMD` payload would reject data that Position A says must be served. Cutting the validator from `src/mcp` and adding its sibling in `src/snapshot/payload.ts` is not consuming the decision — it is relocating what the decision forbids, which is this project's recurring class-and-siblings defect.\n\n## Why a planner cannot resolve it\n\nBoth positions are recorded. ISS-026 is resolved and names T-013 explicitly. ISS-087's requirement is a precondition of every reader existing at all. Choosing either side reverses a recorded decision or blocks a shipped constraint, and a plan that quietly picks one is exactly the authority error this project has now flagged three times in one session.\n\n## Options, costed\n\n**(a) Authorize strict normalization at the snapshot boundary.** The payload layer validates and normalizes blocks regardless of source; `CCUSAGE_CMD` payloads that do not conform are refused at publish rather than served. Cost: reverses ISS-023's acceptance for the stored path. Benefit: one honest shape for every reader, and the MCP blast-radius argument (an LLM computing over unvalidated data and presenting it as fact) is addressed. Note the blast radius genuinely differs from the CLI case ISS-023 decided, where the consequence is one user's terminal output.\n\n**(b) Scope the block dataset to the pinned bundled contract.** `blocks[]` is populated only when produced from the pinned ccusage build; under a custom `CCUSAGE_CMD` the dataset is absent and `usage_blocks` plus the block-consuming `--cached` views return the typed-unavailable response base Q3 already allows. Cost: a real capability gap for `CCUSAGE_CMD` users. Benefit: ISS-023 stands untouched, and the refusal is honest rather than silent.\n\n**(c) Explicitly re-scope ISS-023 for the stored path.** Keep the CLI's accepted tradeoff for direct invocation, and state that anything entering the snapshot store is validated. This distinguishes the two consumers rather than treating them alike, which is defensible because they have different blast radii — but it is a new decision, not an inference.\n\n**Recommendation: (b).** It is the only option that changes no recorded decision, and its cost is visible to the user as a typed refusal rather than hidden in either unvalidated output or a silent rejection. (a) or (c) are reasonable if the owner wants block data under custom commands.\n\nBlocks T-013's payload layer either way; recorded so the choice is made rather than absorbed.",
+  "location": [
+    ".story/issues/ISS-026.json",
+    "src/snapshot/types.ts:305",
+    "src/ccusage.ts:96"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-013",
+    "T-011",
+    "T-012"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "status": "open",
+  "title": "Decision conflict: the snapshot payload layer requires strict block normalization, but ISS-023/ISS-026 forbid T-013 from adding runtime CCUSAGE_CMD validation"
+}

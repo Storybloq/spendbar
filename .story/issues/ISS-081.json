@@ -1,0 +1,30 @@
+{
+  "components": [
+    "snapshot",
+    "ccusage"
+  ],
+  "createdBy": "T-025 plan round 1 (self-audit under RULES.md L-006)",
+  "dedupeKey": "t025-plan-r1:watermark-intraday-witness",
+  "discoveredDate": "2026-08-04",
+  "displayId": "ISS-081",
+  "id": "ISS-081",
+  "impact": "BLOCKED ON ISS-082, WHICH MUST BE ANSWERED FIRST. Plan review round 3 established that this issue's central term - \"per-source\" - is undefined, and that the answer changes this issue's conclusion rather than merely informing it. sourceVersion is Record<string, number> and nothing binds the key domain (see ISS-082). Read that first; what follows is correct only once \"source\" means something.\n\nWHAT IS ESTABLISHED REGARDLESS OF ISS-082. The only per-entity ccusage surface, `claude daily --instances` (src/ccusage.ts:68-78), is DAY-granular: rows carry `date`, `totalCost`, `totalTokens`, four optional counters, `modelBreakdowns` (src/json.ts:327-331). Generic `daily` uses `period`, same granularity. A day-granular watermark does not advance within a day, so if the key domain resolves to projects or instances, then no intra-day refresh can ever publish - defeating T-012's fast tier and the product - and N-008 1b would report \"found nothing new\" for a run that found real new spend, which is the exact freshness lie 1b exists to prevent.\n\nWHAT IS NOT ESTABLISHED. That no per-source sub-day signal exists. `ccusage blocks --json` (src/ccusage.ts:96) rows carry `startTime`, `endTime` and `actualEndTime` as ISO instants with ms precision (tests/fake_ccusage.py:67-70), consumed at renderers.ts:397-399, reached by the live `blocks` subcommand (main.ts:70,122,146). The rows have no source key, but the COMMAND is Claude-only - so under provider-level keys that timestamp IS a per-source sub-day signal for Claude, and this issue narrows to Codex. Under project-level keys it is global and this issue stands at full width. Codex `sessionFile` (ROLLOUT_RE, codex.ts:59-62) embeds a time but it is a session START time, which a growing session never advances, so it does not witness newest activity under any key domain.\n\nHISTORY OF THIS FILING, kept because the pattern matters more than the conclusion. Version 1 claimed \"no row in any ccusage surface carries a sub-day event timestamp\" - FALSE, refuted by review round 2, which found blocks. Version 2 claimed \"no PER-SOURCE sub-day signal exists\" - NOT ESTABLISHED, refuted by review round 3, which found that the term was undefined. Both times the error was the same: I audited what I was already looking at, found what I expected, and stopped. ISS-072 was withdrawn for that pattern earlier in this arc. That is three instances, and the lesson is not \"check ccusage surfaces\" but \"an audit that terminates when it finds a confirming instance has not been performed\".\n\nCANDIDATE RESOLUTIONS, once ISS-082 is answered:\n(a) Ordered composite per-source version, e.g. (newest day, tokens on that newest day) - monotone and pruning-robust, since pruning never touches the newest day. Costs: sourceVersion is Record<string, number>, so the pair needs a checked safe-integer encoding, or the type and compareSourceVersions both change on shipped T-010. Splitting across two keys does NOT work: at day rollover the date component rises while the token component resets, giving anyGreater && anyLess = incomparable (dominance.ts:184).\n(b) Keep day-granular watermarks and REDEFINE \"unchanged\" as candidate-payload-identical-to-live rather than watermark-equal, letting an equal watermark with a differing payload publish. Weakens the gate to refusing only regression.\n(c) Accept day-granular publishing for v0.2 and move intra-day freshness to the v0.5 owned-parsing ticket - i.e. state plainly that the v0.2 service updates spend once per day.\n(d) Per-source day watermarks plus the global blocks.actualEndTime as an intra-day tiebreak. WITHDRAWN AS PROPOSED, and the reason is worth keeping: review round 3 showed it commits this arc's own substitution. To claim the payload REFLECTS activity through blocks.actualEndTime, blocks must be invoked BEFORE the payload-producing command; invoked after, it proves only that blocks SAW activity, not that the computed payload included it - bytes-available-as-bytes-consumed wearing a new hat, inside the fix proposed for it. It was also underspecified on persistence, regression handling, interaction with retirement and equality, and invocation order, and it cannot unblock a growing Codex session when the Claude tiebreak is unchanged. Revivable only with a strict `blocks` -> payload ordering contract and a full composite comparison table.\n\nIf ISS-082 resolves to PROVIDER keys, a fifth option opens: Claude uses blocks.actualEndTime as a genuine per-source sub-day watermark while Codex uses day granularity, with the asymmetry documented rather than hidden. That is the option this issue could not see while \"source\" was undefined.",
+  "location": [
+    "src/snapshot/dominance.ts:161-190",
+    "src/snapshot/store.ts:2180-2192",
+    "src/ccusage.ts:63-78",
+    "src/json.ts:327-331"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-025",
+    "T-011",
+    "T-012",
+    "T-013"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "critical",
+  "status": "open",
+  "title": "No ccusage surface gives a PER-SOURCE sub-day activity time: a per-source watermark cannot advance intra-day, and the only sub-day signals are global or session-start"
+}

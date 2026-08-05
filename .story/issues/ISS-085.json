@@ -1,0 +1,24 @@
+{
+  "components": [
+    "service",
+    "tickets"
+  ],
+  "createdBy": "codex gpt-5.6-sol via T-011 re-plan review rev3 (00000000-0000-4000-8000-000000000000), finding 2",
+  "discoveredDate": "2026-08-04",
+  "id": "ISS-085",
+  "impact": "## The contradiction\n\nT-011 AC 10 reads: \"`spendbar refresh` reaches the running service over the socket and **triggers a refresh**; with no service running it fails with a clear, typed message.\"\n\nThe base plan's accepted reduction (§10.1) is that **T-011 alone indexes once**: every generation it publishes carries `sourceVersion = {}`, so no later candidate can dominate and no second publish is possible. Review of the re-plan established that the honest response to a post-bootstrap refresh is to decline it at ADMISSION, before spawning ccusage at all — spending 60-120 seconds on a run that is known in advance to be incapable of publishing is worse than declining, and it makes a healthy service indistinguishable from a broken one.\n\nSo after the bootstrap publish, no refresh is triggered. The command reaches the service and receives a typed terminal outcome. AC 10 as written is not satisfiable.\n\n## Why this needs an owner ruling rather than a planner's reading\n\nTwo readings are defensible and they lead to different tickets:\n\n- **AC 10 means \"the command reaches the service and gets a truthful typed answer\".** Then it is dischargeable in two halves: before the bootstrap publish it triggers a real refresh; after, it returns the typed decline. AC 10 is amended to say so explicitly, and T-011 proceeds.\n- **AC 10 means \"a refresh actually executes on every invocation\".** Then it is not satisfiable in v0.2 at all and T-011 is held on ISS-082 then ISS-081 along with everything else that needs the watermark contract.\n\nThe first reading was assumed by revision 2 of the re-plan without being stated, and that was wrong. It is recorded here rather than reinterpreted quietly.\n\n## Related design consequence, whichever way it goes\n\nIf the first reading is adopted, the decline must be surfaced rather than reported as success or as a generic failure: a `refreshMode` capability on `status`, a typed terminal outcome distinct from both \"nothing changed\" and \"failed\", a distinct non-zero exit code with a message naming the limitation, a terminal progress frame that is not a fabricated completion, and a log line at the admission decision. Reporting \"cannot look\" as \"looked, nothing moved\" is the freshness lie N-008 1b exists to prevent.",
+  "location": [
+    ".story/tickets/T-011.json",
+    "docs/t011-headless-service-plan.md:1038"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-011",
+    "T-012"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "status": "open",
+  "title": "T-011 AC 10 requires that `spendbar refresh` \"triggers a refresh\", which the v0.2 indexes-once reduction cannot satisfy after the bootstrap publish"
+}
