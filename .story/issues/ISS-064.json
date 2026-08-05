@@ -1,14 +1,20 @@
 {
   "components": [],
   "discoveredDate": "2026-08-03",
+  "displayId": "ISS-064",
   "id": "ISS-064",
   "impact": "ManifestDoc gets two layers of validation: decodeEnvelope (wrapper: kind/schemaVersion/checksum) AND assertManifestInvariants (store.ts:353) for its body shape, called at store.ts:251, 657 and 840. GenerationDoc gets only the first. store.ts:841 does `const doc = decodeEnvelope(\"generation\", path, raw) as GenerationDoc` and assigns it straight to `active` — a type assertion, not a check. classifyStore does the same ungated decode at store.ts:267.\n\nConsequence: a generation whose envelope is well-formed and whose checksum matches, but whose BODY is structurally malformed (missing provenance, missing coverage, non-object sourceVersion) is classified \"usable\" and served as the active snapshot rather than quarantined. The reader's quarantine path exists and works; this class of damage simply never reaches it. deriveFreshness (store.ts:883) spreads provenance.coverage and would throw on it.\n\nCaveat on urgency, verified: deriveFreshness currently has zero callers and readSnapshot is not yet wired into the CLI, so the concrete throw is not reachable today. This is a gap to close before the module is consumed (T-012/T-013), not a live defect.\n\nFix shape: an assertGenerationInvariants mirroring the manifest one, called wherever a generation is decoded — and per this repo's mutation discipline, a test that observes it refusing.\n",
-  "location": [],
+  "location": [
+    "src/snapshot/store.ts:1014",
+    "src/snapshot/store.ts:664",
+    "src/snapshot/store.ts:2694",
+    "src/snapshot/store.ts:2206"
+  ],
   "phase": null,
   "relatedTickets": [],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "ALREADY FIXED — verified against the tree 2026-08-04 during T-025 planning, which had been told to close this issue and found nothing left to close.\n\nThe defect this issue describes no longer exists, and neither do the lines it cites. It names an ungated `decodeEnvelope(\"generation\", path, raw) as GenerationDoc` assigned straight to `active` at store.ts:841, plus the same ungated decode in classifyStore at store.ts:267. Both line numbers now point elsewhere; the file changed substantially over T-010.\n\nWhat is true today:\n\n1. `assertGenerationInvariants` EXISTS at store.ts:1014. It validates object-ness, inertness, exact keys, the id binding (the body's declared generationId must equal the id it was read as), publishedAt as an explicit-offset instant, sourceVersion canonicalizability, and full provenance shape including the coverage array.\n\n2. There are exactly TWO generation decode sites in the module — store.ts:664 and store.ts:2694 — and BOTH are gated immediately: 664 wraps the decode in the assertion inline, 2694 is followed by the assertion at 2699 with only a comment between. The comment at 2694 states the intent in as many words: a checksum-valid document that is not a generation, or is a different generation wearing this filename, must never be served.\n\n3. It also runs on the way OUT, at store.ts:2206, so a bad candidate is refused at publish rather than at the next read.\n\nSo the two-layers-of-validation asymmetry with ManifestDoc that this issue was filed about is closed: GenerationDoc now gets both layers, at every decode and at publish.\n\nResolved rather than deleted, because the issue was correct when filed and the fix is worth having a record of.\n\nONE THING IT DID NOT COVER, now carried by T-025 item 1 instead of by this issue: the payload is still only checked to EXIST (store.ts:1045-1049 says so explicitly, and that was the right call when the payload had no schema), and sourceVersion is only checked to be canonicalizable, not to match a defined key set. N-009 gives the payload a schema (SnapshotPayloadV1) and the keys a domain (the six-surface registry), so T-025 item 1 strengthens exactly those two checks in this existing function. That is a NEW obligation from N-009, not the unclosed remainder of this issue.",
+  "resolvedDate": "2026-08-04",
   "severity": "high",
-  "status": "open",
+  "status": "resolved",
   "title": "[T-010] Generation bodies are decoded but never invariant-checked before being served"
 }

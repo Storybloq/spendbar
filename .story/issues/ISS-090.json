@@ -1,0 +1,25 @@
+{
+  "components": [],
+  "discoveredDate": "2026-08-05",
+  "id": "ISS-090",
+  "impact": "N-009 §1 makes `claude-transcript-hours` the sixth ingestion surface and defines it as \"writer-owned scan of transcript JSONL into half-hour token buckets (the facts transcripts.ts derives today)\". Verified against the code: a single all-time pass CANNOT derive the facts transcripts.ts derives today, for two independent and compounding reasons.\n\n1. PER-FILE MTIME FILTER, KEYED ON THE TARGET DATE (transcripts.ts:126). `if (mtimeLocalDate(path) < targetIso) continue;` skips whole files whose mtime predates the requested day. The file SET therefore differs per target date. A global pass necessarily reads files that a per-date call skips.\n\n2. DEDUPE RUNS BEFORE THE DATE CHECK (transcripts.ts:171 vs :178). The `seen` set is keyed on `[requestId, message.id]` and is consulted at :171; the record's own date is not tested until :178. `seen` is per-invocation. So within one call, a record can be consumed by dedupe and discarded, suppressing a LATER record with the same key that belongs to a DIFFERENT date. Which record wins depends on file iteration order and on which files survived (1).\n\nCompounded: because the surviving file set is date-dependent, the `seen` set's contents are date-dependent too. One global scan therefore chooses different duplicate winners than 190 per-date scans, and the difference is not a fixed offset — it varies per date with the corpus's mtime layout.\n\nMEASURED, so the scale is not hypothetical: the owner's corpus is 14,232 JSONL files / 5.98 GiB, 48.1% of lines carry `message.usage`, and one full pass takes 31.4 s. Reproducing per-date semantics honestly would need 190 separate passes (~100 minutes), which is not a viable refresh.\n\nWHY THE OBVIOUS REPAIR DOES NOT WORK. Storing extra facts so a reader can re-apply the filters is not viable either: reproducing (1) needs each contributing file's mtime, and reproducing (2) needs each record's dedupe key plus a deterministic file order — i.e. per-record state for the whole corpus, which is the corpus. The size gate already caps the payload at tens of MiB; this would be gigabytes.\n\nSO THE OPTIONS ARE, AND THIS IS AN OWNER DECISION:\n(a) RATIFY A BEHAVIORAL CHANGE. The surface stores the writer's own globally-deduped, unfiltered buckets, and `hourly --cached` is DEFINED against those. Consequence: `hourly --cached` and live `hourly` may disagree for some dates, in a way that is explainable but user-visible. Cheap, and the only option that keeps the surface.\n(b) CUT the surface from SnapshotPayloadV1 and keep `hourly` a live-only view (it is one today). N-009 §1's key set drops to five and §6's promise that \"hourly stays available under --cached\" is withdrawn. Requires a SCHEMA_VERSION-level edit to the decided document.\n(c) Keep byte-equivalence and accept ~100 minutes per full refresh. Recorded for completeness; it is not viable against T-012's capped full tier.\n\nRECOMMENDATION: (a), with the divergence documented where the CLI surfaces it, because the buckets are an aggregate for a chart rather than a billing figure and the global dedupe is arguably the MORE correct of the two. But it is a change to shipped behaviour and a planner cannot authorize it.\n\nBLOCKS: T-025 cannot finalize the registry entry for this surface (normalizer, watermark, identity, disappearance policy) until this is answered — the other five surfaces are unaffected and their entries are specifiable now. T-013 AC on `hourly --cached` and T-011/T-012's refresh cost both inherit the answer.\n\nFound during T-025 plan review round 1 (codex session 019fcfc4, finding 8), then verified against the code, which showed the ordering defect to be sharper than the review stated: the review noted dedupe-before-date; the mtime filter making the file set itself date-dependent is the compounding half.",
+  "location": [
+    "src/transcripts.ts:114",
+    "src/transcripts.ts:126",
+    "src/transcripts.ts:171",
+    "src/transcripts.ts:178",
+    "docs/snapshot-facts-and-watermarks.md:24"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-025",
+    "T-011",
+    "T-012",
+    "T-013"
+  ],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "critical",
+  "status": "open",
+  "title": "claude-transcript-hours cannot reproduce cmdHourly from one all-time pass: scanTranscripts dedupes BEFORE the date check, over a file set narrowed by a target-date-dependent mtime filter"
+}
