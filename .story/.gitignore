@@ -3,3 +3,4 @@ status.json
 sessions/
 federation-cache.json
 channel-inbox/
+servers/
