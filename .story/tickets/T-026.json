@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": "2026-08-05",
+  "createdDate": "2026-08-05",
+  "description": "Extracted from parked T-025 per the N-009 runway handover's owner action 1 — the reviewer confirmed twice that this subset is independently landable, and landing it breaks the causal park chain at its root (unblocks T-011 AC 1 and T-013 AC 4).\n\n## Scope (exactly two items, both from T-025's standing item list)\n\n1. **Item 5 — rename `ccusageFetchedAt` → `ccusageInvokedAt`** across `src/snapshot/types.ts`, `src/snapshot/store.ts` (PROVENANCE_KEYS, the provenance field loop, the instant check), and both test files. The field's doc comment records why: ccusage embeds pricing at build time and reports no fetch timestamp, so a fetch-shaped name misrepresents (N-007 decision 2, ISS-077/ISS-075 arc). The exact-key invariant means a pre-rename snapshot classifies to reset — the accepted pre-release consequence recorded in T-025.\n\n2. **Item 2 — `readGeneration(fs, paths, id, attempts)`** in `src/snapshot/store.ts`: reads ONE generation by id without following the manifest (the reader half of the pin mechanism, T-013 AC 4's dependency). Authorization decides readability: the id must be manifest-referenced (active or retained) or named by a structurally valid pin; anything else is a typed `not-retained`, including malformed/hostile ids. Pin expiry is deliberately ignored (GC's ownership). Verdicts follow readSnapshot's vocabulary: no-snapshot / not-retained / gone / ok, with the container bracket extended to pins/ because a swapped pins/ forges authorization. `assertGenerationInvariants` binds the served document to the REQUESTED id, so no closing manifest re-check is needed on success.\n\n## Explicitly out of scope\n\n- ISS-083's atomic validate-then-pin store operation. readGeneration cannot validate an unretained generation before its pin exists (the issue's own circularity note), so ISS-083 remains open and assigned to T-025.\n- Unparking T-011/T-013 — separate owner-sequenced actions.\n\n## Acceptance\n\n- `npx tsc` clean; full suite green including 9 new readGeneration tests (retained serve, manifest-independence after publish, pin-scan authorization for an evicted id, not-retained for unreferenced-but-present file, hostile ids answered not thrown, gone for missing/substituted file, attempts validation, no-snapshot without a manifest).\n- Zero `ccusageFetchedAt` references outside the rename-history doc comment.",
+  "displayId": "T-026",
+  "id": "T-026",
+  "order": 90,
+  "phase": "v0-2",
+  "status": "complete",
+  "title": "Land T-025 items 2+5: readGeneration and the ccusageInvokedAt rename",
+  "type": "task"
+}

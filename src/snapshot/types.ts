@@ -291,7 +291,14 @@ export interface Provenance {
   sourceTimestamps: Record<string, string>;
   refreshTier: string;
   ccusageVersion: string;
-  ccusageFetchedAt: string;
+  /**
+   * The instant this service INVOKED ccusage — the fact the writer can prove. Deliberately
+   * not "fetchedAt": ccusage embeds pricing at build time and reports no fetch timestamp,
+   * so a fetch-shaped name would misrepresent (N-007 decision 2, ISS-077). Renamed from
+   * `ccusageFetchedAt`; the exact-key invariant means a pre-rename snapshot classifies to
+   * reset, which is the accepted pre-release consequence recorded in T-025.
+   */
+  ccusageInvokedAt: string;
   timezone: string;
   dayBoundaryPolicy: string;
 }

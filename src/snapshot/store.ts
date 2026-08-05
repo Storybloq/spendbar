@@ -957,7 +957,7 @@ const PROVENANCE_KEYS = [
   "sourceTimestamps",
   "refreshTier",
   "ccusageVersion",
-  "ccusageFetchedAt",
+  "ccusageInvokedAt",
   "timezone",
   "dayBoundaryPolicy",
 ] as const;
@@ -1074,14 +1074,14 @@ function assertProvenanceShape(value: unknown, fail: (detail: string, cause?: un
   for (const field of [
     "refreshTier",
     "ccusageVersion",
-    "ccusageFetchedAt",
+    "ccusageInvokedAt",
     "timezone",
     "dayBoundaryPolicy",
   ]) {
     requireString(p[field], `provenance.${field}`, fail);
   }
-  if (!isExplicitInstant(p["ccusageFetchedAt"] as string)) {
-    fail("provenance.ccusageFetchedAt is not an instant with an explicit UTC offset");
+  if (!isExplicitInstant(p["ccusageInvokedAt"] as string)) {
+    fail("provenance.ccusageInvokedAt is not an instant with an explicit UTC offset");
   }
   // The timezone is an IANA zone the reader will hand to `Intl`. An unknown one throws a
   // RangeError out of freshness at query time — long after the generation was accepted, and
@@ -2769,6 +2769,163 @@ function manifestChanged(fs: SnapshotFs, paths: StorePaths, identity: string): b
   const raw = readGuarded(fs, paths.manifest);
   if (raw === null) return true;
   return manifestIdentity(raw) !== identity;
+}
+
+export type ReadGenerationResult =
+  | { status: "no-snapshot" }
+  | { status: "not-retained" }
+  | { status: "gone" }
+  | { status: "ok"; generation: GenerationDoc };
+
+/**
+ * Reads ONE generation by id — the reader half of the pin mechanism (T-025 item 2, T-013
+ * AC 4). Deliberately NOT manifest-following: `readSnapshot` answers "what is current?",
+ * this answers "the generation my cursor pinned", and a publish moving the manifest between
+ * the two calls must not move the cursor.
+ *
+ * Authorization, not path math, decides what is readable: the id must be referenced by the
+ * live manifest (active or retained) or by a structurally valid pin. Anything else is
+ * `not-retained` — including a malformed id, which is indistinguishable from a hostile one
+ * when it arrives inside an MCP cursor, and so gets the same quiet typed answer rather than
+ * a throw.
+ *
+ * Pin EXPIRY is deliberately ignored here: lifecycle is GC's ownership (collectGarbage
+ * removes expired pins under the writer's authority), and a reader that second-guessed
+ * expiry would refuse a file that is still physically retained — an answer neither fresher
+ * nor safer than serving it. The race "expired pin, not yet swept" therefore serves, which
+ * is indistinguishable from the same read a moment earlier.
+ *
+ * The verdict vocabulary follows `readSnapshot`: `no-snapshot` (no usable manifest, or the
+ * store kept moving for every attempt), `not-retained` (nothing authorizes this id),
+ * `gone` (authorized, but the artifact is absent or unusable while the manifest stands
+ * still — a swept pin target or corruption). There is no closing manifest re-check on
+ * success: `assertGenerationInvariants` binds the document to the REQUESTED id, so the
+ * served bytes cannot be another generation's regardless of what the manifest did
+ * mid-read. The container bracket IS re-checked, because every path was read through it.
+ */
+export function readGeneration(
+  fs: SnapshotFs,
+  paths: StorePaths,
+  id: string,
+  attempts = 3,
+): ReadGenerationResult {
+  // Same exported-parameter rule, bound, and rationale as readSnapshot's.
+  if (!Number.isSafeInteger(attempts) || attempts < 1 || attempts > 16) {
+    throw new SnapshotPathError("readGeneration attempts must be an integer in 1..16");
+  }
+  try {
+    assertArtifactId("generation", id);
+  } catch (err) {
+    if (!isArtifactUnusable(err)) throw err;
+    return { status: "not-retained" };
+  }
+
+  const identifyContainers = (): { root: string; generations: string; pins: string } | null => {
+    try {
+      return {
+        root: containerIdentity(fs, paths, paths.root),
+        generations: containerIdentity(fs, paths, paths.generationsDir),
+        // The pins directory joins the bracket here (readSnapshot never reads it), so a
+        // pins/ that is replaced AND STAYS replaced is detected exactly as a replaced
+        // generations/ is. What the bracket does NOT witness — here or in any caller of
+        // containerIdentity — is a swap restored inside the window: closing that needs
+        // descriptor-relative reads (`openat`), which Node does not expose; see
+        // assertOwnedContainer's advisory-bound note. That residual is also not a privilege
+        // gain: pins are unauthenticated hints, so whoever could swap pins/ could mint a
+        // structurally valid pin in the real one instead. This is a consistency check
+        // against concurrent reset/move, not a boundary against a store-dir writer.
+        pins: containerIdentity(fs, paths, paths.pinsDir),
+      };
+    } catch (err) {
+      if (!isArtifactUnusable(err)) throw err;
+      return null;
+    }
+  };
+  const containers = identifyContainers();
+  if (containers === null) return { status: "no-snapshot" };
+  const containersIntact = (): boolean => {
+    const now = identifyContainers();
+    return (
+      now !== null &&
+      now.root === containers.root &&
+      now.generations === containers.generations &&
+      now.pins === containers.pins
+    );
+  };
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const rawManifest = readGuarded(fs, paths.manifest);
+    if (rawManifest === null) return { status: "no-snapshot" };
+    const identity = manifestIdentity(rawManifest);
+
+    let manifest: ManifestDoc;
+    try {
+      assertMode(fs, paths.manifest, FILE_MODE);
+      manifest = decodeEnvelope("manifest", paths.manifest, rawManifest) as ManifestDoc;
+      assertManifestInvariants(manifest, paths.manifest);
+    } catch (err) {
+      if (!isArtifactUnusable(err)) throw err;
+      return { status: "no-snapshot" };
+    }
+
+    let authorized =
+      manifest.activeGenerationId === id || manifest.retainedGenerationIds.includes(id);
+    if (!authorized) {
+      // Pin scan, with collectGarbage's read discipline: each pin proves its own name, mode,
+      // envelope and invariants, and an unusable pin simply authorizes nothing — a reader
+      // neither resets nor repairs.
+      for (const entry of listOrEmpty(fs, paths.pinsDir)) {
+        if (!entry.endsWith(".json")) continue;
+        if (!ARTIFACT_ID_RE.test(entry.slice(0, -".json".length))) continue;
+        const path = `${paths.pinsDir}/${entry}`;
+        const raw = readGuarded(fs, path);
+        if (raw === null) continue;
+        try {
+          assertMode(fs, path, FILE_MODE);
+          const doc = decodeEnvelope("pin", path, raw);
+          assertPinInvariants(doc, path, entry.slice(0, -".json".length));
+          if ((doc as PinDoc).generationId === id) {
+            authorized = true;
+            break;
+          }
+        } catch (err) {
+          if (!isArtifactUnusable(err)) throw err;
+        }
+      }
+    }
+    if (!authorized) {
+      // A publish or pin write may have raced the scan; deny only against a manifest that
+      // stood still, otherwise look again at the new state.
+      if (manifestChanged(fs, paths, identity)) continue;
+      if (!containersIntact()) return { status: "no-snapshot" };
+      return { status: "not-retained" };
+    }
+
+    const path = `${paths.generationsDir}/${id}.json`;
+    const raw = readGuarded(fs, path);
+    if (raw === null) {
+      if (manifestChanged(fs, paths, identity)) continue;
+      if (!containersIntact()) return { status: "no-snapshot" };
+      return { status: "gone" };
+    }
+    try {
+      assertMode(fs, path, FILE_MODE);
+      const doc = decodeEnvelope("generation", path, raw);
+      // The binding half: a checksum-valid document that is a DIFFERENT generation wearing
+      // this filename is `gone`, never served — same non-substitutability readSnapshot
+      // enforces, bound here to the CALLER'S id.
+      assertGenerationInvariants(doc, path, id);
+      if (!containersIntact()) return { status: "no-snapshot" };
+      return { status: "ok", generation: doc as GenerationDoc };
+    } catch (err) {
+      if (!isArtifactUnusable(err)) throw err;
+      if (manifestChanged(fs, paths, identity)) continue;
+      if (!containersIntact()) return { status: "no-snapshot" };
+      return { status: "gone" };
+    }
+  }
+  // Every attempt found the store mid-move; same exhaust verdict as readSnapshot.
+  return { status: "no-snapshot" };
 }
 
 // Freshness lives in ./freshness.ts, re-exported here so readers have one import site.

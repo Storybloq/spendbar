@@ -70,7 +70,7 @@ function provenance() {
     sourceTimestamps: { claude: "2026-01-31T00:00:00Z" },
     refreshTier: "slow",
     ccusageVersion: "17.1.3",
-    ccusageFetchedAt: "2026-01-31T00:00:00Z",
+    ccusageInvokedAt: "2026-01-31T00:00:00Z",
     timezone: "America/Vancouver",
     dayBoundaryPolicy: "local-midnight",
   };
@@ -134,7 +134,7 @@ publishSnapshot(watched, authority, P, {
   sourceVersion: { claude: 1 },
   provenance: {
     coverage: [], fieldCoverage: {}, sourceTimestamps: {},
-    refreshTier: "slow", ccusageVersion: "17.1.3", ccusageFetchedAt: "2026-01-31T00:00:00Z",
+    refreshTier: "slow", ccusageVersion: "17.1.3", ccusageInvokedAt: "2026-01-31T00:00:00Z",
     timezone: "UTC", dayBoundaryPolicy: "local-midnight",
   },
   payload: { total: 1 },

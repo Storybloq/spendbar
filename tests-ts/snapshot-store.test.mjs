@@ -18,6 +18,7 @@ import {
   readSnapshot,
   collectGarbage,
   createPin,
+  readGeneration,
   deriveFreshness,
   localDayBounds,
   isExplicitInstant,
@@ -71,7 +72,7 @@ function provenance(overrides = {}) {
     sourceTimestamps: { claude: "2026-01-31T00:00:00Z" },
     refreshTier: "slow",
     ccusageVersion: "17.1.3",
-    ccusageFetchedAt: "2026-01-31T00:00:00Z",
+    ccusageInvokedAt: "2026-01-31T00:00:00Z",
     timezone: "America/Vancouver",
     dayBoundaryPolicy: "local-midnight",
     ...overrides,
@@ -1438,7 +1439,7 @@ test("provenance: every generation records the full provenance record", () => {
   assert.deepEqual(
     Object.keys(doc.provenance).sort(),
     [
-      "ccusageFetchedAt",
+      "ccusageInvokedAt",
       "ccusageVersion",
       "coverage",
       "dayBoundaryPolicy",
@@ -4933,7 +4934,7 @@ test("the WRITER refuses the ambiguous instants the reader refuses", () => {
     ["coverage", { coverage: [{ start: bad, end: "2026-02-01T00:00:00Z" }] }],
     ["fieldCoverage", { fieldCoverage: { cost: [{ start: bad, end: "2026-02-01T00:00:00Z" }] } }],
     ["sourceTimestamps", { sourceTimestamps: { claude: bad } }],
-    ["ccusageFetchedAt", { ccusageFetchedAt: bad }],
+    ["ccusageInvokedAt", { ccusageInvokedAt: bad }],
   ];
   for (const [label, overrides] of cases) {
     assert.throws(
@@ -5024,7 +5025,7 @@ test("validation never READS a hostile document: canonicalization comes first", 
   let trapped = 0;
   const hostile = new Proxy(
     { coverage: [], fieldCoverage: {}, sourceTimestamps: {}, refreshTier: "slow",
-      ccusageVersion: "1", ccusageFetchedAt: "2026-01-31T00:00:00Z",
+      ccusageVersion: "1", ccusageInvokedAt: "2026-01-31T00:00:00Z",
       timezone: "UTC", dayBoundaryPolicy: "local-midnight" },
     { get(t, k) { trapped += 1; return Reflect.get(t, k); } },
   );
@@ -5145,7 +5146,7 @@ test("generation: interval and timezone values are validated, not just their typ
     ["an unparseable field bound", { fieldCoverage: { cost: [{ start: "x", end: "2026-02-01" }] } }],
     ["an unknown IANA timezone", { timezone: "Mars/Olympus" }],
     ["an unparseable source timestamp", { sourceTimestamps: { claude: "recently" } }],
-    ["an unparseable ccusageFetchedAt", { ccusageFetchedAt: "just now" }],
+    ["an unparseable ccusageInvokedAt", { ccusageInvokedAt: "just now" }],
   ];
   for (const [label, overrides] of bad) {
     const { fs, authority } = freshStore();
@@ -5961,7 +5962,7 @@ test("freshness: the PROVENANCE is proven inert too, not just the request", () =
     sourceTimestamps: {},
     refreshTier: "fast",
     ccusageVersion: "1.0.0",
-    ccusageFetchedAt: "2026-01-01T00:00:00Z",
+    ccusageInvokedAt: "2026-01-01T00:00:00Z",
     timezone: "America/Vancouver",
     dayBoundaryPolicy: "local-midnight",
   };
@@ -6035,7 +6036,7 @@ test("freshness: proving a container inert does not make CALLING its methods saf
     sourceTimestamps: {},
     refreshTier: "fast",
     ccusageVersion: "1.0.0",
-    ccusageFetchedAt: "2026-01-01T00:00:00Z",
+    ccusageInvokedAt: "2026-01-01T00:00:00Z",
     timezone: "America/Vancouver",
     dayBoundaryPolicy: "local-midnight",
   };
@@ -6099,7 +6100,7 @@ test("freshness: a date that does not exist is refused, not normalized into a di
     sourceTimestamps: {},
     refreshTier: "fast",
     ccusageVersion: "1.0.0",
-    ccusageFetchedAt: "2026-01-01T00:00:00Z",
+    ccusageInvokedAt: "2026-01-01T00:00:00Z",
     timezone: "America/Vancouver",
     dayBoundaryPolicy: "local-midnight",
   };
@@ -7909,4 +7910,89 @@ test("fake: the close hook fires BEFORE the close, and the descriptor is consume
   fs.clearHooks();
   assert.equal(fs.entryFor(second), null, "the descriptor is gone despite the failure");
   assert.throws(() => fs.close(second), (err) => err.cause.code === "EBADF", "closing again is EBADF");
+});
+
+// ---------------------------------------------------------------------------------------
+// readGeneration (T-025 item 2) — pinned reads that do not follow the manifest
+// ---------------------------------------------------------------------------------------
+
+test("readGeneration: a retained id is served, bound to the requested id", () => {
+  const { fs } = publishedStore();
+  const r = readGeneration(fs, P, "gen-1");
+  assert.equal(r.status, "ok");
+  assert.equal(r.generation.generationId, "gen-1");
+});
+
+test("readGeneration: does NOT follow the manifest — the old id still serves after a publish", () => {
+  const { fs, authority, manifest } = publishedStore();
+  publishSnapshot(fs, authority, P, candidate("gen-2", { claude: 20 }), { live: manifest });
+  const current = readSnapshot(fs, P);
+  assert.equal(current.view.generation.generationId, "gen-2");
+  const pinned = readGeneration(fs, P, "gen-1");
+  assert.equal(pinned.status, "ok");
+  assert.equal(pinned.generation.generationId, "gen-1");
+});
+
+test("readGeneration: a pinned-but-unreferenced id is served through the pin scan", () => {
+  const { fs, authority, manifest } = publishedStore();
+  createPin(fs, authority, P, { pinId: "pin-1", generationId: "gen-1", until: "2099-01-01" });
+  // retain: 1 evicts gen-1 from the manifest; only the pin authorizes it now.
+  publishSnapshot(fs, authority, P, candidate("gen-2", { claude: 20 }), {
+    live: manifest,
+    retain: 1,
+  });
+  const m = JSON.parse(fs.files.get(P.manifest).data).body;
+  assert.deepEqual(m.retainedGenerationIds, ["gen-2"], "gen-1 must really be unreferenced");
+  const r = readGeneration(fs, P, "gen-1");
+  assert.equal(r.status, "ok");
+  assert.equal(r.generation.generationId, "gen-1");
+});
+
+test("readGeneration: an id nothing authorizes is not-retained, and never touches the file", () => {
+  const { fs, authority, manifest } = publishedStore();
+  // A REAL generation file that is neither retained nor pinned must still refuse: presence
+  // on disk is not authorization. Manufacture one by evicting gen-1 without pinning it.
+  publishSnapshot(fs, authority, P, candidate("gen-2", { claude: 20 }), {
+    live: manifest,
+    retain: 1,
+  });
+  assert.equal(fs.files.has(`${P.generationsDir}/gen-1.json`), true, "file must exist unreferenced");
+  assert.equal(readGeneration(fs, P, "gen-1").status, "not-retained");
+  assert.equal(readGeneration(fs, P, "gen-9").status, "not-retained");
+});
+
+test("readGeneration: a malformed or hostile id is not-retained, not a throw", () => {
+  const { fs } = publishedStore();
+  for (const bad of ["", "../gen-1", "a/b", ".", "gen 1"]) {
+    assert.equal(readGeneration(fs, P, bad).status, "not-retained", JSON.stringify(bad));
+  }
+});
+
+test("readGeneration: an authorized id whose file is missing is gone, not no-snapshot", () => {
+  const { fs } = publishedStore();
+  fs.files.delete(`${P.generationsDir}/gen-1.json`);
+  assert.equal(readGeneration(fs, P, "gen-1").status, "gone");
+});
+
+test("readGeneration: a checksum-valid DIFFERENT generation wearing the filename is gone", () => {
+  const { fs, authority, manifest } = publishedStore();
+  publishSnapshot(fs, authority, P, candidate("gen-2", { claude: 20 }), { live: manifest });
+  // Substitute gen-2's complete, checksum-valid file under gen-1's name. Only the
+  // id-binding inside assertGenerationInvariants can object now.
+  const g2 = fs.files.get(`${P.generationsDir}/gen-2.json`);
+  fs.files.set(`${P.generationsDir}/gen-1.json`, { ...g2 });
+  assert.equal(readGeneration(fs, P, "gen-1").status, "gone");
+});
+
+test("readGeneration: attempts is validated with readSnapshot's rule", () => {
+  const { fs } = publishedStore();
+  for (const bad of [0, -1, 17, NaN, 2.5]) {
+    assert.throws(() => readGeneration(fs, P, "gen-1", bad));
+  }
+});
+
+test("readGeneration: no usable manifest means no-snapshot even for a plausible id", () => {
+  const { fs } = publishedStore();
+  fs.files.delete(P.manifest);
+  assert.equal(readGeneration(fs, P, "gen-1").status, "no-snapshot");
 });
