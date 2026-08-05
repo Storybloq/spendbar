@@ -1,5 +1,31 @@
 # T-013 — MCP server: 5 bounded tools + reader computation lease + `--cached`
 
+> **NOTE 2026-08-05 — T-011 is UNPARKED, and this document's conclusions about it still hold. Read
+> why, because the premise and the conclusion came apart.**
+>
+> T-011 was unparked on 2026-08-05 after commit `9524902` (ticket T-026) landed the two store items
+> its park record named. This document reasons from "T-011 is parked" at **six live sites** — `:97`
+> (§1), `:170` (§4), `:239` (§6), `:326` and `:331` (§7), `:365` (§10); `:29` and `:87` mention the
+> park in the past tense and are history, not premises. *(Sites re-derived 2026-08-05 against this
+> file as it now stands. The first version of this note cited `:3, :61, :71, :144, :213, :300, :339`
+> — pre-annotation numbers that land on unrelated prose, moved by this block's own insertion. The
+> section labels are the durable anchor; re-grep the numbers.)* Most importantly those sites assert
+> **no writer exists**,
+> so the suite must obtain snapshots without one, the launcher cannot be registered through, and
+> nothing else holds the writer port.
+>
+> **Every one of those conclusions is still true, but not for the stated reason.** They rest on
+> *no writer has been BUILT*, which remains the case — unparking authorizes the work, it does not
+> perform it. "Parked" was standing in for "not built", and the two have now come apart. That is
+> this project's defect class (b) — a value proven to have one property, then used as though a
+> different property had been proven — arriving from the opposite direction: the premise expired
+> while the conclusion survived.
+>
+> So the sites are annotated here rather than rewritten: read every "T-011 is parked" below as
+> **"no T-011 writer is built yet"**, which is what the argument actually needs. They become
+> genuinely stale only when T-011 ships a writer, and at that point they must be re-derived rather
+> than lightly edited — the conclusions would then be false, not merely misworded.
+
 *Revision 1. Written after T-011 was parked following seven adversarial review rounds and 80
 findings. The two defect classes those rounds kept surfacing govern this document too, and §0 says
 what was done differently up front rather than discovering it in round 4.*
@@ -18,6 +44,35 @@ recorded so a reviewer can falsify them rather than re-derive them:
 | Bounded partials are representable | `store.ts:2557` | `quarantined: string[]` — *"Non-empty means a bounded partial"*. AC 5 maps onto it directly. |
 | Per-generation tz / policy exist for the AC 3 rule | `types.ts` `Provenance` | `timezone`, `dayBoundaryPolicy`, plus `coverage`, `fieldCoverage`, `sourceTimestamps`. |
 
+**Added after revision 1 — the reader-API row above is now incomplete, in exactly the place AC 4
+depends on.** `readSnapshot` follows the manifest, so it answers "what is current?" and cannot serve
+the generation a cursor pinned once a publish moves the manifest. **`readGeneration(fs, paths, id,
+attempts = 3)` now exists** — `src/snapshot/store.ts:2806`, landed by commit 9524902 as ticket T-026.
+It reads ONE generation by id **without** following the manifest, authorizes by manifest reference
+(active or retained) **or** by a structurally valid pin, and returns one of `{status:"ok",generation}`
+/ `{status:"not-retained"}` / `{status:"gone"}` / `{status:"no-snapshot"}` (`src/snapshot/store.ts:2774-2778`).
+Its own doc comment names *"T-025 item 2, T-013 AC 4"* as what it is for (`src/snapshot/store.ts:2781-2782`).
+**So AC 4's cursor has a reader**: §5's pinning rule is not blocked, and this ticket neither builds
+that surface nor defers it.
+
+**Two shipped properties AC 4 must be written against**, both read in the function itself, both the
+defect-(b) shape — one property proven, a different one assumed:
+
+- **Pin expiry does not withhold authorization.** The shipped function takes **no clock** (signature,
+  `store.ts:2806-2811`) and deliberately ignores `pin.until`, leaving lifecycle to `collectGarbage`
+  (`store.ts:2792-2796`). An expired-but-unswept pin therefore **still serves**. Q1's 30-minute window
+  and §5's "typed expiry requiring restart" are obligations on **`cursor.ts`**, which must carry and
+  check that deadline itself; a cursor inferring expiry from a `not-retained` verdict gets a stale
+  generation served to it instead.
+- **`gone` is a disposition, not a diagnosis.** An absent artifact returns `gone` (`store.ts:2909`),
+  and so does an unusable one — by **two** routes, both read rather than inferred. A symlinked,
+  wrong-mode, non-regular, oversized or invalid-UTF-8 artifact is collapsed to `null` inside
+  `readGuarded` (`store.ts:306-308`, over `readStoreFile`'s `unusable` state) and returns at
+  **`store.ts:2909`**, the very line an absent one returns at; only a bad checksum or a wrong-id body
+  reaches `gone` through the catch at `store.ts:2920-2924`. So the collapse is wider than the catch
+  alone suggests. AC 4 may report that a pinned generation is no longer available; it must not
+  report a *cause* the value does not carry.
+
 **The working rule, carried over.** The recurring defects are (a) *a class fixed at one site and not
 its siblings* and (b) *a value proven to have one property, then used as though a different property
 had been proven*. T-011's plan named them in its first paragraph and then committed them nineteen
@@ -30,16 +85,38 @@ than in prose a human maintains. §8 is where that applies here.
 ## 1. Does T-013 inherit T-011's blockers? — **No, and the reason is not "it's a different ticket"**
 
 T-011 was parked on two contradictions. Both must be re-examined here rather than assumed away,
-because this ticket uses **the same T-008 primitive**.
+because this ticket uses **the same T-008 primitive**. *(One of the two has since been resolved. The
+park record stands as it was; the annotation below says what moved and what did not.)*
 
-**ISS-075 (`sourceVersion` / `ccusageFetchedAt`) does NOT block T-013.** That contradiction is on
-the **publish** path: a generation cannot be written honestly because a required scalar has no
+**ISS-075 (`sourceVersion` / `ccusageFetchedAt`) does NOT block T-013.** That contradiction was on
+the **publish** path: a generation could not be written honestly because a required scalar had no
 truthful value. T-013 is a **reader**. It never calls `publishSnapshot`, never constructs a
-`GenerationDoc`, and never asserts dominance. It *reads* `Provenance` and reports it. If
-`ccusageFetchedAt` is later re-specified, T-013's obligation is to render whatever the field becomes
-— which is a display concern, not a correctness one. **Caveat stated rather than glossed:** with
-T-011 parked there is no writer, so a snapshot only exists if something else wrote one; §7 covers
-how the suite obtains generations without depending on the parked ticket.
+`GenerationDoc`, and never asserts dominance. It *reads* `Provenance` and reports it.
+`ccusageFetchedAt` **has since been re-specified — as `ccusageInvokedAt`** — so T-013's obligation is
+to render *that* field, under that name and with the meaning below; it stays a display concern, not a
+correctness one. **Caveat stated rather than glossed:** with T-011 parked there is no writer, so a
+snapshot only exists if something else wrote one; §7 covers how the suite obtains generations
+without depending on the parked ticket.
+
+**SUPERSEDED IN PART — the instant half is resolved (N-007 decision 2, commit 9524902, ticket
+T-026).** The required provenance field is now **`ccusageInvokedAt`**: declared at
+`src/snapshot/types.ts:301`, carried in `PROVENANCE_KEYS` at `src/snapshot/store.ts:960`, required as
+a non-empty string at `src/snapshot/store.ts:1077`, and required to be an instant with an explicit
+UTC offset at `src/snapshot/store.ts:1083`. **It is now honestly populable, so the "no truthful
+value" clause above no longer holds for this field.** The retired name asserted a fetch nobody could
+witness — ccusage embeds its pricing at build time and reports no fetch timestamp
+(`src/snapshot/types.ts:294-300`; filed as ISS-077, which its own record defers into ISS-075 as the
+same root cause). The **invocation** instant is witnessable, because the value is knowable exactly by
+the code performing the action: the publishing caller reads its own clock immediately before spawning
+ccusage. That capture is still T-011's to build — `src/ccusage.ts:31` calls `runner` and captures no
+instant — but a witness that merely needs building is a scheduling fact, not the design defect the
+old name had.
+
+**The boundary, stated because overstating it would be the same defect as leaving it stale.** Only
+the instant half moved. **ISS-075's `sourceVersion` half is still open** — `src/snapshot/types.ts:310`
+still documents `sourceVersion` as "Per-source offsets", which is precisely the value ISS-075 says no
+v0.2 ticket can produce, and the granularity question is open on ISS-081. §1's conclusion is
+unchanged and now rests on less: T-013 is a reader either way.
 
 **The native-error boundary does NOT block T-013, and this is the one that needed real thought.**
 T-011's AC 5 required distinguishing `EADDRINUSE` (a holder exists) from `EACCES`/sandbox (an
@@ -174,7 +251,11 @@ ticket shipped.
 refused with a typed error rather than silently re-sorted — a cursor that "still works" after the
 query changed is a wrong answer wearing a correct-looking shape. Pinning is a **pin on the
 generation**, so all pages of one cursor are consistent even when a writer publishes mid-pagination.
-After retention expires, typed expiry requiring restart.
+After retention expires, typed expiry requiring restart. **That expiry is `cursor.ts`'s to enforce,
+not the store's:** `readGeneration` evaluates no `pin.until` and takes no clock
+(`src/snapshot/store.ts:2792-2796, 2806-2811`), so an expired-but-unswept pin still serves — see the
+§0 annotation. The pinned generation is read with `readGeneration` (`src/snapshot/store.ts:2806`),
+never with `readSnapshot`, which would follow the manifest and defeat the pin.
 
 **Freshness** (AC 5) is derived **per requested range and per field** from `Provenance.coverage` and
 `Provenance.fieldCoverage`, honouring that field's documented rule: *a field absent from

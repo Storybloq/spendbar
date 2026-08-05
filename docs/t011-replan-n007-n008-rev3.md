@@ -1,5 +1,31 @@
 # T-011 — Headless service — re-plan against N-007 / N-008 (revision 3)
 
+> **AMENDED 2026-08-05 — three statements in this revision are now FALSE ABOUT THE TREE. Read this
+> before §2's amendment table or §4, because both would send an implementer to do work that is
+> already done.** Nothing below is rewritten; this revision predates N-009, and `docs/t011-replan-n009.md`
+> is the later re-plan. What changed is the tree, not the reasoning.
+>
+> Commit `9524902` (ticket **T-026**, complete) extracted T-025 items 2 and 5 and landed them:
+>
+> 1. **§2's N-007 #2 row and all of §4 — "T-025 is parked, so its item 5 does not land / will not
+>    land. T-011 owns the rename outright."** The rename **landed in T-025's own module**, not here.
+>    `ccusageInvokedAt` is declared at `src/snapshot/types.ts:301` and enforced at
+>    `src/snapshot/store.ts:960`, `:1077`, `:1083`. §4's "15 sites" rename list is **complete and
+>    performed** — `grep -rn ccusageFetchedAt src/ tests-ts/` returns one hit, the rationale comment
+>    at `types.ts:298` that records what the field was renamed *from*. **T-011 must not re-perform
+>    this rename.** What survives from §4 is only the *witness* half — the contributing-set
+>    definition and the clock read immediately before the ccusage spawn — which is still T-011's and
+>    still unbuilt (`src/ccusage.ts` captures no instant).
+> 2. **§2's N-007 #5 row — "T-025 (parked). T-011 does not call it."** Both halves are dead.
+>    `readGeneration` exists at `src/snapshot/store.ts:2806`, and the live plan
+>    (`docs/t011-replan-n009.md` §2) has T-011's pin-request path calling it as step 1. Do not carry
+>    this row forward.
+> 3. **"T-025's park record is annotated to say item 5 moved here"** (§4) was never true and is now
+>    moot: `docs/t025-park-n009.md` carries no such annotation, and item 5 did not move.
+>
+> **What did NOT change:** T-025's ingestion-surface registry, its coverage policies and
+> `SnapshotPayloadV1` remain parked on ISS-090/ISS-091. Only items 2 and 5 landed.
+
 **Base:** `docs/t011-headless-service-plan.md`, 1234 lines, 12 sections, produced over 7 review rounds and 80 findings.
 
 **Revision history of this re-plan.** Revision 1: REJECTED, 11 findings, 2 critical — I incorporated the base document by reference without reading it. Revision 2: REJECTED, 12 findings, all major — I read the base document but claimed its supersession map was complete over 1234 lines, and it was not. **Both rejects are the same defect at different scales: asserting a property of a body of text I had not checked exhaustively.** Revision 3 stops asserting completeness and instead enumerates, per amendment, what changes and who owns it.

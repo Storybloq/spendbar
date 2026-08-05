@@ -1,5 +1,41 @@
 # T-011 — Headless service: run/install/start/stop, launcher, control socket, refresh state machine
 
+> ## AMENDED 2026-08-05 — the two implementation prerequisites are discharged; T-011 is UNPARKED
+>
+> Read this before §12, because §12's original verdict is what a reader would otherwise carry away.
+>
+> This document is **governing** — the ticket states that where the two differ, the document wins.
+> That is exactly why these amendments are made here rather than only in the ledger: left as written,
+> the next session reads *"AC 1 is blocked, not merely narrowed"* and parks a fourth time on a
+> blocker the tree no longer has.
+>
+> **What changed.** Commit `9524902` (ticket **T-026**, complete) landed the two store items this
+> plan was waiting on:
+> 1. `Provenance.ccusageFetchedAt` → **`ccusageInvokedAt`** (`src/snapshot/types.ts:301`; enforced at
+>    `store.ts:960`, `:1077`, `:1083`). N-007 decision 2. The field now names the instant the writer
+>    **invoked** ccusage, which it proves from its own clock — so the honest value §10.1 said did not
+>    exist is what the schema now asks for.
+> 2. **`readGeneration`** (`store.ts:2806`) — reads one generation by id without following the
+>    manifest, and proves it **readable** (opens, mode-checks, decodes, checksums, binds invariants to
+>    the caller's id) rather than merely manifest-**retained**.
+>
+> **Amended sections:** §2 (`:399`, native-error boundary — granted by N-007 decision 3),
+> §10.1 (the Provenance obligation and the "cannot be filled honestly at all" paragraph),
+> §12 item 5 (ISS-075 now NARROWS to one publish; it does not block AC 1),
+> §12 item 6 (native-error boundary decided). Every superseded passage is retained in a blockquote:
+> the reasoning is what produced the decisions, and this plan's own convention is that a superseded
+> argument stays visible.
+>
+> **What did NOT change.** T-025's ingestion-surface registry, its coverage policies and
+> `SnapshotPayloadV1` remain **parked** on ISS-090 and ISS-091 — only items 2 and 5 landed. ISS-083
+> stays open (the store's `createPin` still cannot validate-then-pin atomically); T-011 ships the
+> reduction that issue's own correction licenses. Repeated authoritative refresh still depends on
+> T-025.
+>
+> **Basis:** a 13-agent adversarial audit on 2026-08-05 — five investigation lenses, hostile verifiers
+> that tried to refute each discharge, and an end-to-end reproduction of the bootstrap publish against
+> the built store — returned **unpark, zero surviving blockers**.
+
 *Revision 7. Six plan-review rounds — **reject ×6** — 13 + 13 + 14 + 15 + 11 + 8 findings, and
 **all 74 were valid**. Nothing contested in any round. The falling count (15 → 11 → 8) is the only
 trend claim made here, and it is made because rounds 5 and 6 also found me arriving at the round's
@@ -360,16 +396,24 @@ confined to the low-level adapter.
 Tests throw hostile values and Proxies at **every classification a core module consumes**, network
 and filesystem alike — the T-010 discipline, applied to the whole seam rather than half of it.
 
-**This needs an explicit owner amendment before it is implemented, and it is not implemented
-without one.** The hard constraint says *only the **fs** adapter may inspect a native error*.
-Branding a net outcome stops core logic from inspecting it, but it does not satisfy a restriction on
-**where the original native error is inspected** — I was proving one property and using it as the
-other, which is why it is flagged rather than shipped. Two coherent resolutions, both the owner's:
-widen the constraint to "only a designated low-level adapter", naming the net adapter alongside the
-fs one; or route net failures through the single authorized adapter. Until one is chosen, the port
-lock cannot distinguish `EADDRINUSE` from `EACCES` — and T-008 is explicit that collapsing those is
-the indeterminate-becomes-an-answer defect — so this genuinely blocks that distinction rather than
-being a wording quibble. Recorded in §12.
+**AMENDED 2026-08-05 — the amendment this asked for was granted; build it.** **N-007 decision 3**
+chose the first of the two resolutions below, in these words: *"the rule was always 'native errors are
+inspected only at an adapter'; fs was simply the only adapter that existed. ADD A NETWORK ADAPTER
+owning `EADDRINUSE`/`EACCES` classification exactly as the fs adapter owns fs errnos. The constraint
+generalizes; it does not bend."* ISS-078 is resolved on that basis, and `src/service/net-adapter.ts`
+is T-011's own file to write. The generalized wording is already used at `:374` in this document; the
+paragraph below is the **pre-N-007** phrasing and is retained only as the record of the question.
+
+> *Original text, superseded:* **This needs an explicit owner amendment before it is implemented, and
+> it is not implemented without one.** The hard constraint says *only the **fs** adapter may inspect a
+> native error*. Branding a net outcome stops core logic from inspecting it, but it does not satisfy a
+> restriction on **where the original native error is inspected** — I was proving one property and
+> using it as the other, which is why it is flagged rather than shipped. Two coherent resolutions,
+> both the owner's: widen the constraint to "only a designated low-level adapter", naming the net
+> adapter alongside the fs one; or route net failures through the single authorized adapter. Until one
+> is chosen, the port lock cannot distinguish `EADDRINUSE` from `EACCES` — and T-008 is explicit that
+> collapsing those is the indeterminate-becomes-an-answer defect — so this genuinely blocks that
+> distinction rather than being a wording quibble. Recorded in §12.
 
 **Revision 3 added new bounds and routed them all through the DURATION validator, which was wrong
 for the counts.** The ccusage adapter's timeout is a duration; the `EADDRINUSE` rebind limit is an
@@ -447,7 +491,14 @@ the following, and each gets a named test:
   is documented as *"absent, or present under a name that is a symlink, a non-regular file, or the
   wrong mode… Both cases route to reset-and-rebuild under the one rule"* (`store.ts:2804`). So the
   response is **not** a direct rebuild, which the ticket also gets wrong: a direct rebuild on a
-  present-but-unusable manifest would publish over a symlink or a wrong-mode file without passing
+  present-but-unusable manifest would fail to converge — `publishSnapshot` reads the live manifest
+  through `readStoreFile` precisely so it does NOT collapse unusable into absent, and THROWS
+  `SnapshotStoreResetError` (`store.ts:2144-2151`) rather than committing over a symlink or a
+  wrong-mode file. *(Corrected 2026-08-05: an earlier wording here and in the ticket said such a
+  rebuild "would publish over" the bad file. It would not — the guard predates T-026 and is present
+  at `d0b6efc`. The ROUTING conclusion is unchanged and still right: only classification plus reset
+  can clear an unusable manifest, so the route is a fresh `startWriter`. The reason given for it was
+  wrong, which is this project's defect class (b) inside a correction.)* Without passing
   through classification or reset — acting inside a tree the store has just said it cannot account
   for. Correct routing: surface that nothing was collected, run a **fresh `startWriter`**, honour
   all three reset hard stops, and rebuild only after `first-run` or a completed reset. Separate
@@ -1104,27 +1155,55 @@ What ships instead is an explicit, one-time transition with a named owner on eac
   it, which is exactly what the previous revision shipped.
 
 - **And the rest of `Provenance` is an obligation the no-claim decision does not excuse.** It
-  requires `coverage`, `fieldCoverage`, `sourceTimestamps`, `ccusageVersion`, `ccusageFetchedAt`,
-  `timezone` and `dayBoundaryPolicy`. Every one is filled from something actually observed — the
-  ccusage version and fetch time from the invocation, timezone and day-boundary policy from the
-  resolved configuration. Where the bootstrap genuinely cannot substantiate a claim it records
-  **absence rather than a placeholder**, which is exactly the rule the field's own documentation
-  states: *"A field ABSENT from this map has made no claim and is therefore not covered."* A
-  fabricated `coverage` interval would be the same defect as a fabricated `sourceVersion`, one
-  field over, and it is the sibling that would have been missed by fixing only the version.
+  requires eight keys — `coverage`, `fieldCoverage`, `sourceTimestamps`, `refreshTier`,
+  `ccusageVersion`, `ccusageInvokedAt`, `timezone` and `dayBoundaryPolicy` (the shipped set,
+  `store.ts:954-963`; revisions before 2026-08-05 listed seven here and omitted `refreshTier`).
+  Every one is filled from something actually observed — the invocation instant from the writer's
+  own clock immediately before the spawn, timezone and day-boundary policy from the resolved
+  configuration. Where the bootstrap genuinely cannot substantiate a claim it records **absence
+  rather than a placeholder**, which is exactly the rule the field's own documentation states:
+  *"A field ABSENT from this map has made no claim and is therefore not covered."* A fabricated
+  `coverage` interval would be the same defect as a fabricated `sourceVersion`, one field over, and
+  it is the sibling that would have been missed by fixing only the version.
 
-  **One of those fields cannot be filled honestly at all, and the absence escape is unavailable
-  for it.** `ccusageFetchedAt` reads as *when pricing was fetched*, but ccusage embeds its pricing
-  data at build time and its output reports no such timestamp; the daemon's invocation time proves
-  only when ccusage **ran**. Revision 6 said "from the invocation", which is that substitution one
-  more time. And unlike `fieldCoverage`, this is a **required scalar** that T-010 validates as a
-  non-empty explicit instant (`store.ts:1075`), so recording absence is not an option the schema
-  offers. There is no honest value available to T-011, which makes this a **schema question, not an
-  implementation choice**: the field wants a discriminated value such as
-  `{kind:"embedded", ccusageVersion, pricingRevision}` or `{kind:"unknown"}`. Folded into **ISS-075**
-  because it has the same root cause, and listed in §12. Until it is answered the bootstrap
-  generation is provisional in one documented field — which is precisely why the whole generation
-  carries `refreshTier = "bootstrap"` rather than passing as an ordinary publish.
+  **`ccusageVersion` is that sibling, and it is still live.** It is a required non-empty string, and
+  the bundled pin `PINNED_CCUSAGE_VERSION` (`src/resolve-ccusage.ts:21`) is the version that
+  **ships**, not the version that **ran** — `CCUSAGE_CMD` overrides the executable
+  (`src/context.ts:192`). Recording the pin under this field is precisely "proved one property, used
+  as though another had been proven". It is not a blocker, because the field's shape differs from the
+  instant field's in the way that matters: `requireString` refuses only the empty string, so a
+  truthful non-claim is representable, and a real witness exists — the resolved binary's own
+  `--version` self-report. **T-011 records what the resolved binary reports, never the build-time
+  constant.**
+
+  **SUPERSEDED 2026-08-05 — the paragraph below was true when written and its conclusion is now
+  discharged.** It argued that one required field could not be filled honestly at all. That argument
+  was accepted: it became **N-007 decision 2**, and the fix landed in commit `9524902` (ticket T-026)
+  as the rename `ccusageFetchedAt` → **`ccusageInvokedAt`** (`src/snapshot/types.ts:301`, enforced at
+  `store.ts:960` and `:1083`). The field now denotes the instant the service **invoked** ccusage,
+  which the writer proves by reading its own clock — so the honest value the paragraph said did not
+  exist is exactly what the field now asks for. The discriminated `{kind:"embedded"|"unknown"}` value
+  it proposed was **not** adopted and is not needed: no required field asks for pricing recency any
+  more, so the schema makes no pricing claim at all — honest by omission. The original text is kept
+  because it is the reasoning that produced the decision.
+
+  > **One of those fields cannot be filled honestly at all, and the absence escape is unavailable
+  > for it.** `ccusageFetchedAt` reads as *when pricing was fetched*, but ccusage embeds its pricing
+  > data at build time and its output reports no such timestamp; the daemon's invocation time proves
+  > only when ccusage **ran**. Revision 6 said "from the invocation", which is that substitution one
+  > more time. And unlike `fieldCoverage`, this is a **required scalar** that T-010 validates as a
+  > non-empty explicit instant (`store.ts:1075`), so recording absence is not an option the schema
+  > offers. There is no honest value available to T-011, which makes this a **schema question, not an
+  > implementation choice**: the field wants a discriminated value such as
+  > `{kind:"embedded", ccusageVersion, pricingRevision}` or `{kind:"unknown"}`. Folded into **ISS-075**
+  > because it has the same root cause, and listed in §12. Until it is answered the bootstrap
+  > generation is provisional in one documented field — which is precisely why the whole generation
+  > carries `refreshTier = "bootstrap"` rather than passing as an ordinary publish.
+
+  *(The `store.ts:1075` citation above is stale in the current tree: that line is now the string
+  literal `"refreshTier"` inside the `requireString` loop, and the explicit-instant check is at
+  `store.ts:1083`. `refreshTier = "bootstrap"` remains correct and is still what the first publish
+  carries.)*
 - **PREPARE BEFORE RESET. The replacement must not destroy the store and then discover the
   candidate is invalid.** Revision 7's sequence reset the usable bootstrap store *first* and only
   then called `publishSnapshot`, which is where validation, canonicalization and size checks happen
@@ -1196,35 +1275,87 @@ warns about.
    is WITHDRAWN — my argument was wrong** and the ticket's `reset.failed` rule is correct; the
    withdrawal is recorded on the issue rather than deleted, because the reasoning error is the
    useful part.
+
+   **RESOLVED 2026-08-05 — and the last clause above is now half wrong. (Items 5 and 6 below were
+   rewritten in the same pass; this item was not, which is the class-(a) shape one item over.)**
+   The owner question this raised is answered: the ticket text WAS corrected. `.story/tickets/T-011.json`
+   `acceptanceAdditions.storeIntegration` clause (6) now names `noUsableManifest` (`store.ts:2961`)
+   with reset-and-rebuild through a FRESH `startWriter`, and **ISS-073 is `resolved`**. But *"the
+   ticket's `reset.failed` rule is correct"* did not survive the same audit. ISS-072's withdrawal
+   was right about *its* argument (a non-empty `failed` is not benign residue) and wrong to certify
+   the clause: `reset.failed` is `string[]` (`store.ts:1197`) and the ticket called it a hard stop
+   without saying non-empty, so `if (reset.failed)` — truthy for `[]` — halts the bootstrap on every
+   CLEAN reset and AC 1 fails on a healthy store. Filed as **ISS-092** and repaired in the ticket
+   (`if (reset.failed.length > 0)`), with a required test that a clean reset is followed by a
+   rebuild. This plan had it right all along at `:460` (*"`reset.failed` non-empty"*); the drift was
+   plan-versus-ticket, in the direction that matters, since the ticket is what an implementer works
+   from.
 4. **A constraint exception may be needed for the LaunchAgent plist mode.** §5 writes it 0600 to
    satisfy the exactly-0600 rule and the launcher becomes a non-executable 0600 script invoked via
    an absolute interpreter. Whether launchd loads a 0600 plist is verified on a macOS runner before
    that code lands; if it refuses, widening that one file is the owner's call, not an
    implementation detail to slip into a commit.
-5. **ISS-075 — `sourceVersion` semantics. The one genuinely BLOCKING question, and it is not
-   T-011's to answer.** T-010's dominance contract requires per-source **consumed** offsets;
-   ccusage does not report them; and T-012 cannot supply them either, since it also uses ccusage
-   and defers owned parsing to v0.5. Four designs were built and disproven (§4). Either
-   `sourceVersion` is redefined as a verified **input watermark** — which v0.2 can satisfy honestly,
-   and which means updating T-010's contracts, comments and tests — or it keeps consumed-offset
-   semantics and **repeated authoritative refresh does not exist until owned parsing lands**.
-   **This is an IMPLEMENTATION PREREQUISITE, and revision 7's claim that "T-011 is implementable
-   under either answer" was false.** I asserted it without checking it against every part — the
-   defect this plan is about, committed in the sentence declaring the plan safe. It is false because
-   of `ccusageFetchedAt`: T-010 requires a non-empty explicit instant (`store.ts:1075`), no honest
-   value exists, and because it is a required **scalar** the record-absence escape that
-   `fieldCoverage` offers does not apply. So the **bootstrap publish itself cannot be written
-   honestly** until the schema question is answered — which means AC 1 is blocked, not merely
-   narrowed.
-6. **The native-error boundary needs an amendment or a routing decision** (§2). The constraint says
-   only the **fs** adapter may inspect a native error; the port lock must distinguish `EADDRINUSE`
-   from `EACCES`, and T-008 is explicit that collapsing them is the indeterminate-becomes-an-answer
-   defect. Either widen the constraint to a designated low-level adapter naming the net adapter, or
-   route net failures through the authorized one. **Not implemented under the unchanged
-   constraint — and this too is an IMPLEMENTATION PREREQUISITE rather than an open question**, because
-   AC 5's four-case startup turns on exactly that distinction: our own live instance, a foreign
-   holder, an unidentifiable holder, and an environment failure. Without it the singleton startup
-   path cannot be written, and collapsing the cases is the one outcome T-008 names as forbidden.
+5. **ISS-075 — `sourceVersion` semantics. NO LONGER BLOCKING; it NARROWS T-011 to a single publish.**
+   **(Rewritten 2026-08-05. The original verdict is preserved below.)** The sole stated ground for
+   calling this an implementation prerequisite was `ccusageFetchedAt`, and that field no longer
+   exists: N-007 decision 2 retired it and commit `9524902` (ticket T-026) landed the rename to
+   `ccusageInvokedAt`. With the honest value available, the bootstrap publish **can** be written
+   honestly, and what remains of ISS-075 does not touch it — verified against the code, not argued:
+   - `publishSnapshot` gates the entire dominance comparison behind `if (live !== null)`
+     (`store.ts:2180`), so the FIRST publish is never refused for making no version claim. An empty
+     `sourceVersion` is honest under the store's own rule that absence is "no claim", which is this
+     plan's recorded no-claim decision (§10.1) rather than a new judgement.
+   - The consumed-offset problem therefore bites the **second** publish, not the first. That is a
+     narrowing, and AC 10 already absorbs it: as repaired, AC 10 asserts the refresh **mechanism**
+     (reach, enqueue, run) and assigns the publish verdict to the store, which is T-025's contract.
+   - The four disproven designs (§4) stay disproven. Nothing here revives them; the point is only
+     that T-011 needs **one** publish, and one publish requires no version claim at all.
+
+   What is still open under ISS-075 is real but is not T-011's: repeated authoritative refresh needs
+   the watermark/coverage model, which N-009 decided and T-025 owns, and T-025 remains parked on
+   ISS-090 and ISS-091.
+
+   > *Original text, superseded:* **ISS-075 — `sourceVersion` semantics. The one genuinely BLOCKING
+   > question, and it is not T-011's to answer.** T-010's dominance contract requires per-source
+   > **consumed** offsets; ccusage does not report them; and T-012 cannot supply them either, since it
+   > also uses ccusage and defers owned parsing to v0.5. Four designs were built and disproven (§4).
+   > Either `sourceVersion` is redefined as a verified **input watermark** — which v0.2 can satisfy
+   > honestly, and which means updating T-010's contracts, comments and tests — or it keeps
+   > consumed-offset semantics and **repeated authoritative refresh does not exist until owned parsing
+   > lands**. **This is an IMPLEMENTATION PREREQUISITE, and revision 7's claim that "T-011 is
+   > implementable under either answer" was false.** I asserted it without checking it against every
+   > part — the defect this plan is about, committed in the sentence declaring the plan safe. It is
+   > false because of `ccusageFetchedAt`: T-010 requires a non-empty explicit instant
+   > (`store.ts:1075`), no honest value exists, and because it is a required **scalar** the
+   > record-absence escape that `fieldCoverage` offers does not apply. So the **bootstrap publish
+   > itself cannot be written honestly** until the schema question is answered — which means AC 1 is
+   > blocked, not merely narrowed.
+6. **The native-error boundary: DECIDED, not an amendment still owed.** **(Rewritten 2026-08-05.)**
+   **N-007 decision 3** settles it verbatim: *"the rule was always 'native errors are inspected only
+   at an adapter'; fs was simply the only adapter that existed. ADD A NETWORK ADAPTER owning
+   `EADDRINUSE`/`EACCES` classification exactly as the fs adapter owns fs errnos. The constraint
+   generalizes; it does not bend."* ISS-078 is resolved on that basis. So AC 5's four-case startup is
+   implementable as specified, and the net adapter (`src/service/net-adapter.ts`) is inside T-011's
+   own scope — categorically unlike a dependency trapped in a parked ticket. T-008's prohibition
+   stands untouched: collapsing `EADDRINUSE` and `EACCES` remains forbidden, which is exactly what
+   having a net adapter makes possible. **Note the wording drift, because it has already misled
+   twice:** *"only the **fs** adapter may inspect a native error"* is the **pre-N-007** phrasing.
+   Live text at §2 (`:374`) already carried the generalized rule while the fs-only form stood
+   alongside it — the class-(a) defect (fixed at one site, not its siblings) inside this plan itself.
+   **The §2 amendment (`:399`) closes it:** as of 2026-08-05 the fs-only form appears ONLY inside
+   superseded blockquotes — §2's (`:408`) and the original text below — and no live sentence in this
+   document states it.
+
+   > *Original text, superseded:* **The native-error boundary needs an amendment or a routing
+   > decision** (§2). The constraint says only the **fs** adapter may inspect a native error; the port
+   > lock must distinguish `EADDRINUSE` from `EACCES`, and T-008 is explicit that collapsing them is
+   > the indeterminate-becomes-an-answer defect. Either widen the constraint to a designated low-level
+   > adapter naming the net adapter, or route net failures through the authorized one. **Not
+   > implemented under the unchanged constraint — and this too is an IMPLEMENTATION PREREQUISITE
+   > rather than an open question**, because AC 5's four-case startup turns on exactly that
+   > distinction: our own live instance, a foreign holder, an unidentifiable holder, and an
+   > environment failure. Without it the singleton startup path cannot be written, and collapsing the
+   > cases is the one outcome T-008 names as forbidden.
 7. **ISS-074 becomes a prerequisite**, not just a filing: `prepack` and `prepare` are removed and
    their guarantees replaced (explicit build in release/CI, plus a packaging assertion that the
    shipped `dist/` matches sources), because a lifecycle scan that fails on its first run is not a

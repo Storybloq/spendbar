@@ -1,0 +1,28 @@
+{
+  "components": [
+    "service",
+    "tickets",
+    "snapshot-store"
+  ],
+  "createdBy": "t011-unpark-audit (13-agent adversarial audit, 2026-08-05)",
+  "dedupeKey": "t011-unpark-audit-2026-08-05:reset-failed-truthiness",
+  "discoveredDate": "2026-08-05",
+  "displayId": "ISS-092",
+  "id": "ISS-092",
+  "impact": "Found 2026-08-05 while repairing ISS-073, which is its sibling one clause over in the same acceptanceAdditions entry. Unrecorded until now.\n\nWHAT IS WRONG. .story/tickets/T-011.json acceptanceAdditions.storeIntegration clause (4) said T-011 \"must inspect three fields, each a hard stop\", listing reset.failed alongside reset.stoppedAtManifest and reset.stoppedOnAuthorityLoss. The latter two ARE booleans (src/snapshot/store.ts:1199, :1204). reset.failed is not: it is `failed: string[]` (store.ts:1197), documented as \"Paths this reset could not remove. The next start retries; nothing is chased here.\"\n\nAn implementer following the binding ticket text writes `if (reset.failed) { /* hard stop */ }`. In JavaScript an EMPTY ARRAY IS TRUTHY. So the branch fires on every reset, including a completely clean one. The bootstrap then never rebuilds, and AC 1 \u2014 \"a new generation is published\" \u2014 fails on a healthy store.\n\nWHY IT IS WORSE THAN AN ORDINARY BUG. It has no failure signature that names its cause: no type error (the ticket is prose), no runtime error, no exception. The store resets correctly, reports success correctly, and the service simply declines to rebuild. A test named for the hard-stop behaviour PASSES, because the hard stop does fire; what no test observes is that it also fires when it must not. That is the same shape as ISS-073, whose wrong field name produced a branch that NEVER fires \u2014 this one produces a branch that ALWAYS fires. SIBLING CLAUSES of the same acceptanceAdditions.storeIntegration entry (ISS-073 is clause (6), this is clause (4)), opposite failure, both invisible.\n\nThe two are the project's class-(a) defect (a class fixed at one site and not its siblings): ISS-073 was filed against clause (6) and the identical species of error sat unexamined in clause (4).\n\nThe governing plan already had it right \u2014 docs/t011-headless-service-plan.md:460 says \"reset.failed non-empty\" \u2014 so this was drift between the plan and the ticket, in the direction that matters, since the ticket is what an implementer works from day to day.",
+  "location": [
+    ".story/tickets/T-011.json",
+    "src/snapshot/store.ts:1194-1206",
+    "docs/t011-headless-service-plan.md:460"
+  ],
+  "phase": null,
+  "relatedTickets": [
+    "T-011",
+    "T-010"
+  ],
+  "resolution": "Resolved 2026-08-05 in the same edit that discovered it. Filed rather than fixed silently because the DEFECT PATTERN is worth more than the fix: this project's two recurring classes both appear in it, and the sibling clause had already been filed as ISS-073 without anyone checking clause (4).\n\nTHE FIX. acceptanceAdditions.storeIntegration clause (4) now reads: \"reset.failed is a string[] (store.ts:1197) and must be tested for NON-EMPTINESS \u2014 `if (reset.failed.length > 0)`, never `if (reset.failed)`, because an empty array is truthy in JavaScript and a bare truthiness test halts the bootstrap on every CLEAN reset, so the store is never rebuilt and AC 1 fails for a reason no test name would give.\"\n\nThe rule is stated rather than just the corrected symbol, so the next reader learns why the shape matters instead of copying a token.\n\nTEST OBLIGATION ADDED, because the original defect's whole danger was that it is unobservable from the outside: clause (6)'s required-test list now includes \"a clean reset (failed === []) is followed by a rebuild rather than halting\". Without that row the suite can be green while the service silently declines to rebuild \u2014 a test that cannot fail for the reason its name gives, which is this project's central standard (ISS-079/080).\n\nVERIFIED, not assumed: src/snapshot/store.ts:1197 is `failed: string[];`; :1199 stoppedOnAuthorityLoss and :1204 stoppedAtManifest are the two real booleans; docs/t011-headless-service-plan.md:460 already said \"reset.failed non-empty\", confirming this was ticket-versus-plan drift rather than a design question.",
+  "resolvedDate": "2026-08-05",
+  "severity": "high",
+  "status": "resolved",
+  "title": "T-011 acceptanceAdditions treats reset.failed as a boolean hard stop, but it is a string[] whose empty array is truthy \u2014 as written it halts the bootstrap on every clean reset"
+}

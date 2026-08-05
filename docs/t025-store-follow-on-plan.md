@@ -38,6 +38,18 @@ ISS-081 now carries **four** candidate resolutions, including one only the corre
 
 Landing now: item 1 (audit only), item 2 (`readGeneration`), item 5 (store-side rename), the dead-union deletion, and **live-side `retireSources` only** — which stays compatible with the documented semantics because attested retirement is a topology statement, not a claim about what the numbers mean.
 
+**LANDED — but only part of that list, and the boundary matters more than the fact.** Commit **9524902** (ticket **T-026**) took **items 2 and 5** out of this plan and shipped them. Nothing else in the "Landing now" list moved with them. Verified against the tree, not recalled:
+
+| From "Landing now" | State | Evidence |
+|---|---|---|
+| **Item 2 — `readGeneration`** | **shipped** | `store.ts:2806`; result type `store.ts:2774-2778`. **Shipped narrower than §2 specifies — see §2's annotation.** |
+| **Item 5 — store-side rename** | **shipped** | `ccusageInvokedAt` at `types.ts:301`, `store.ts:960, 1077, 1083` |
+| Item 1 — close ISS-064 | **done, ledger-only** | ISS-064 is `resolved` with §0's evidence; no code was involved |
+| The dead-union deletion (Q2) | **not landed** | `PublishResult` still declares the uninhabited `{status:"refused"}` at `store.ts:1989` |
+| Live-side `retireSources` (3a) | **not landed** | `retireSources` occurs nowhere in `src/snapshot` |
+
+The **held** set is untouched by this: item 3b (`unchanged`), item 4 (semantics rewrite) and the candidate-side dominance rows all remain held on ISS-081, and items 2 and 5 landing does not release any of them. `sourceVersion` is still documented as "Per-source offsets" at `types.ts:310` — the premise ISS-081 is about.
+
 ---
 
 ## 0. Scope correction — item 1 is already shipped
@@ -76,11 +88,25 @@ Facts this plan depends on, each read this session:
 - `PROVENANCE_KEYS` includes `"ccusageFetchedAt"` — `store.ts:954-963`
 - `ccusageFetchedAt` occurs at exactly **15 sites**: `store.ts:960, 1077, 1083, 1084`; `types.ts:294`; `snapshot-realfs.test.mjs:73, 137`; `snapshot-store.test.mjs:74, 1441, 4936, 5027, 5148, 5964, 6038, 6102`
 
+**The two bullets above are superseded by commit 9524902 (ticket T-026)** and are kept as the pre-rename inventory item 5 was planned against, not as a claim about the tree today. Today: `PROVENANCE_KEYS` carries **`"ccusageInvokedAt"`** (`store.ts:960`), and **no contract anywhere requires a `ccusageFetchedAt` key**. The rename reached all 15 sites and the count still holds — 4 in `store.ts` (`960, 1077, 1083, 1084`), 1 in `types.ts` (`:301`, moved down from `:294` by the doc comment the rename added), 2 in `snapshot-realfs.test.mjs`, 8 in `snapshot-store.test.mjs`. The only surviving textual occurrence of the retired name in `src/` and `tests-ts/` is the rationale comment at `types.ts:298`, which names it precisely to record what the field was renamed *from*. It survives in planning documents too, and correctly so where they record a past belief or name the rename itself — §5's heading and §7's `provenance: a body carrying the OLD ccusageFetchedAt key is refused` row are both right as written, and a find-and-replace would invert the second into asserting the *current* key is refused.
+
+**Line-number drift from the same commit, recorded once rather than rewritten site by site.** 9524902 inserted `readGeneration` at `store.ts:2774`, so every `store.ts` line **at or above 2774** cited anywhere in this document was read before that insertion and is displaced by exactly **+157**. Re-verified anchors, so the rule is checkable rather than asserted: GC's pin-liveness comparison, cited above as `2993-2996`, is at **`store.ts:3150-3153`**; `createPin`, cited above as `3068-3070`, is at **`store.ts:3225`**; GC's name-level `lstat` filter, cited in §2 as `2954-2958`, is at **`3111-3115`**; GC's narrowed catch, cited as `2987`, is at **`3144`**; GC's `pinsDir` container identity, cited as `2851`, is at **`3008`** — and that one now lands *inside* `readGeneration`, on a line that is also about container identity, which is the deceptive kind of stale cite. The originals are left as written because they record what was read when this plan was written; add 157 before opening one. Every cite **below** 2774 is unmoved — §0's validator sites, `readSnapshot`'s bracket, `PROVENANCE_KEYS` at `store.ts:960`, and `PublishResult` at `store.ts:1987-1989` were each re-checked and still hold.
+
 ---
 
 ## 2. Item 2 — `readGeneration(id)`
 
 The reader half of the pin mechanism. **Not manifest-following:** `readSnapshot` remains the only function that serves "whatever the manifest currently activates".
+
+**SHIPPED — and narrower than this section in three ways. Where they differ, the function is the contract.** `readGeneration(fs, paths, id, attempts = 3)` landed at `src/snapshot/store.ts:2806` (commit 9524902, ticket T-026). This section is kept as the design record; a caller written against it rather than against the code would be proving one property and using another, which is the defect class this ticket exists inside. The differences:
+
+1. **Four result members, not six.** Shipped (`store.ts:2774-2778`): `ok | not-retained | gone | no-snapshot`. The `unusable` and `unstable` members specified below were **not built**. An unusable artifact — symlink, wrong mode, non-regular, oversized, invalid UTF-8, bad checksum, wrong id — returns **`gone`**, and the doc comment says so at `store.ts:2800-2801`. It gets there by **two** routes, which matters to anyone re-deriving the collapse from the catch alone: the first five never reach the catch at all — `readGuarded` collapses them to `null` (`store.ts:306-308`, over `readStoreFile`'s `unusable` state) and the artifact returns at **`store.ts:2909`**, the same line an ABSENT artifact returns at, which is exactly the distinction the §7 tables below ask for; only a bad checksum or a wrong-id body reaches the catch at `store.ts:2920-2924`. An exhausted retry returns **`no-snapshot`**, which is also what an unusable manifest returns. So `gone` reports a *disposition* and no longer carries a *cause*, and the §7 tables below name statuses that do not exist.
+2. **Pin expiry is never evaluated.** The shipped function takes **no clock at all** (signature, `store.ts:2806-2811`) and deliberately ignores `pin.until`: lifecycle is `collectGarbage`'s, and a reader second-guessing expiry would refuse a file that is still physically retained (`store.ts:2792-2796`). This section's opposite rule — "an **expired** pin does not authorize", the GC-identical strictly-greater comparison, the exact-equality boundary, and the `now` safe-integer validation — did **not** ship. An expired-but-unswept pin **serves**. Any caller that relied on the store to refuse it (T-013's cursor retention) must hold that deadline itself.
+3. **`readGuarded`, not `readStoreFile`.** `store.ts:2905` reads the artifact with `readGuarded` and re-checks the mode separately. That is the collapse this section argued against; the `unusable`/`gone` distinction was given up together with the union member that carried it.
+
+**What this section specified and the code does honor**, so it is not re-litigated: no manifest-following; the manifest-**or**-pin authorization disjunction, with a pin standing alone when the manifest does not authorize (`store.ts:2871-2895`); each pin proving its own name, mode, envelope and invariants, bound to its **filename** id (`store.ts:2886`); narrowed `isArtifactUnusable` catches, so an unusable pin authorizes nothing; the container bracket extended to `pins/`; and `assertGenerationInvariants` called with the **caller's** id, never the body's (`store.ts:2917`).
+
+**Still open against the shipped function:** ISS-083 — `createPin` accepts any `generationId`, so no store operation can validate-then-pin.
 
 ### Authorization set
 
@@ -228,6 +254,8 @@ The dominance *shape* does not change here: every live source present, at least 
 
 Mechanical rename across the 15 sites enumerated in §1, keeping the field **required** and documenting it as the instant we invoked ccusage. The doc comment states what it does **not** claim — that ccusage fetched pricing then — because that false reading is what made the old name unusable.
 
+**SHIPPED as scoped — the store contract only** (commit 9524902, ticket T-026, N-007 decision 2). `ccusageInvokedAt` is declared at `types.ts:301`, with the doc comment this section asks for at `types.ts:294-300`: it states what the field does not claim and names N-007 decision 2 and ISS-077. It is **still required** — `store.ts:960` (`PROVENANCE_KEYS`), `store.ts:1077` (non-empty string), `store.ts:1083` (instant with an explicit UTC offset). The field is therefore honestly populable now, and any document still describing it as a required scalar with no truthful value is describing the pre-9524902 tree. **The production witness remains T-011's and remains unbuilt:** `src/ccusage.ts:31` still calls `runner` with no instant captured, so the second bullet below stands unchanged as the specification for that caller.
+
 **Witness (L-006) — corrected.** Revision 2 said `runCcusage` "records the instant immediately before the spawn and hands it to the publish candidate". **It does not.** `src/ccusage.ts:26-31` builds the argument list and calls `runner`; it captures no instant, has no injected clock, and returns only parsed output. Round 2 was right, and it also caught the contradiction with this plan's own claim that all five items live in `src/snapshot` — the capture would be a *process-boundary* change, outside it.
 
 Scoped honestly instead:
@@ -277,6 +305,8 @@ Item 3b adds a third member to this union, which makes the dead one materially m
 ## 7. Test plan
 
 Every test below must be able to **fail for the reason its name gives**. Each names the mutation that kills it.
+
+**The `readGeneration` tables below predate the contract that shipped** (see §2's annotation). Rows naming `unstable`, `no-store`, `unusable`, a `now` argument, or an expired pin failing to authorize describe a design that was not built: commit 9524902 landed nine `readGeneration` tests against the four-member union at `store.ts:2774-2778`. Read the rows as the mutation catalogue they are, not as a list of test names that exist today.
 
 **Authorization — the cases that decide whether pin authorization is trustworthy rather than merely present.** Round 1 was right that without these the whole path can do nothing, or trust malformed state, while a happy-path pin test still passes.
 
@@ -353,6 +383,8 @@ One row of the §3a-Q1 table per test, so the table and the suite cannot drift.
 4. Item 3a — `retireSources`, **live-side only**: the three rows of the §3a-Q1 table marked *3a, now*. No shipped assertion is edited, because no candidate-only key is involved.
 5. Item 2 — `readGeneration`, the only genuinely new surface, landing last so it is written against final names.
 6. `npm test` after each; `npm run test:pure` and `npm run test:allowlist` before finalize.
+
+**Status after commit 9524902 (ticket T-026).** Steps 1, 2 and 5 are **done**, in the order specified — ISS-064 closed on §0's evidence, item 5's rename first (`types.ts:301`, `store.ts:960, 1077, 1083`), then item 2 written against the final names (`store.ts:2806`). Steps 3 and 4 are **not**: `PublishResult` still carries the uninhabited `refused` at `store.ts:1989`, and `retireSources` exists nowhere in `src/snapshot`. They remain expressible under today's `dominance.ts` semantics, so nothing above needs redesigning to resume them.
 
 **Held on ISS-081** — item 3b (`unchanged`), item 4 (semantics rewrite), **and the candidate-side dominance rows**. All three encode the unresolved premise, and per round-2 finding 4 they must land in **one** change so runtime behaviour and documented contract never disagree. All are fully specified above, so they resume as implementation rather than fresh design.
 

@@ -1,0 +1,20 @@
+{
+  "content": "ID COLLISION, read first: this lessons-ledger record was allocated the id L-006, and RULES.md ALREADY uses \"L-006\" for a different thing — the witness gate (\"every premise names its witness\", adopted 2026-08-04 as a review gate rather than a lesson, per owner instruction). That label is cited across the park records and plan documents and was not renamed, because sweeping it would have touched many governing files. So: \"L-006\" in RULES.md, in docs/t011-*.md and in any park record means THE WITNESS GATE. \"L-006\" in the lessons ledger means the rule below. They are unrelated.\n\nTHE RULE. When ticket or plan text tells an implementer to branch on a value from a typed API, state the shape and the test, not just the field name: \"reset.failed is a string[]; test failed.length > 0\". A name alone lets an implementer write a branch that never fires (a wrong name reads undefined, which is falsy) or one that always fires (an empty array is truthy) — and neither produces a type error, a runtime error, or a failing test. After correcting one such clause, immediately audit its SIBLING clauses in the same entry: this failure comes in pairs.",
+  "context": "T-011's acceptanceAdditions.storeIntegration carried both failure directions at once, in adjacent clauses, and only one had been filed. ISS-073 (clause 6) named a GC field `noManifest` that does not exist — the shipped field is `noUsableManifest` (src/snapshot/store.ts:2961) — so code written from the ticket reads undefined and the branch silently never fires. Repairing it surfaced ISS-092 (clause 4), unfiled: the same entry called `reset.failed` a boolean hard stop, but it is `string[]` (store.ts:1197), so `if (reset.failed)` is truthy for the empty array and halts the bootstrap on every CLEAN reset — the store is never rebuilt and AC 1 fails with no test naming the cause. The governing plan had it right at :460 (\"reset.failed non-empty\"); the drift was ticket-versus-plan, in the direction that matters, since the ticket is the daily document.\n\nTwo reinforcements from the same 2026-08-05 pass. First, the correction itself must state a shape: a required-test row was written as `failed === []`, which is always false in JavaScript — the identical trap, inside the fix for it. Second, the same session's audit found the pattern one level up in the docs: a review-verified correction to ISS-065 replaced two stale grep counts but kept a characterization that depended on them, and the characterization was false (a publish test at tests-ts/snapshot-store.test.mjs:255 does plant a symlink at the commit target; the guard is simply shadowed by an earlier refusal). Correcting the number without re-deriving the sentence built on it is the same defect wearing different clothes.",
+  "createdDate": "2026-08-05",
+  "displayId": "L-006",
+  "id": "L-006",
+  "lastValidated": "2026-08-05",
+  "reinforcements": 0,
+  "source": "review",
+  "status": "active",
+  "supersedes": null,
+  "tags": [
+    "tickets",
+    "typescript",
+    "review",
+    "contracts"
+  ],
+  "title": "[ID COLLISION: see note] Binding prose that names a typed value must state its SHAPE, not just its name",
+  "updatedDate": "2026-08-05"
+}

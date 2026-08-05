@@ -1,5 +1,23 @@
 # T-013 — MCP server — re-plan against N-007 / N-008 (revision 3)
 
+> **AMENDED 2026-08-05 — two rows of §2's supersession map are now false about the tree.** Not
+> rewritten; the reasoning stands and is what produced the owner action. Commit `9524902` (ticket
+> **T-026**) landed T-025 items 2 and 5.
+>
+> - **The `N-008 5a + N-007 #5 — pin path, readGeneration(id)` row** discharges to *"T-025 (parked),
+>   T-011 (parked), ISS-083"*. Two of those three moved: `readGeneration` **exists** at
+>   `src/snapshot/store.ts:2806`, and **T-011 is unparked**. **ISS-083 stays open** and is now the
+>   whole of that row — `createPin` still accepts any `generationId`. AC 4's HOLD is still correct,
+>   because no T-011 writer or pin-request path is *built* yet; "not built" is the premise to carry,
+>   not "parked".
+> - **The `N-007 #2` row** rests on *"a rename owned by a parked ticket"*. The rename **landed**:
+>   the required field is `ccusageInvokedAt` (`src/snapshot/types.ts:301`). The decision to OMIT the
+>   field from the public MCP schema may still be right, but it must be re-argued on its own merits
+>   — the stated reason no longer exists.
+>
+> Unchanged: T-025's registry, coverage policies and `SnapshotPayloadV1` remain parked on
+> ISS-090/ISS-091, so N-007 #1 / N-008 1a / 1b are still blocked exactly as the map says.
+
 **Base:** `docs/t013-mcp-server-plan.md`, 295 lines, read in full.
 
 **Revision 1: REJECTED**, 15 findings. **Revision 2: REVISE**, 12 findings. All 27 accepted, none contested. Review affirmed the structural call both times — *"The NOT-parked distinction is real: the filing explicitly cuts AC 6 and holds AC 4, unlike T-011's forbidden design"* — so this ticket revises rather than parks, and revision 2 was judged to have *"fixed the authority and ordering failures"*. Revision 3 closes the four remaining blockers: an underspecified payload contract, unresolved packaging prerequisites, inaccessible capped rows, and an AC 2 capture path no current infrastructure can execute.
