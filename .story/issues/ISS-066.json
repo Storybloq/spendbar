@@ -2,10 +2,13 @@
   "components": [],
   "discoveredDate": "2026-08-03",
   "id": "ISS-066",
-  "impact": "The suite fault-injects authority loss on some mutation paths but not all. Unobserved: ensureDir's per-mutation gates (store.ts:503/505 for mkdir and chmod — the pair that keeps a lock-losing writer from re-creating directories under its successor) and collectGarbage's pin-unlink gate (store.ts:950), where only the generation-unlink gate at store.ts:971 has a test that observes it stopping the sweep.\n\nBoth are the same discipline the module's header claims: \"assertHeld() immediately precedes EVERY mutation... pinned by a test\". Currently pinned for most, not every.\n",
+  "impact": "The suite fault-injects authority loss on some mutation paths but not all. Unobserved: ensureDir's per-mutation gates (store.ts:503/505 for mkdir and chmod \u2014 the pair that keeps a lock-losing writer from re-creating directories under its successor) and collectGarbage's pin-unlink gate (store.ts:950), where only the generation-unlink gate at store.ts:971 has a test that observes it stopping the sweep.\n\nBoth are the same discipline the module's header claims: \"assertHeld() immediately precedes EVERY mutation... pinned by a test\". Currently pinned for most, not every.\n",
   "location": [],
   "phase": null,
-  "relatedTickets": [],
+  "relatedTickets": [
+    "T-010",
+    "T-025"
+  ],
   "resolution": null,
   "resolvedDate": null,
   "severity": "medium",

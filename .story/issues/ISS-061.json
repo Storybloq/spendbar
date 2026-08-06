@@ -4,10 +4,13 @@
   ],
   "discoveredDate": "2026-08-03",
   "id": "ISS-061",
-  "impact": "Unlinking manifest.json is not atomic for a reader that ALREADY read the old manifest and is now walking artifacts a reset is deleting — it can observe missing/mixed artifacts, or misreport a reset as corruption/quarantine. Fix: reads become an optimistic snapshot transaction — validate manifest identity, load+validate all referenced artifacts, then re-read and compare manifest identity/checksum; changed/absent ⇒ no-snapshot or retry; an artifact vanishing mid-read re-checks the manifest BEFORE classifying corruption. Interleave reset and publication at every artifact read: every outcome must be complete-old, complete-new, or no-snapshot.",
+  "impact": "Unlinking manifest.json is not atomic for a reader that ALREADY read the old manifest and is now walking artifacts a reset is deleting \u2014 it can observe missing/mixed artifacts, or misreport a reset as corruption/quarantine. Fix: reads become an optimistic snapshot transaction \u2014 validate manifest identity, load+validate all referenced artifacts, then re-read and compare manifest identity/checksum; changed/absent \u21d2 no-snapshot or retry; an artifact vanishing mid-read re-checks the manifest BEFORE classifying corruption. Interleave reset and publication at every artifact read: every outcome must be complete-old, complete-new, or no-snapshot.",
   "location": [],
   "phase": null,
-  "relatedTickets": [],
+  "relatedTickets": [
+    "T-010",
+    "T-025"
+  ],
   "resolution": null,
   "resolvedDate": null,
   "severity": "high",

@@ -2,10 +2,13 @@
   "components": [],
   "discoveredDate": "2026-08-03",
   "id": "ISS-067",
-  "impact": "tests-ts/snapshot-fakefs.mjs describes itself as \"In-memory SnapshotFs with failure injection\" in a comment, but carries no @type annotation and is never structurally checked against the SnapshotFs interface. node-fs.ts (the real implementation) is type-checked; the fake is not.\n\nConsequence: adding a method to SnapshotFs, or changing a signature, breaks the real implementation loudly at compile time and the fake silently — it fails only if some test happens to exercise that method, and a fake that has diverged from the real seam is a suite that proves things about a filesystem nobody ships. A `/** @type {import(\"../src/snapshot/types.js\").SnapshotFs} */` annotation (checkJs is already on for this suite) makes the drift a compile error.\n",
+  "impact": "tests-ts/snapshot-fakefs.mjs describes itself as \"In-memory SnapshotFs with failure injection\" in a comment, but carries no @type annotation and is never structurally checked against the SnapshotFs interface. node-fs.ts (the real implementation) is type-checked; the fake is not.\n\nConsequence: adding a method to SnapshotFs, or changing a signature, breaks the real implementation loudly at compile time and the fake silently \u2014 it fails only if some test happens to exercise that method, and a fake that has diverged from the real seam is a suite that proves things about a filesystem nobody ships. A `/** @type {import(\"../src/snapshot/types.js\").SnapshotFs} */` annotation (checkJs is already on for this suite) makes the drift a compile error.\n",
   "location": [],
   "phase": null,
-  "relatedTickets": [],
+  "relatedTickets": [
+    "T-010",
+    "T-025"
+  ],
   "resolution": null,
   "resolvedDate": null,
   "severity": "medium",

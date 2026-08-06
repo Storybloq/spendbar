@@ -2,10 +2,13 @@
   "components": [],
   "discoveredDate": "2026-08-02",
   "id": "ISS-056",
-  "impact": "Running `combined --since <week>` on the maintainer's real data shows ~35 rows like `-private-var-folders-…-T-t009-client-cwd-<rand>` at $0.05–$0.29 each — temp working directories created by our own T-009 spike's client tests, each rendered as a distinct \"project\". Harmless to totals (~$5 of $23.6k) but visually dominant: they outnumber real projects 2:1 in the table.\n\nThe oracle collapses ~/Desktop/scratchpad-style paths but not /private/var/folders/**/T/** (macOS $TMPDIR). The v0.x CLI is byte-frozen to usage.py, so any CLI-side collapse needs an ALLOWLIST entry — OR this lands as presentation logic in the v0.3 menubar UI, which is not parity-bound. Decide placement when the UI work starts; the UI route avoids touching the frozen renderer entirely.\n",
+  "impact": "Running `combined --since <week>` on the maintainer's real data shows ~35 rows like `-private-var-folders-\u2026-T-t009-client-cwd-<rand>` at $0.05\u2013$0.29 each \u2014 temp working directories created by our own T-009 spike's client tests, each rendered as a distinct \"project\". Harmless to totals (~$5 of $23.6k) but visually dominant: they outnumber real projects 2:1 in the table.\n\nThe oracle collapses ~/Desktop/scratchpad-style paths but not /private/var/folders/**/T/** (macOS $TMPDIR). The v0.x CLI is byte-frozen to usage.py, so any CLI-side collapse needs an ALLOWLIST entry \u2014 OR this lands as presentation logic in the v0.3 menubar UI, which is not parity-bound. Decide placement when the UI work starts; the UI route avoids touching the frozen renderer entirely.\n",
   "location": [],
   "phase": null,
-  "relatedTickets": [],
+  "relatedTickets": [
+    "T-009",
+    "T-019"
+  ],
   "resolution": null,
   "resolvedDate": null,
   "severity": "low",

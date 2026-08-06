@@ -7,7 +7,10 @@
   "impact": "Fixed-name staging files are created BEFORE assertHeld() (only the rename is gated), so test obligation 6's zero-mutation claim is false: a revoked-authority invocation still creates the fixed staging file, which then blocks the legitimate successor with EEXIST after its sweep; ungated cleanup can also delete a successor's file at the same fixed path (ABA). Fix: verify authority BEFORE the startup sweep; assertHeld() immediately before every staging creation, every staging cleanup, and every rename; after observed authority loss LEAVE residue and report it, never delete. Transfer-interleaving test proves a stale invocation can neither create, rename, nor remove the successor's staging file.",
   "location": [],
   "phase": null,
-  "relatedTickets": [],
+  "relatedTickets": [
+    "T-010",
+    "T-025"
+  ],
   "resolution": null,
   "resolvedDate": null,
   "severity": "high",

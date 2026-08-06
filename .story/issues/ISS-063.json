@@ -4,10 +4,13 @@
   ],
   "discoveredDate": "2026-08-03",
   "id": "ISS-063",
-  "impact": "Classification precedence left implicit: the table calls manifest-absence an ordinary first-run rebuild while the reset-crash analysis calls manifest-absence-with-residue a reset, and a conforming-but-unreferenced generation (the exact residue §4 promises after a crash between the generation and manifest commits) is unclassified. Fix: explicit precedence — manifest absent + truly empty skeleton ⇒ first-run rebuild; manifest absent + ANY residue ⇒ reset; manifest present + unreferenced generation ⇒ ordinary GC, never reset; fixtures for all three.",
+  "impact": "Classification precedence left implicit: the table calls manifest-absence an ordinary first-run rebuild while the reset-crash analysis calls manifest-absence-with-residue a reset, and a conforming-but-unreferenced generation (the exact residue \u00a74 promises after a crash between the generation and manifest commits) is unclassified. Fix: explicit precedence \u2014 manifest absent + truly empty skeleton \u21d2 first-run rebuild; manifest absent + ANY residue \u21d2 reset; manifest present + unreferenced generation \u21d2 ordinary GC, never reset; fixtures for all three.",
   "location": [],
   "phase": null,
-  "relatedTickets": [],
+  "relatedTickets": [
+    "T-010",
+    "T-025"
+  ],
   "resolution": null,
   "resolvedDate": null,
   "severity": "medium",
